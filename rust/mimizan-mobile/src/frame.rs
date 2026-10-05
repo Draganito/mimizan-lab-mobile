@@ -88,6 +88,7 @@ pub fn to_raw_frame(input: &RawInput) -> Result<RawFrame> {
             fnumber: e.f_number,
             focal_mm: e.focal_mm,
             lens: e.lens.clone(),
+            captured: None,
         },
         None => Exposure::default(),
     };
