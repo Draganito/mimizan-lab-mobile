@@ -28,9 +28,7 @@ impl From<mimizan_core::Error> for MimizanError {
             E::Invalid(m) => Self::Invalid { msg: m },
             E::Unsupported(m) | E::Decode(m) => Self::Unsupported { msg: m },
             E::Io(m) => Self::Io { msg: m.to_string() },
-            other => Self::Internal {
-                msg: other.to_string(),
-            },
+            other => Self::Internal { msg: other.to_string() },
         }
     }
 }
@@ -288,24 +286,12 @@ pub struct Weights {
 }
 
 impl Weights {
-    pub const NATIVE: Weights = Weights {
-        r: 0.25,
-        g: 0.5,
-        b: 0.25,
-    };
+    pub const NATIVE: Weights = Weights { r: 0.25, g: 0.5, b: 0.25 };
     pub fn core(self) -> CoreWeights {
-        CoreWeights {
-            r: self.r,
-            g: self.g,
-            b: self.b,
-        }
+        CoreWeights { r: self.r, g: self.g, b: self.b }
     }
     pub fn from_core(w: CoreWeights) -> Self {
-        Self {
-            r: w.r,
-            g: w.g,
-            b: w.b,
-        }
+        Self { r: w.r, g: w.g, b: w.b }
     }
 }
 
@@ -313,21 +299,13 @@ impl Weights {
 #[uniffi::export]
 pub fn normalise_weights(w: Weights) -> Result<Weights> {
     if w.r < 0.0 || w.g < 0.0 || w.b < 0.0 {
-        return Err(MimizanError::Invalid {
-            msg: "weights must be non-negative".into(),
-        });
+        return Err(MimizanError::Invalid { msg: "weights must be non-negative".into() });
     }
     let s = w.r + w.g + w.b;
     if s <= 0.0 {
-        return Err(MimizanError::Invalid {
-            msg: "weights must not all be zero".into(),
-        });
+        return Err(MimizanError::Invalid { msg: "weights must not all be zero".into() });
     }
-    Ok(Weights {
-        r: w.r / s,
-        g: w.g / s,
-        b: w.b / s,
-    })
+    Ok(Weights { r: w.r / s, g: w.g / s, b: w.b / s })
 }
 
 /// Everything a development needs (ingest + separation + first mix).
@@ -413,11 +391,7 @@ impl Look {
     pub fn from_file(l: &LookFile) -> Self {
         Self {
             name: l.name.clone(),
-            points: l
-                .points
-                .iter()
-                .map(|p| CurvePoint { x: p[0], y: p[1] })
-                .collect(),
+            points: l.points.iter().map(|p| CurvePoint { x: p[0], y: p[1] }).collect(),
             gamma22: l.encoding == LookEncoding::Gamma22,
         }
     }
@@ -426,11 +400,7 @@ impl Look {
             schema: 1,
             name: self.name.clone(),
             points: self.points.iter().map(|p| [p.x, p.y]).collect(),
-            encoding: if self.gamma22 {
-                LookEncoding::Gamma22
-            } else {
-                LookEncoding::None
-            },
+            encoding: if self.gamma22 { LookEncoding::Gamma22 } else { LookEncoding::None },
             fitted_against: None,
         };
         l.validate()?;
@@ -449,8 +419,7 @@ pub fn look_neutral() -> Look {
 /// The fitted reference print curve shipped with Mimizan Lab.
 #[uniffi::export]
 pub fn look_reference() -> Look {
-    let l: LookFile =
-        serde_json::from_str(REFERENCE_LOOK_JSON).expect("bundled reference look parses");
+    let l: LookFile = serde_json::from_str(REFERENCE_LOOK_JSON).expect("bundled reference look parses");
     Look::from_file(&l)
 }
 
@@ -468,10 +437,7 @@ pub fn look_with_contrast(look: Look, contrast: f64) -> Result<Look> {
     }
     let file = look.to_file()?;
     // The points alone (without the encoding) as a curve: encoded -> output.
-    let pts = Curve::from_look(&LookFile {
-        encoding: LookEncoding::None,
-        ..file.clone()
-    });
+    let pts = Curve::from_look(&LookFile { encoding: LookEncoding::None, ..file.clone() });
     let s = c.abs() * 4.0;
     let t = (0.5 * s).tanh();
     let f = |y: f64| -> f64 {
@@ -487,17 +453,10 @@ pub fn look_with_contrast(look: Look, contrast: f64) -> Result<Look> {
     let points = (0..=N)
         .map(|i| {
             let x = i as f64 / N as f64;
-            CurvePoint {
-                x,
-                y: f(pts.eval(x)),
-            }
+            CurvePoint { x, y: f(pts.eval(x)) }
         })
         .collect();
-    Ok(Look {
-        name: format!("{} contrast {:+.2}", look.name, c),
-        points,
-        gamma22: look.gamma22,
-    })
+    Ok(Look { name: format!("{} contrast {:+.2}", look.name, c), points, gamma22: look.gamma22 })
 }
 
 /// 65 samples of [Curve::eval] on 0..1, the display value of a linear input.
@@ -505,9 +464,7 @@ pub fn look_with_contrast(look: Look, contrast: f64) -> Result<Look> {
 pub fn look_lut(look: Look) -> Result<Vec<f32>> {
     let curve = Curve::from_look(&look.to_file()?);
     const N: usize = 64;
-    Ok((0..=N)
-        .map(|i| curve.eval(i as f64 / N as f64) as f32)
-        .collect())
+    Ok((0..=N).map(|i| curve.eval(i as f64 / N as f64) as f32).collect())
 }
 
 /// `n + 1` display values of `look` over the *encoded* axis: entry `i` is
