@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Mimizan Lab Mobile</string>
+    <string name="notification_channel_develop">Development</string>
+    <string name="notification_channel_develop_desc">Progress of RAW development in the background</string>
+    <string name="developing">Developing</string>
+    <string name="developed">Developed</string>
+    <string name="develop_failed">Development failed</string>
+</resources>

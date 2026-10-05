@@ -1,0 +1,4 @@
+[bindings.kotlin]
+package_name = "ch.bojovic.mimizanlab.engine"
+cdylib_name = "mimizan_mobile"
+generate_immutable_records = true

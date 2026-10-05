@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "make": "Google",
+  "model": "Pixel 9",
+  "bayer_phase": "GBRG",
+  "noise_a": 0.005,
+  "noise_b": 0.0002,
+  "weights_rgb": [
+    0.25,
+    0.5,
+    0.25
+  ],
+  "weights_space": "balanced",
+  "usm_amount": 0.0,
+  "matrix_fallback": false,
+  "fitted": {
+    "noise": false,
+    "weights": false
+  },
+  "weights_fitted_against": "not fitted: native 1:2:1 mix in balanced space; matched on Build.MANUFACTURER/Build.MODEL prefix, only loaded when the frame's CFA is GBRG (Pixel 9 main sensor as reported by Camera2)"
+}
