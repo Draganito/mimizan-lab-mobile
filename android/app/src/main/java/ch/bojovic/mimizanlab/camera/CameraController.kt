@@ -22,6 +22,7 @@ import android.media.Image
 import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.SystemClock
 import android.util.Log
 import android.util.Size
 import android.view.OrientationEventListener
@@ -87,6 +88,15 @@ class CameraController(context: Context) {
     private val thread = HandlerThread("camera2").apply { start() }
     private val handler = Handler(thread.looper)
     private val executor = Executor { handler.post(it) }
+
+    // The histogram runs on its own thread: capture callbacks must never
+    // wait behind picture analysis.
+    private val analysisThread = HandlerThread("analysis").apply { start() }
+    private val analysisHandler = Handler(analysisThread.looper)
+    private var lastAnalysisMs = 0L
+    private var yBytes = ByteArray(0)
+    private var uBytes = ByteArray(0)
+    private var vBytes = ByteArray(0)
 
     private val _state = MutableStateFlow(StreamState())
     val state: StateFlow<StreamState> = _state.asStateFlow()
@@ -177,7 +187,16 @@ class CameraController(context: Context) {
         rawReader = ImageReader.newInstance(lens.rawSize.width, lens.rawSize.height, ImageFormat.RAW_SENSOR, 2)
         val an = analysisSizeFor(lens)
         yuvReader = ImageReader.newInstance(an.width, an.height, ImageFormat.YUV_420_888, 2).apply {
-            setOnImageAvailableListener({ reader -> reader.acquireLatestImage()?.use { analyse(it) } }, handler)
+            setOnImageAvailableListener({ reader ->
+                val img = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+                img.use {
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - lastAnalysisMs >= ANALYSIS_PERIOD_MS) {
+                        lastAnalysisMs = now
+                        analyse(it)
+                    }
+                }
+            }, analysisHandler)
         }
         orientationListener.enable()
 
@@ -198,6 +217,7 @@ class CameraController(context: Context) {
 
     fun release() {
         thread.quitSafely()
+        analysisThread.quitSafely()
     }
 
     private fun closeSessionLocked() {
@@ -511,15 +531,16 @@ class CameraController(context: Context) {
      * Histogram of the picture on screen, every frame the YUV reader
      * delivers: the preview decoded (JFIF full range), linearised from the
      * pinned sRGB curve and put through [tone]; plain luma until a tone
-     * is set. Subsampled 2x in both directions.
+     * is set. Subsampled 2x in both directions. Planes are copied out in
+     * bulk first: per-sample `ByteBuffer.get` is far too slow here.
      */
     private fun analyse(image: Image) {
         val yP = image.planes[0]
-        val yBuf = yP.buffer
         val w = image.width
         val h = image.height
         val yRs = yP.rowStride
         val yPs = yP.pixelStride
+        yBytes = copyPlane(yP.buffer, yBytes)
         val t = tone
         bins.fill(0)
         if (t == null) {
@@ -528,8 +549,7 @@ class CameraController(context: Context) {
                 var x = 0
                 val row = y * yRs
                 while (x < w) {
-                    val v = yBuf.get(row + x * yPs).toInt() and 0xFF
-                    bins[v shr 2]++
+                    bins[(yBytes[row + x * yPs].toInt() and 0xFF) shr 2]++
                     x += 2
                 }
                 y += 2
@@ -537,25 +557,31 @@ class CameraController(context: Context) {
         } else {
             val uP = image.planes[1]
             val vP = image.planes[2]
-            val uBuf = uP.buffer
-            val vBuf = vP.buffer
+            uBytes = copyPlane(uP.buffer, uBytes)
+            vBytes = copyPlane(vP.buffer, vBytes)
             val cRs = uP.rowStride
             val cPs = uP.pixelStride
             val lin = SRGB_LINEAR
+            val v0 = t.v[0]
+            val v1 = t.v[1]
+            val v2 = t.v[2]
+            val gray = t.grayTable
+            val scale = (gray.size - 1).toFloat()
             var y = 0
             while (y < h) {
                 var x = 0
                 val yRow = y * yRs
                 val cRow = (y shr 1) * cRs
                 while (x < w) {
-                    val yy = (yBuf.get(yRow + x * yPs).toInt() and 0xFF).toFloat()
+                    val yy = (yBytes[yRow + x * yPs].toInt() and 0xFF).toFloat()
                     val ci = cRow + (x shr 1) * cPs
-                    val cb = (uBuf.get(ci).toInt() and 0xFF) - 128f
-                    val cr = (vBuf.get(ci).toInt() and 0xFF) - 128f
+                    val cb = (uBytes[ci].toInt() and 0xFF) - 128f
+                    val cr = (vBytes[ci].toInt() and 0xFF) - 128f
                     val r = (yy + 1.402f * cr).toInt().coerceIn(0, 255)
                     val g = (yy - 0.344136f * cb - 0.714136f * cr).toInt().coerceIn(0, 255)
                     val b = (yy + 1.772f * cb).toInt().coerceIn(0, 255)
-                    val d = t.display(lin[r], lin[g], lin[b])
+                    val l = (v0 * lin[r] + v1 * lin[g] + v2 * lin[b]).coerceIn(0f, 1f)
+                    val d = gray[(l * scale + 0.5f).toInt()]
                     bins[(d * 63.999f).toInt().coerceIn(0, 63)]++
                     x += 2
                 }
@@ -566,8 +592,18 @@ class CameraController(context: Context) {
         _histogram.value = FloatArray(64) { bins[it] / max }
     }
 
+    private fun copyPlane(buf: java.nio.ByteBuffer, into: ByteArray): ByteArray {
+        val src = buf.duplicate()
+        src.rewind()
+        val n = src.remaining()
+        val out = if (into.size >= n) into else ByteArray(n)
+        src.get(out, 0, n)
+        return out
+    }
+
     companion object {
         private const val TAG = "CameraController"
+        private const val ANALYSIS_PERIOD_MS = 66L
         private val SRGB_LINEAR = FloatArray(256) { IspControls.decode(it / 255f) }
     }
 }
