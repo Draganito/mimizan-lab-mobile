@@ -38,6 +38,8 @@ data class LensInfo(
     val hasFlash: Boolean,
     val physicalWidthMm: Float,
     val physicalHeightMm: Float,
+    /** `SENSOR_INFO_COLOR_FILTER_ARRANGEMENT` of the sensor (0 when unknown). */
+    val cfa: Int = 0,
 ) {
     val isUltraWide: Boolean get() = equivalentMm in 1..20
 
@@ -106,6 +108,7 @@ object Lenses {
             hasFlash = hasFlash,
             physicalWidthMm = phys?.width ?: 0f,
             physicalHeightMm = phys?.height ?: 0f,
+            cfa = c.get(CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT) ?: 0,
         )
     }
 }

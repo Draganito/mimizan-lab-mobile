@@ -52,3 +52,13 @@ pub fn worker_threads() -> u32 {
 pub fn develop(input: RawInput, params: DevelopParams) -> Result<Arc<Developed>> {
     session::develop_impl(input, params).map(Arc::new)
 }
+
+/// The balanced mix weights `develop` will use for `params` and a frame
+/// with these `COLOR_CORRECTION_GAINS` (R,G,B or R,G_even,G_odd,B): camera
+/// file or explicit weights, converted to the balanced channels, then the
+/// filter. The live viewfinder mixes the ISP's linearised picture with
+/// exactly these numbers.
+#[uniffi::export]
+pub fn mix_weights(params: DevelopParams, wb_gains: Option<Vec<f64>>) -> Result<Weights> {
+    session::mix_weights_impl(&params, wb_gains.as_deref()).map(Weights::from_core)
+}

@@ -83,9 +83,11 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val develop by vm.develop.collectAsStateWithLifecycle()
     val vf by vm.viewfinder.collectAsStateWithLifecycle()
     val histogram by vm.histogram.collectAsStateWithLifecycle()
+    val tone by vm.tone.collectAsStateWithLifecycle()
     val shots by vm.darkroom.shots.collectAsStateWithLifecycle()
     val cacheBytes by vm.darkroom.cacheBytes.collectAsStateWithLifecycle()
     val contrastDefault by vm.darkroom.prefs.contrast.collectAsStateWithLifecycle()
+    val referenceLook by vm.darkroom.prefs.referenceLook.collectAsStateWithLifecycle()
     val sharpen by vm.darkroom.prefs.sharpen.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
@@ -148,7 +150,25 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                     )
                 },
         ) {
-            MonoViewfinder(look = vm.monoLook(contrastDefault), aspect = aspect, onSurface = vm::onSurface, modifier = Modifier.fillMaxWidth())
+            MonoViewfinder(tone = tone, aspect = aspect, onSurface = vm::onSurface, modifier = Modifier.fillMaxWidth())
+            if (stream.lens == null && stream.error == null) {
+                CircularProgressIndicator(
+                    Modifier.align(Alignment.Center).size(28.dp),
+                    color = Color.White,
+                    strokeWidth = 2.dp,
+                )
+            }
+            if (vf.grid) {
+                Canvas(Modifier.matchParentSize()) {
+                    val ink = Color.White.copy(alpha = 0.45f)
+                    for (x in listOf(size.width / 3f, size.width * 2f / 3f)) {
+                        drawLine(ink, Offset(x, 0f), Offset(x, size.height), strokeWidth = 1.5f)
+                    }
+                    for (y in listOf(size.height / 3f, size.height * 2f / 3f)) {
+                        drawLine(ink, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.5f)
+                    }
+                }
+            }
 
             stream.focusPoint?.let { (fx, fy) ->
                 val d = LocalDensity.current
@@ -294,6 +314,11 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 SettingRow("Save JPEG automatically", develop.autoJpeg) { vm.setAutoJpeg(it) }
                 Spacer(Modifier.height(8.dp))
                 Text("Picture", style = MaterialTheme.typography.titleMedium)
+                SettingRow("Reference look", referenceLook) { vm.setReferenceLook(it) }
+                Text(
+                    "Live viewfinder, automatic JPEG, the roll thumbnail, and the starting value in review. Each picture can still be changed there. Off is gamma 2.2. A picture already in the gallery stays until you shoot again or export it.",
+                    style = MaterialTheme.typography.bodySmall, color = Color.Gray,
+                )
                 LabeledSlider(
                     label = String.format(java.util.Locale.US, "Con %+.2f", contrastDefault),
                     value = contrastDefault.toFloat(),
@@ -336,6 +361,10 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 Spacer(Modifier.height(16.dp))
                 Text(
                     "engine ${ch.bojovic.mimizanlab.engine.version()} · core ${ch.bojovic.mimizanlab.engine.coreVersion()} · ${ch.bojovic.mimizanlab.engine.workerThreads()} threads",
+                    style = MaterialTheme.typography.bodySmall, color = Color.Gray,
+                )
+                Text(
+                    "GPL-3.0 or any later version. Copyright (C) 2026 Dragan Bojovic. The license text is shipped in this app.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
             }

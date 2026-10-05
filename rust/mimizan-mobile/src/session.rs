@@ -3,7 +3,7 @@
 //! copy for the interactive preview, and the print exports. Mirrors what the
 //! desktop GUI's `Session` does, with the same core calls.
 
-use crate::frame::{bin_cfa_2x, to_raw_frame};
+use crate::frame::{as_shot_from_gains, bin_cfa_2x, to_raw_frame};
 use crate::types::*;
 use mimizan_core::calib::CameraFile;
 use mimizan_core::curve::Curve;
@@ -141,6 +141,33 @@ pub fn develop_impl(input: RawInput, params: DevelopParams) -> Result<Developed>
             timing,
         }),
     })
+}
+
+/// The balanced weights `develop_impl` would mix with for these settings
+/// and this frame's balance: the camera file's weights (or `params.weights`)
+/// brought into the balanced channels, then the filter. Same calls, same
+/// order as `negative_from_frame`, so a viewfinder that mixes elsewhere
+/// (the GPU) uses the still's numbers.
+pub fn mix_weights_impl(params: &DevelopParams, wb_gains: Option<&[f64]>) -> Result<CoreWeights> {
+    let mut p = NegativeParams::default();
+    if let Some(json) = &params.camera_file_json {
+        let cam: CameraFile = serde_json::from_str(json).map_err(|e| MimizanError::Invalid { msg: format!("camera file: {e}") })?;
+        cam.validate()?;
+        p = p.with_camera_file(cam);
+    }
+    if let Some(w) = params.weights {
+        p = p.with_weights(w.core(), params.weights_space.core());
+    }
+    p.weights.validate()?;
+    // Only raw-space weights depend on the balance; mirror `ingest`'s choice.
+    let wb = match (&params.white_balance, wb_gains) {
+        (WhiteBalanceMode::AsShot, Some(g)) => as_shot_from_gains(g)?,
+        (WhiteBalanceMode::Manual { r, g, b }, _) if *g > 0.0 && *r > 0.0 && *b > 0.0 => [r / g, 1.0, b / g],
+        _ => [1.0; 3],
+    };
+    let w = p.weights.to_balanced(p.weights_space, wb).filtered(params.filter.core());
+    w.validate()?;
+    Ok(w)
 }
 
 fn preview_planes(sep: &Separation, o: u16, long_edge: usize) -> PreviewPlanes {

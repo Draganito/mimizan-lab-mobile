@@ -1,7 +1,9 @@
 package ch.bojovic.mimizanlab.ui
 
+import android.graphics.BitmapShader
 import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
+import android.graphics.Shader
 import android.graphics.SurfaceTexture
 import android.view.TextureView
 import androidx.compose.foundation.layout.aspectRatio
@@ -11,69 +13,42 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.viewinterop.AndroidView
+import ch.bojovic.mimizanlab.camera.FinderTone
 
 /**
- * The live preview as the negative will see it: the camera's processed RGB
- * frame is linearised, mixed with the current channel weights, gamma
- * encoded and then bent by the same contrast S-curve the development uses,
- * on the GPU (AGSL `RuntimeShader`). Zebra stripes mark pixels above
- * [MonoLook.zebraThreshold].
+ * The live negative at the camera's frame rate. The ISP delivers the
+ * preview with its tone curve pinned to sRGB (`IspControls`); this shader
+ * undoes exactly that curve, pulls the colour step back through the
+ * inverse matrix of the frame, mixes with the development's weights and
+ * applies the JPEG's look — per pixel on the GPU, so the display costs
+ * nothing on the CPU. Zebra stripes mark display values above
+ * [FinderTone.zebra].
  *
  * The effect sits on a Compose `graphicsLayer` around the `TextureView`,
  * not on the view itself: a `RenderEffect` on a `TextureView` blacked out
  * everything drawn above it on the Pixel 9 (Android 17).
  */
-data class MonoLook(
-    val r: Float = 0.25f,
-    val g: Float = 0.5f,
-    val b: Float = 0.25f,
-    /** 0..1 display value above which stripes appear; > 1 = off. */
-    val zebraThreshold: Float = 2f,
-    val grid: Boolean = false,
-    /** Same -1..1 S-curve as `look_with_contrast`, in the display domain. */
-    val contrast: Float = 0f,
-)
-
 private const val MONO_SHADER = """
 uniform shader content;
-uniform float3 w;
+uniform shader lut;
+uniform float3 v;
+uniform float invGamma;
 uniform float zebra;
-uniform float grid;
-uniform float contrast;
-uniform float2 size;
 
-float tanh1(float x) {
-    float e = exp(clamp(2.0 * x, -20.0, 20.0));
-    return (e - 1.0) / (e + 1.0);
-}
-
-float applyContrast(float v, float c) {
-    float a = abs(c);
-    if (a < 0.001) return v;
-    float k = a * 4.0;
-    float t = tanh1(0.5 * k);
-    float d = v - 0.5;
-    float outv = c > 0.0
-        ? 0.5 + 0.5 * tanh1(k * d) / t
-        : 0.5 + 0.5 * log((1.0 + clamp(2.0 * t * d, -0.999999, 0.999999)) / (1.0 - clamp(2.0 * t * d, -0.999999, 0.999999))) / k;
-    return clamp(outv, 0.0, 1.0);
+float lin(float c) {
+    return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);
 }
 
 half4 main(float2 xy) {
     half4 c = content.eval(xy);
-    float3 lin = pow(max(float3(c.rgb), float3(0.0)), float3(2.2));
-    float y = dot(lin, w);
-    float v = applyContrast(pow(clamp(y, 0.0, 1.0), 1.0 / 2.2), contrast);
-    if (zebra <= 1.0 && v >= zebra) {
-        float s = mod(xy.x + xy.y, 18.0);
-        if (s < 9.0) v = 0.15;
+    float3 l = float3(lin(float(c.r)), lin(float(c.g)), lin(float(c.b)));
+    float g = clamp(dot(l, v), 0.0, 1.0);
+    float e = pow(g, invGamma);
+    float o = float(lut.eval(float2(e * 255.0 + 0.5, 0.5)).r);
+    if (zebra <= 1.0 && o >= zebra) {
+        if (mod(xy.x + xy.y, 18.0) < 9.0) o = 0.15;
     }
-    if (grid > 0.5) {
-        float gx = min(abs(xy.x - size.x / 3.0), abs(xy.x - 2.0 * size.x / 3.0));
-        float gy = min(abs(xy.y - size.y / 3.0), abs(xy.y - 2.0 * size.y / 3.0));
-        if (gx < 0.75 || gy < 0.75) v = mix(v, 1.0, 0.35);
-    }
-    return half4(half3(v), 1.0);
+    return half4(half3(o), 1.0);
 }
 """
 
@@ -83,7 +58,7 @@ half4 main(float2 xy) {
  */
 @Composable
 fun MonoViewfinder(
-    look: MonoLook,
+    tone: FinderTone,
     aspect: Float,
     onSurface: (SurfaceTexture?) -> Unit,
     modifier: Modifier = Modifier,
@@ -100,6 +75,11 @@ fun MonoViewfinder(
         }
     }
     val shader = remember { RuntimeShader(MONO_SHADER) }
+    val lutShader = remember(tone) {
+        BitmapShader(tone.lutBitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply {
+            filterMode = BitmapShader.FILTER_MODE_LINEAR
+        }
+    }
     AndroidView(
         factory = { ctx ->
             TextureView(ctx).also { v ->
@@ -111,12 +91,10 @@ fun MonoViewfinder(
         modifier = modifier
             .aspectRatio(aspect)
             .graphicsLayer {
-                val sum = (look.r + look.g + look.b).takeIf { it > 1e-6f } ?: 1f
-                shader.setFloatUniform("w", look.r / sum, look.g / sum, look.b / sum)
-                shader.setFloatUniform("zebra", look.zebraThreshold)
-                shader.setFloatUniform("grid", if (look.grid) 1f else 0f)
-                shader.setFloatUniform("contrast", look.contrast)
-                shader.setFloatUniform("size", size.width.coerceAtLeast(1f), size.height.coerceAtLeast(1f))
+                shader.setFloatUniform("v", tone.v[0], tone.v[1], tone.v[2])
+                shader.setFloatUniform("invGamma", tone.invGamma)
+                shader.setFloatUniform("zebra", tone.zebra)
+                shader.setInputShader("lut", lutShader)
                 renderEffect = RenderEffect.createRuntimeShaderEffect(shader, "content").asComposeRenderEffect()
                 clip = true
             },

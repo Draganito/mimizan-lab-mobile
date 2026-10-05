@@ -198,7 +198,7 @@ class Darkroom private constructor(private val context: Context) {
                 updateShot(name) { it.copy(status = ShotStatus.Ready(info), thumbnail = thumb) }
                 // A second development of the same frame does not add a second JPEG.
                 if (shot.settings.autoJpeg && shot.jpegUri == null) {
-                    val look = lookWithContrast(lookReference(), prefs.contrast.value)
+                    val look = lookWithContrast(baseLook(), prefs.contrast.value)
                     val uri = exportJpeg(developed, name, shot.settings.filter, fullSize = true, look = look, usm = prefs.sharpen.value)
                     updateShot(name) { it.copy(jpegUri = uri) }
                 }
@@ -210,19 +210,29 @@ class Darkroom private constructor(private val context: Context) {
         return true
     }
 
-    private fun paramsFor(meta: RawMeta, s: DevelopSettings): DevelopParams {
+    /** Same parameters the still uses, so the viewfinder develops the same negative. */
+    fun developParams(meta: RawMeta, s: DevelopSettings): DevelopParams = paramsFor(meta, s)
+
+    /** The same, before any frame exists: camera file by device and sensor CFA. */
+    fun developParamsFor(make: String, model: String, cfa: Int, s: DevelopSettings): DevelopParams {
         val base = defaultDevelopParams()
         return base.copy(
             separation = s.separation,
             binning = s.binning.toUInt(),
             filter = s.filter,
             whiteBalance = s.whiteBalance,
-            cameraFileJson = cameraFiles.forModel(meta.make, meta.model, RawMeta.patternOf(meta.cfa)),
+            cameraFileJson = cameraFiles.forModel(make, model, RawMeta.patternOf(cfa)),
         )
     }
 
+    private fun paramsFor(meta: RawMeta, s: DevelopSettings): DevelopParams =
+        developParamsFor(meta.make, meta.model, meta.cfa, s)
+
+    /** Settings look, before the contrast curve: reference, or gamma 2.2. */
+    private fun baseLook() = if (prefs.referenceLook.value) lookReference() else lookNeutral()
+
     private fun thumbnail(d: Developed): Bitmap {
-        val g = d.preview(lookReference(), 0u)
+        val g = d.preview(lookWithContrast(baseLook(), prefs.contrast.value), 0u)
         // The preview planes are 2048 px; the thumbnail is a 256 px box.
         val scale = maxOf(1, (maxOf(g.width.toInt(), g.height.toInt()) + 255) / 256)
         val w = g.width.toInt() / scale

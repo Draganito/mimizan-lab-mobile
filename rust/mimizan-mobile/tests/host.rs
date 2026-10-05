@@ -122,6 +122,36 @@ fn synthetic_develop_preview_remix_export() {
 }
 
 #[test]
+fn viewfinder_weights_are_the_developments_weights() {
+    // The GPU viewfinder mixes with `mix_weights`; the still mixes inside
+    // `develop`. Same settings, same gains, same numbers.
+    let input = synthetic_input(320, 240, 1);
+    let gains = input.wb_gains.clone();
+    let params = DevelopParams { filter: Filter::Yellow8, preview_long_edge: 0, ..DevelopParams::default() };
+    let dev = develop(input, params.clone()).unwrap();
+    let w = mix_weights(params, gains).unwrap();
+    let d = dev.info().weights;
+    assert!((w.r - d.r).abs() < 1e-12 && (w.g - d.g).abs() < 1e-12 && (w.b - d.b).abs() < 1e-12, "{w:?} vs {d:?}");
+    // Yellow 8 on the native triple: 0.25, 0.45, 0.025 normalised.
+    assert!((w.r - 0.25 / 0.725).abs() < 1e-9);
+}
+
+#[test]
+fn encoded_lut_is_the_look_over_the_gamma_axis() {
+    let lut = look_lut_encoded(look_neutral(), 4).unwrap();
+    for (i, v) in lut.iter().enumerate() {
+        assert!((v - i as f32 / 4.0).abs() < 1e-5, "neutral look is identity over its own gamma axis");
+    }
+    // Reference look: linear 0.18 encodes to 0.459, which the look lifts to about 0.61.
+    let lut = look_lut_encoded(look_reference(), 1000).unwrap();
+    let e = 0.18f64.powf(1.0 / 2.2);
+    let v = lut[(e * 1000.0).round() as usize];
+    assert!((v - 0.612).abs() < 0.01, "got {v}");
+    let linear = look_lut(look_reference()).unwrap();
+    assert!((linear[32] - lut[(0.5f64.powf(1.0 / 2.2) * 1000.0).round() as usize]).abs() < 0.01);
+}
+
+#[test]
 fn binning_halves_the_frame() {
     let input = synthetic_input(320, 240, 1);
     let params = DevelopParams { binning: 2, separation: SeparationMode::Off, preview_long_edge: 0, ..DevelopParams::default() };

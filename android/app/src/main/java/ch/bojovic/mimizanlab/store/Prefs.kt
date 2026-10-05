@@ -30,8 +30,18 @@ class Prefs(context: Context) {
         sp.edit { putFloat(KEY_SHARPEN, v.toFloat()) }
     }
 
+    private val _referenceLook = MutableStateFlow(sp.getBoolean(KEY_REFERENCE, true))
+    /** Reference print curve for the automatic JPEG and the start of review. Off is gamma 2.2. */
+    val referenceLook: StateFlow<Boolean> = _referenceLook.asStateFlow()
+
+    fun setReferenceLook(on: Boolean) {
+        _referenceLook.value = on
+        sp.edit { putBoolean(KEY_REFERENCE, on) }
+    }
+
     private companion object {
         const val KEY_CONTRAST = "contrast_default"
         const val KEY_SHARPEN = "usm_amount"
+        const val KEY_REFERENCE = "reference_look"
     }
 }

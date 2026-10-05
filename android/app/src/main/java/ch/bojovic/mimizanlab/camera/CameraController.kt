@@ -73,9 +73,12 @@ data class StreamState(
 )
 
 /**
- * Camera2 session: a preview stream (SurfaceTexture), a small YUV stream for
- * the histogram and a RAW_SENSOR reader for the still. One instance per
- * screen; [start] / [stop] follow the lifecycle.
+ * Camera2 session: a preview stream (SurfaceTexture) with the ISP pinned
+ * to a known rendering ([IspControls]), a small YUV stream for the
+ * histogram, and a RAW_SENSOR reader for the still. The viewfinder shader
+ * turns the preview back into the negative with [ispColor] of each frame;
+ * [tone] lets the histogram do the same arithmetic on the CPU.
+ * One instance per screen; [start] / [stop] follow the lifecycle.
  */
 class CameraController(context: Context) {
     private val appContext = context.applicationContext
@@ -88,9 +91,19 @@ class CameraController(context: Context) {
     private val _state = MutableStateFlow(StreamState())
     val state: StateFlow<StreamState> = _state.asStateFlow()
 
-    /** 64-bin luma histogram of the preview stream (normalised to the max bin). */
+    /**
+     * 64-bin histogram of the viewfinder picture (normalised to the max
+     * bin): the negative's display values when [tone] is set, else ISP luma.
+     */
     private val _histogram = MutableStateFlow(FloatArray(64))
     val histogram: StateFlow<FloatArray> = _histogram.asStateFlow()
+
+    /** Colour step the ISP applied to the latest preview frame. */
+    private val _ispColor = MutableStateFlow<IspColor?>(null)
+    val ispColor: StateFlow<IspColor?> = _ispColor.asStateFlow()
+
+    /** Set by the screen's owner; the histogram follows it. */
+    @Volatile var tone: FinderTone? = null
 
     private val results = MutableSharedFlow<TotalCaptureResult>(extraBufferCapacity = 4)
 
@@ -109,6 +122,7 @@ class CameraController(context: Context) {
     private var deviceRotation = 0
     private val lock = Mutex()
     private var frameCounter = 0
+    private var isp: IspControls? = null
 
     private val orientationListener = object : OrientationEventListener(appContext) {
         override fun onOrientationChanged(orientation: Int) {
@@ -156,6 +170,9 @@ class CameraController(context: Context) {
         // Sensor-level characteristics (CFA, black level, arrays): the
         // physical camera's when the streams are routed to one.
         characteristics = manager.getCameraCharacteristics(lens.sensorId)
+        // Request keys are judged by the camera the requests go to.
+        isp = IspControls(manager.getCameraCharacteristics(lens.cameraId)).also { Log.i(TAG, "isp: ${it.description}") }
+        _ispColor.value = null
 
         rawReader = ImageReader.newInstance(lens.rawSize.width, lens.rawSize.height, ImageFormat.RAW_SENSOR, 2)
         val an = analysisSizeFor(lens)
@@ -228,6 +245,7 @@ class CameraController(context: Context) {
 
     private val previewCallback = object : CameraCaptureSession.CaptureCallback() {
         override fun onCaptureCompleted(s: CameraCaptureSession, req: CaptureRequest, result: TotalCaptureResult) {
+            noteColor(result)
             results.tryEmit(result)
             if (++frameCounter % 3 != 0) return
             _state.update {
@@ -275,6 +293,7 @@ class CameraController(context: Context) {
             b.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_OFF)
         }
         b.set(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_AUTO)
+        isp?.apply(b)
         if (still) {
             b.set(CaptureRequest.STATISTICS_LENS_SHADING_MAP_MODE, CameraMetadata.STATISTICS_LENS_SHADING_MAP_MODE_ON)
             b.set(CaptureRequest.CONTROL_ENABLE_ZSL, false)
@@ -284,9 +303,11 @@ class CameraController(context: Context) {
     private fun startRepeatingLocked() {
         val s = session ?: return
         val dev = device ?: return
+        val preview = previewSurface ?: return
+        val yuv = yuvReader?.surface ?: return
         val b = dev.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
-        b.addTarget(previewSurface!!)
-        b.addTarget(yuvReader!!.surface)
+        b.addTarget(preview)
+        b.addTarget(yuv)
         applyControls(b, still = false)
         s.setRepeatingRequest(b.build(), previewCallback, handler)
     }
@@ -466,27 +487,80 @@ class CameraController(context: Context) {
         }
     }
 
+    /** The ISP's colour step of this frame, for the shader; published only when it moved. */
+    private fun noteColor(logical: TotalCaptureResult) {
+        val result = lens?.physicalId?.let { logical.physicalCameraTotalResults[it] } ?: logical
+        val m = result.get(CaptureResult.COLOR_CORRECTION_TRANSFORM)
+        val g = result.get(CaptureResult.COLOR_CORRECTION_GAINS)
+        if (m == null && g == null) return
+        val transform = FloatArray(9) { i ->
+            if (m == null) {
+                if (i % 4 == 0) 1f else 0f
+            } else {
+                m.getElement(i % 3, i / 3).toFloat()
+            }
+        }
+        val gains = if (g == null) floatArrayOf(1f, 1f, 1f, 1f) else floatArrayOf(g.red, g.greenEven, g.greenOdd, g.blue)
+        val next = IspColor(transform, gains)
+        if (!next.near(_ispColor.value)) _ispColor.value = next
+    }
+
     private val bins = IntArray(64)
 
-    /** Luma histogram from the Y plane, every frame the reader delivers. */
+    /**
+     * Histogram of the picture on screen, every frame the YUV reader
+     * delivers: the preview decoded (JFIF full range), linearised from the
+     * pinned sRGB curve and put through [tone]; plain luma until a tone
+     * is set. Subsampled 2x in both directions.
+     */
     private fun analyse(image: Image) {
-        val plane = image.planes[0]
-        val buf = plane.buffer
+        val yP = image.planes[0]
+        val yBuf = yP.buffer
         val w = image.width
         val h = image.height
-        val rs = plane.rowStride
-        val ps = plane.pixelStride
+        val yRs = yP.rowStride
+        val yPs = yP.pixelStride
+        val t = tone
         bins.fill(0)
-        var y = 0
-        while (y < h) {
-            var x = 0
-            val row = y * rs
-            while (x < w) {
-                val v = buf.get(row + x * ps).toInt() and 0xFF
-                bins[v shr 2]++
-                x += 2
+        if (t == null) {
+            var y = 0
+            while (y < h) {
+                var x = 0
+                val row = y * yRs
+                while (x < w) {
+                    val v = yBuf.get(row + x * yPs).toInt() and 0xFF
+                    bins[v shr 2]++
+                    x += 2
+                }
+                y += 2
             }
-            y += 2
+        } else {
+            val uP = image.planes[1]
+            val vP = image.planes[2]
+            val uBuf = uP.buffer
+            val vBuf = vP.buffer
+            val cRs = uP.rowStride
+            val cPs = uP.pixelStride
+            val lin = SRGB_LINEAR
+            var y = 0
+            while (y < h) {
+                var x = 0
+                val yRow = y * yRs
+                val cRow = (y shr 1) * cRs
+                while (x < w) {
+                    val yy = (yBuf.get(yRow + x * yPs).toInt() and 0xFF).toFloat()
+                    val ci = cRow + (x shr 1) * cPs
+                    val cb = (uBuf.get(ci).toInt() and 0xFF) - 128f
+                    val cr = (vBuf.get(ci).toInt() and 0xFF) - 128f
+                    val r = (yy + 1.402f * cr).toInt().coerceIn(0, 255)
+                    val g = (yy - 0.344136f * cb - 0.714136f * cr).toInt().coerceIn(0, 255)
+                    val b = (yy + 1.772f * cb).toInt().coerceIn(0, 255)
+                    val d = t.display(lin[r], lin[g], lin[b])
+                    bins[(d * 63.999f).toInt().coerceIn(0, 63)]++
+                    x += 2
+                }
+                y += 2
+            }
         }
         val max = bins.max().coerceAtLeast(1).toFloat()
         _histogram.value = FloatArray(64) { bins[it] / max }
@@ -494,5 +568,6 @@ class CameraController(context: Context) {
 
     companion object {
         private const val TAG = "CameraController"
+        private val SRGB_LINEAR = FloatArray(256) { IspControls.decode(it / 255f) }
     }
 }

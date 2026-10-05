@@ -451,6 +451,34 @@ pub fn look_with_contrast(look: Look, contrast: f64) -> Result<Look> {
     Ok(Look { name: format!("{} contrast {:+.2}", look.name, c), points, gamma22: look.gamma22 })
 }
 
+/// 65 samples of [Curve::eval] on 0..1, the display value of a linear input.
+#[uniffi::export]
+pub fn look_lut(look: Look) -> Result<Vec<f32>> {
+    let curve = Curve::from_look(&look.to_file()?);
+    const N: usize = 64;
+    Ok((0..=N).map(|i| curve.eval(i as f64 / N as f64) as f32).collect())
+}
+
+/// `n + 1` display values of `look` over the *encoded* axis: entry `i` is
+/// the output for the linear value whose plain gamma-2.2 code is `i/n`
+/// (the linear value itself when the look has no gamma). A renderer that
+/// applies the gamma first and then reads this table reproduces the look
+/// within one step of the table; a table over the linear axis would need
+/// thousands of entries to follow `x^(1/2.2)` near black.
+#[uniffi::export]
+pub fn look_lut_encoded(look: Look, n: u32) -> Result<Vec<f32>> {
+    let n = n.clamp(1, 4096) as usize;
+    let gamma22 = look.gamma22;
+    let curve = Curve::from_look(&look.to_file()?);
+    Ok((0..=n)
+        .map(|i| {
+            let e = i as f64 / n as f64;
+            let lin = if gamma22 { e.powf(2.2) } else { e };
+            curve.eval(lin) as f32
+        })
+        .collect())
+}
+
 /// 8-bit grey image, row-major, upright.
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
 pub struct GrayImage {

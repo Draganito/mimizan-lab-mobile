@@ -3,23 +3,37 @@ package ch.bojovic.mimizanlab.ui
 import android.annotation.SuppressLint
 import android.app.Application
 import android.graphics.SurfaceTexture
+import android.os.Build
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import ch.bojovic.mimizanlab.camera.CameraController
 import ch.bojovic.mimizanlab.camera.ExposureSettings
+import ch.bojovic.mimizanlab.camera.FinderTone
 import ch.bojovic.mimizanlab.camera.FlashMode
+import ch.bojovic.mimizanlab.camera.IspColor
 import ch.bojovic.mimizanlab.camera.LensInfo
 import ch.bojovic.mimizanlab.engine.Darkroom
 import ch.bojovic.mimizanlab.engine.DevelopSettings
 import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.FilterInfo
+import ch.bojovic.mimizanlab.engine.Look
 import ch.bojovic.mimizanlab.engine.SeparationMode
 import ch.bojovic.mimizanlab.engine.filters
+import ch.bojovic.mimizanlab.engine.lookLutEncoded
+import ch.bojovic.mimizanlab.engine.lookNeutral
+import ch.bojovic.mimizanlab.engine.lookReference
+import ch.bojovic.mimizanlab.engine.lookWithContrast
+import ch.bojovic.mimizanlab.engine.mixWeights
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -54,23 +68,55 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
+    /**
+     * What the viewfinder shader applies to the camera preview: the still's
+     * mix weights for the current filter and this frame's balance, pulled
+     * back through the ISP's colour matrix, and the curve the automatic
+     * JPEG uses. Recomputed when the ISP colour moves (white balance), a
+     * develop setting changes, or the look changes.
+     */
+    val tone: StateFlow<FinderTone> = combine(
+        controller.ispColor,
+        _develop,
+        combine(darkroom.prefs.contrast, darkroom.prefs.referenceLook) { c, r -> lookFor(r, c) },
+        _viewfinder,
+        _lens,
+    ) { color, dev, look, vf, lens ->
+        buildTone(color ?: IspColor.IDENTITY, dev, look, vf.zebra, lens)
+    }.flowOn(Dispatchers.Default).stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        buildTone(IspColor.IDENTITY, DevelopSettings(), lookFor(true, 0.0), true, _lens.value),
+    )
+
+    init {
+        viewModelScope.launch { tone.collect { controller.tone = it } }
+    }
+
     private var surface: SurfaceTexture? = null
     private var startJob: Job? = null
 
-    /** Weights the shader uses for the current filter (native sensor mix x transmission). */
-    fun monoLook(contrast: Double = darkroom.prefs.contrast.value): MonoLook {
-        val f = filterInfos.firstOrNull { it.filter == _develop.value.filter }
-        val t = f?.transmission ?: listOf(1.0, 1.0, 1.0)
-        val r = 0.25 * t[0]
-        val g = 0.5 * t[1]
-        val b = 0.25 * t[2]
-        val s = r + g + b
-        val vf = _viewfinder.value
-        return MonoLook(
-            r = (r / s).toFloat(), g = (g / s).toFloat(), b = (b / s).toFloat(),
-            zebraThreshold = if (vf.zebra) 0.985f else 2f,
-            grid = vf.grid,
-            contrast = contrast.toFloat(),
+    /** The curve the automatic JPEG and the roll thumbnail use. */
+    private fun lookFor(reference: Boolean, contrast: Double): Look {
+        val base = if (reference) lookReference() else lookNeutral()
+        return if (kotlin.math.abs(contrast) < 1e-6) base else lookWithContrast(base, contrast)
+    }
+
+    private fun buildTone(color: IspColor, dev: DevelopSettings, look: Look, zebra: Boolean, lens: LensInfo?): FinderTone {
+        val params = darkroom.developParamsFor(Build.MANUFACTURER, Build.MODEL, lens?.cfa ?: 0, dev)
+        val gains = color.gains.map { it.toDouble() }
+        val w = try {
+            mixWeights(params, gains)
+        } catch (t: Throwable) {
+            Log.w(TAG, "mix weights", t)
+            ch.bojovic.mimizanlab.engine.Weights(0.25, 0.5, 0.25)
+        }
+        val weights = floatArrayOf(w.r.toFloat(), w.g.toFloat(), w.b.toFloat())
+        return FinderTone(
+            v = FinderTone.pullBack(weights, color),
+            lut = lookLutEncoded(look, 255u).toFloatArray(),
+            invGamma = if (look.gamma22) (1.0 / 2.2).toFloat() else 1f,
+            zebra = if (zebra) 0.985f else 2f,
         )
     }
 
@@ -105,7 +151,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: SecurityException) {
                 _message.value = "Camera permission missing"
             } catch (t: Throwable) {
-                Log.e("CameraViewModel", "start", t)
+                Log.e(TAG, "start", t)
                 _message.value = t.message ?: "Camera failed"
             }
         }
@@ -171,6 +217,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun setAutoJpeg(on: Boolean) = _develop.update { it.copy(autoJpeg = on) }
     fun setContrastDefault(c: Double) = darkroom.prefs.setContrast(c)
     fun setSharpen(amount: Double) = darkroom.prefs.setSharpen(amount)
+    fun setReferenceLook(on: Boolean) = darkroom.prefs.setReferenceLook(on)
     fun toggleZebra() = _viewfinder.update { it.copy(zebra = !it.zebra) }
     fun toggleGrid() = _viewfinder.update { it.copy(grid = !it.grid) }
     fun toggleHistogram() = _viewfinder.update { it.copy(showHistogram = !it.showHistogram) }
@@ -187,6 +234,10 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 _message.value = t.message ?: "Capture failed"
             }
         }
+    }
+
+    private companion object {
+        const val TAG = "CameraViewModel"
     }
 
     fun clearMessage() { _message.value = null }

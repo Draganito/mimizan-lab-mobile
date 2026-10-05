@@ -5,6 +5,20 @@ use crate::types::{MimizanError, RawInput, Result};
 use mimizan_core::decode::{Exposure, RawData, RawFrame, Rect, SensorKind};
 use rayon::prelude::*;
 
+/// As-shot balance multipliers (G = 1) from `COLOR_CORRECTION_GAINS`: three
+/// values R, G, B or the Camera2 `RggbChannelVector` order R, G_even, G_odd, B.
+pub fn as_shot_from_gains(g: &[f64]) -> Result<[f64; 3]> {
+    let positive = g.iter().all(|v| v.is_finite() && *v > 0.0);
+    match g.len() {
+        3 if positive => Ok([g[0] / g[1], 1.0, g[2] / g[1]]),
+        4 if positive => {
+            let g_mean = 0.5 * (g[1] + g[2]);
+            Ok([g[0] / g_mean, 1.0, g[3] / g_mean])
+        }
+        _ => Err(MimizanError::Invalid { msg: "wb_gains needs 3 (RGB) or 4 (RGGB) positive values".into() }),
+    }
+}
+
 /// Build the frame the pipeline ingests. Validates sizes and levels; the
 /// pixel data is copied once (bytes -> u16).
 pub fn to_raw_frame(input: &RawInput) -> Result<RawFrame> {
@@ -52,13 +66,7 @@ pub fn to_raw_frame(input: &RawInput) -> Result<RawFrame> {
     };
 
     let wb_as_shot = match &input.wb_gains {
-        Some(g) if g.len() == 3 && g.iter().all(|v| v.is_finite() && *v > 0.0) => Some([g[0] / g[1], 1.0, g[2] / g[1]]),
-        Some(g) if g.len() == 4 && g.iter().all(|v| v.is_finite() && *v > 0.0) => {
-            // Camera2 RggbChannelVector order: R, G_even, G_odd, B.
-            let g_mean = 0.5 * (g[1] + g[2]);
-            Some([g[0] / g_mean, 1.0, g[3] / g_mean])
-        }
-        Some(_) => return Err(MimizanError::Invalid { msg: "wb_gains needs 3 (RGB) or 4 (RGGB) positive values".into() }),
+        Some(g) => Some(as_shot_from_gains(g)?),
         None => None,
     };
 

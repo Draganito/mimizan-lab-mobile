@@ -80,10 +80,25 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Bind to a shot; follows [Darkroom.current] so a (re)development shows up. */
     fun open(name: String) {
-        if (_state.value.name == name && openJob?.isActive == true) return
+        if (_state.value.name == name && openJob?.isActive == true) {
+            // The collector stays alive, so a second visit must still pick up
+            // the settings look. Otherwise the switch appears to do nothing.
+            _state.update {
+                it.copy(
+                    contrast = darkroom.prefs.contrast.value,
+                    reference = darkroom.prefs.referenceLook.value,
+                )
+            }
+            render()
+            return
+        }
         openJob?.cancel()
         detailRegion = null
-        _state.value = ReviewState(name = name, contrast = darkroom.prefs.contrast.value)
+        _state.value = ReviewState(
+            name = name,
+            contrast = darkroom.prefs.contrast.value,
+            reference = darkroom.prefs.referenceLook.value,
+        )
         openJob = viewModelScope.launch {
             darkroom.current.collect { neg ->
                 if (neg != null && neg.name == name) {
