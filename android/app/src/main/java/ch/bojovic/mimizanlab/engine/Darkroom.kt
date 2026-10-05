@@ -199,7 +199,12 @@ class Darkroom private constructor(private val context: Context) {
                 // A second development of the same frame does not add a second JPEG.
                 if (shot.settings.autoJpeg && shot.jpegUri == null) {
                     val look = lookWithContrast(baseLook(), prefs.contrast.value)
-                    val uri = exportJpeg(developed, name, shot.settings.filter, fullSize = true, look = look, usm = prefs.sharpen.value)
+                    val uri = exportJpeg(
+                        developed, name, shot.settings.filter, fullSize = true, look = look,
+                        usm = prefs.sharpen.value,
+                        deconvolution = prefs.deconvolution.value,
+                        deconvPasses = prefs.deconvPasses.value,
+                    )
                     updateShot(name) { it.copy(jpegUri = uri) }
                 }
             } catch (t: Throwable) {
@@ -253,23 +258,43 @@ class Darkroom private constructor(private val context: Context) {
     /**
      * Export through a scratch file (Rust writes paths) into the album.
      * `usm` (0..1.5) sharpens the full-size JPEG; the 2048 px version uses
-     * screen compensation instead.
+     * screen compensation instead. `deconvolution` replaces USM on the
+     * full-size file and is ignored for the 2048 px JPEG.
      */
-    fun exportJpeg(d: Developed, name: String, filter: Filter, fullSize: Boolean, look: Look = lookReference(), usm: Double = 0.0): Uri {
+    fun exportJpeg(
+        d: Developed,
+        name: String,
+        filter: Filter,
+        fullSize: Boolean,
+        look: Look = lookReference(),
+        usm: Double = 0.0,
+        deconvolution: Boolean = false,
+        deconvPasses: Int = 2,
+    ): Uri {
         val suffix = suffixFor(filter) + if (fullSize) "" else "_2048"
         val tmp = File(context.cacheDir, "$name$suffix.jpg")
+        val passes = if (fullSize && deconvolution) deconvPasses.coerceIn(1, 10).toUInt() else 0u
         try {
-            d.exportJpeg(tmp.absolutePath, look, if (fullSize) null else 2048u, !fullSize, 0u, if (fullSize) usm else 0.0)
+            d.exportJpeg(tmp.absolutePath, look, if (fullSize) null else 2048u, !fullSize, 0u, if (fullSize) usm else 0.0, fullSize && deconvolution, passes)
             return media.importFile(tmp, "$name$suffix.jpg", MediaStoreWriter.MIME_JPEG)
         } finally {
             tmp.delete()
         }
     }
 
-    fun exportTiff(d: Developed, name: String, filter: Filter, look: Look = lookReference(), usm: Double = 0.0): Uri {
+    fun exportTiff(
+        d: Developed,
+        name: String,
+        filter: Filter,
+        look: Look = lookReference(),
+        usm: Double = 0.0,
+        deconvolution: Boolean = false,
+        deconvPasses: Int = 2,
+    ): Uri {
         val tmp = File(context.cacheDir, "$name${suffixFor(filter)}.tif")
+        val passes = if (deconvolution) deconvPasses.coerceIn(1, 10).toUInt() else 0u
         try {
-            d.exportTiff16(tmp.absolutePath, look, 0u, usm)
+            d.exportTiff16(tmp.absolutePath, look, 0u, usm, deconvolution, passes)
             return media.importFile(tmp, "$name${suffixFor(filter)}.tif", MediaStoreWriter.MIME_TIFF)
         } finally {
             tmp.delete()

@@ -89,6 +89,8 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val contrastDefault by vm.darkroom.prefs.contrast.collectAsStateWithLifecycle()
     val referenceLook by vm.darkroom.prefs.referenceLook.collectAsStateWithLifecycle()
     val sharpen by vm.darkroom.prefs.sharpen.collectAsStateWithLifecycle()
+    val deconvolution by vm.darkroom.prefs.deconvolution.collectAsStateWithLifecycle()
+    val deconvPasses by vm.darkroom.prefs.deconvPasses.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
     var confirmDeleteAll by remember { mutableStateOf(false) }
@@ -335,8 +337,22 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                     onChange = { vm.setSharpen(it.toDouble()) },
                     range = 0f..1.5f,
                 )
+                SettingRow("Deconvolution", deconvolution) { vm.setDeconvolution(it) }
+                if (deconvolution) {
+                    LabeledSlider(
+                        label = "Passes $deconvPasses",
+                        value = deconvPasses.toFloat(),
+                        onChange = { vm.setDeconvPasses((it + 0.5f).toInt()) },
+                        range = 1f..10f,
+                        steps = 8,
+                    )
+                }
                 Text(
-                    "Sharpens the automatic JPEG and the full-size JPEG / TIFF. The 2048 px JPEG keeps its screen compensation.",
+                    if (deconvolution) {
+                        "Runs first, on every pixel. If USM is above zero, it sharpens that result afterwards. USM off leaves only the deconvolution."
+                    } else {
+                        "USM sharpens the automatic JPEG and the full-size JPEG / TIFF. The 2048 px JPEG keeps its screen compensation."
+                    },
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 Spacer(Modifier.height(4.dp))

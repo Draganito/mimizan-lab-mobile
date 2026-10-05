@@ -78,6 +78,8 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
     val shots by darkroom.shots.collectAsStateWithLifecycle()
     val shot = shots.firstOrNull { it.name == name }
     val sharpen by darkroom.prefs.sharpen.collectAsStateWithLifecycle()
+    val deconvolution by darkroom.prefs.deconvolution.collectAsStateWithLifecycle()
+    val deconvPasses by darkroom.prefs.deconvPasses.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var showInfo by remember { mutableStateOf(false) }
     var exportMenu by remember { mutableStateOf(false) }
@@ -170,7 +172,12 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                             Text(s.exporting?.let { "Saving $it…" } ?: "Export")
                         }
                         DropdownMenu(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
-                            val usm = if (sharpen > 0.0) ", sharpened" else ""
+                            val usm = when {
+                                deconvolution && sharpen > 0.0 -> ", deconvolved ×$deconvPasses, sharpened"
+                                deconvolution -> ", deconvolved ×$deconvPasses"
+                                sharpen > 0.0 -> ", sharpened"
+                                else -> ""
+                            }
                             DropdownMenuItem(text = { Text("JPEG, full size$usm") }, onClick = { exportMenu = false; vm.exportJpeg(true) })
                             DropdownMenuItem(text = { Text("JPEG 2048 px, screen sharpened") }, onClick = { exportMenu = false; vm.exportJpeg(false) })
                             DropdownMenuItem(text = { Text("TIFF 16-bit$usm") }, onClick = { exportMenu = false; vm.exportTiff() })

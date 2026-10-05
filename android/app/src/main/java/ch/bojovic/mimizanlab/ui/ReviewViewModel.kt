@@ -227,11 +227,17 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun exportJpeg(fullSize: Boolean) = export(if (fullSize) "JPEG" else "JPEG 2048") { d, name, f ->
-        darkroom.exportJpeg(d, name, f, fullSize, look, darkroom.prefs.sharpen.value)
+        darkroom.exportJpeg(
+            d, name, f, fullSize, look,
+            darkroom.prefs.sharpen.value, darkroom.prefs.deconvolution.value, darkroom.prefs.deconvPasses.value,
+        )
     }
 
     fun exportTiff() = export("TIFF 16-bit") { d, name, f ->
-        darkroom.exportTiff(d, name, f, look, darkroom.prefs.sharpen.value)
+        darkroom.exportTiff(
+            d, name, f, look,
+            darkroom.prefs.sharpen.value, darkroom.prefs.deconvolution.value, darkroom.prefs.deconvPasses.value,
+        )
     }
 
     fun exportNegative() = export("negative") { d, name, _ -> darkroom.exportNegative(d, name).first() }

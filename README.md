@@ -110,16 +110,18 @@ cargo ndk -t arm64-v8a --platform 34 build --release --lib
    The settings sheet (slider icon) chooses the separation (Dubois /
    adaptive / mask off), Quick mode, whether the JPEG is saved
    automatically, the default contrast, the unsharp-mask amount for the
-   automatic JPEG and the full-size exports, and shows the storage the raw
-   frames take with a "Delete all".
+   automatic JPEG and the full-size exports, the Richardson–Lucy
+   deconvolution (1..10 passes on every pixel before the USM, same radius,
+   no halo but the noise comes back; `mimizan print --deconv` on the
+   desktop), and shows the storage the raw frames take with a "Delete all".
 4. The thumbnail opens the review: pinch to zoom (beyond the 2048 px
    preview the visible window is rendered 1:1 from the negative), filter
    chips and R/B sliders change the mix, the look switch chooses reference
    curve or pure gamma 2.2, **Con** adds an S-curve around middle grey
    (-1..1; starts from the settings default and affects preview, histogram
-   and every export of this picture). Sharpening is the settings amount:
-   full-size JPEG and TIFF, not the 1:1 view; the 2048 px JPEG keeps its
-   screen compensation. Export writes JPEG (full or 2048 px),
+   and every export of this picture). Sharpening and deconvolution are the
+   settings amounts: full-size JPEG and TIFF, not the 1:1 view; the 2048 px
+   JPEG keeps its screen compensation. Export writes JPEG (full or 2048 px),
    16-bit TIFF, or the linear negative + saturation mask for the desktop
    CLI. Share sends the last export.
 5. The roll lists every frame in the cache; the bin icon (or a long press)

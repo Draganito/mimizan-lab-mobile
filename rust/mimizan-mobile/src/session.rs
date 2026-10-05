@@ -11,7 +11,9 @@ use mimizan_core::icc::GrayTrc;
 use mimizan_core::mix::{mix, Weights as CoreWeights};
 use mimizan_core::pipeline::{negative_from_frame, NegativeInfo, NegativeParams};
 use mimizan_core::plane::Plane;
-use mimizan_core::print::{self as pr, orient, rotate_gray8_cw, rotated, PrintParams, PrintSize, PrintSource};
+use mimizan_core::print::{
+    self as pr, orient, rotate_gray8_cw, rotated, PrintParams, PrintSize, PrintSource,
+};
 use mimizan_core::resize::{fit_dims, resize};
 use mimizan_core::screen::ScreenSharpen;
 use mimizan_core::separate::Separation;
@@ -69,10 +71,17 @@ pub fn develop_impl(input: RawInput, params: DevelopParams) -> Result<Developed>
     let (frame, binning) = match params.binning {
         0 | 1 => (frame, 1),
         2 => (bin_cfa_2x(&frame)?, 2),
-        n => return Err(MimizanError::Invalid { msg: format!("binning {n} not supported (1 or 2)") }),
+        n => {
+            return Err(MimizanError::Invalid {
+                msg: format!("binning {n} not supported (1 or 2)"),
+            })
+        }
     };
 
-    let mut p = NegativeParams { keep_separation: true, ..NegativeParams::default() };
+    let mut p = NegativeParams {
+        keep_separation: true,
+        ..NegativeParams::default()
+    };
     p.ingest.wb = params.white_balance.core();
     p.ingest.fix_defects = params.fix_defects;
     p.separate.mask = params.separation.mask_mode();
@@ -80,7 +89,9 @@ pub fn develop_impl(input: RawInput, params: DevelopParams) -> Result<Developed>
         p.separate.reconstruct = Some(Default::default());
     }
     if let Some(json) = &params.camera_file_json {
-        let cam: CameraFile = serde_json::from_str(json).map_err(|e| MimizanError::Invalid { msg: format!("camera file: {e}") })?;
+        let cam: CameraFile = serde_json::from_str(json).map_err(|e| MimizanError::Invalid {
+            msg: format!("camera file: {e}"),
+        })?;
         cam.validate()?;
         p = p.with_camera_file(cam);
     }
@@ -103,7 +114,12 @@ pub fn develop_impl(input: RawInput, params: DevelopParams) -> Result<Developed>
 
     let mut neg = negative_from_frame(&frame, &p, 0)?;
     drop(frame);
-    let mut sep = neg.separation.take().ok_or_else(|| MimizanError::Internal { msg: "separation missing".into() })?;
+    let mut sep = neg
+        .separation
+        .take()
+        .ok_or_else(|| MimizanError::Internal {
+            msg: "separation missing".into(),
+        })?;
     // The sidecar is already quantised; the f64 mask plane is not needed again.
     sep.mask_max = Plane::zeros(0, 0);
     let weights = neg.info.weights;
@@ -111,7 +127,11 @@ pub fn develop_impl(input: RawInput, params: DevelopParams) -> Result<Developed>
 
     let t = Instant::now();
     let preview = if params.preview_long_edge > 0 {
-        Some(preview_planes(&sep, neg.orientation, params.preview_long_edge as usize))
+        Some(preview_planes(
+            &sep,
+            neg.orientation,
+            params.preview_long_edge as usize,
+        ))
     } else {
         None
     };
@@ -151,7 +171,9 @@ pub fn develop_impl(input: RawInput, params: DevelopParams) -> Result<Developed>
 pub fn mix_weights_impl(params: &DevelopParams, wb_gains: Option<&[f64]>) -> Result<CoreWeights> {
     let mut p = NegativeParams::default();
     if let Some(json) = &params.camera_file_json {
-        let cam: CameraFile = serde_json::from_str(json).map_err(|e| MimizanError::Invalid { msg: format!("camera file: {e}") })?;
+        let cam: CameraFile = serde_json::from_str(json).map_err(|e| MimizanError::Invalid {
+            msg: format!("camera file: {e}"),
+        })?;
         cam.validate()?;
         p = p.with_camera_file(cam);
     }
@@ -162,10 +184,15 @@ pub fn mix_weights_impl(params: &DevelopParams, wb_gains: Option<&[f64]>) -> Res
     // Only raw-space weights depend on the balance; mirror `ingest`'s choice.
     let wb = match (&params.white_balance, wb_gains) {
         (WhiteBalanceMode::AsShot, Some(g)) => as_shot_from_gains(g)?,
-        (WhiteBalanceMode::Manual { r, g, b }, _) if *g > 0.0 && *r > 0.0 && *b > 0.0 => [r / g, 1.0, b / g],
+        (WhiteBalanceMode::Manual { r, g, b }, _) if *g > 0.0 && *r > 0.0 && *b > 0.0 => {
+            [r / g, 1.0, b / g]
+        }
         _ => [1.0; 3],
     };
-    let w = p.weights.to_balanced(p.weights_space, wb).filtered(params.filter.core());
+    let w = p
+        .weights
+        .to_balanced(p.weights_space, wb)
+        .filtered(params.filter.core());
     w.validate()?;
     Ok(w)
 }
@@ -184,7 +211,11 @@ fn preview_planes(sep: &Separation, o: u16, long_edge: usize) -> PreviewPlanes {
         }
     };
     PreviewPlanes {
-        lum: if (w, h) == (pw, ph) { lum } else { resize(&lum, pw, ph) },
+        lum: if (w, h) == (pw, ph) {
+            lum
+        } else {
+            resize(&lum, pw, ph)
+        },
         c1: small(&sep.c1),
         c2: small(&sep.c2),
     }
@@ -199,22 +230,37 @@ fn mix_planes(lum: &Plane, c1: &Plane, c2: &Plane, w: &CoreWeights) -> Plane {
     let k2 = 2.0 * (w.r - w.b);
     let width = lum.width;
     let mut out = Plane::zeros(width, lum.height);
-    out.data.par_chunks_mut(width).enumerate().for_each(|(y, row)| {
-        let (l, a, b) = (lum.row(y), c1.row(y), c2.row(y));
-        for x in 0..width {
-            row[x] = l[x] + k1 * a[x] + k2 * b[x];
-        }
-    });
+    out.data
+        .par_chunks_mut(width)
+        .enumerate()
+        .for_each(|(y, row)| {
+            let (l, a, b) = (lum.row(y), c1.row(y), c2.row(y));
+            for x in 0..width {
+                row[x] = l[x] + k1 * a[x] + k2 * b[x];
+            }
+        });
     out
 }
 
 fn gray8(plane: &Plane, curve: &Curve) -> Vec<u8> {
-    plane.data.par_iter().map(|&v| (curve.eval(v) * 255.0).round() as u8).collect()
+    plane
+        .data
+        .par_iter()
+        .map(|&v| (curve.eval(v) * 255.0).round() as u8)
+        .collect()
 }
 
 /// Map a rectangle of the upright image (after `orientation`) back to the
 /// sensor frame of a `w`×`h` source, using the same table as `orient`.
-fn source_rect(orientation: u16, w: usize, h: usize, x: usize, y: usize, rw: usize, rh: usize) -> (usize, usize, usize, usize) {
+fn source_rect(
+    orientation: u16,
+    w: usize,
+    h: usize,
+    x: usize,
+    y: usize,
+    rw: usize,
+    rh: usize,
+) -> (usize, usize, usize, usize) {
     let map = |ox: usize, oy: usize| -> (usize, usize) {
         match orientation {
             2 => (w - 1 - ox, oy),
@@ -227,7 +273,12 @@ fn source_rect(orientation: u16, w: usize, h: usize, x: usize, y: usize, rw: usi
             _ => (ox, oy),
         }
     };
-    let corners = [map(x, y), map(x + rw - 1, y), map(x, y + rh - 1), map(x + rw - 1, y + rh - 1)];
+    let corners = [
+        map(x, y),
+        map(x + rw - 1, y),
+        map(x, y + rh - 1),
+        map(x + rw - 1, y + rh - 1),
+    ];
     let x0 = corners.iter().map(|c| c.0).min().unwrap_or(0);
     let x1 = corners.iter().map(|c| c.0).max().unwrap_or(0);
     let y0 = corners.iter().map(|c| c.1).min().unwrap_or(0);
@@ -257,7 +308,10 @@ impl Inner {
         Plane::from_vec(
             self.sep.lum.width,
             self.sep.lum.height,
-            self.mask8.par_iter().map(|&v| f64::from(v) / 255.0).collect(),
+            self.mask8
+                .par_iter()
+                .map(|&v| f64::from(v) / 255.0)
+                .collect(),
         )
     }
 
@@ -346,7 +400,9 @@ impl Developed {
         let mut g = lock_msg(self.inner.lock());
         let w = weights.core();
         w.validate()?;
-        let w = w.to_balanced(space.core(), g.info.wb).filtered(filter.core());
+        let w = w
+            .to_balanced(space.core(), g.info.wb)
+            .filtered(filter.core());
         w.validate()?;
         g.weights = w;
         g.filter = filter;
@@ -361,12 +417,18 @@ impl Developed {
     /// `extra_quarter_turns` clockwise.
     pub fn preview(&self, look: Look, extra_quarter_turns: u8) -> Result<GrayImage> {
         let g = lock_msg(self.inner.lock());
-        let pv = g.preview.as_ref().ok_or_else(|| MimizanError::Invalid { msg: "developed without preview planes".into() })?;
+        let pv = g.preview.as_ref().ok_or_else(|| MimizanError::Invalid {
+            msg: "developed without preview planes".into(),
+        })?;
         let curve = Curve::from_look(&look.to_file()?);
         let plane = mix_planes(&pv.lum, &pv.c1, &pv.c2, &g.weights);
         let bytes = gray8(&plane, &curve);
         let (w, h, data) = rotate_gray8_cw(plane.width, plane.height, &bytes, extra_quarter_turns);
-        Ok(GrayImage { width: w as u32, height: h as u32, data })
+        Ok(GrayImage {
+            width: w as u32,
+            height: h as u32,
+            data,
+        })
     }
 
     /// 1:1 window of the full-resolution negative. The rectangle is in the
@@ -375,6 +437,7 @@ impl Developed {
     /// > 0 sharpens the window the way the full-size export would (same
     /// radius, saturation mask respected), with a margin so the blur does
     /// not see the window edge.
+    #[allow(clippy::too_many_arguments)] // UniFFI method: a flat argument list is the interface
     pub fn detail(
         &self,
         x: u32,
@@ -388,7 +451,11 @@ impl Developed {
         let g = lock_msg(self.inner.lock());
         let o = rotated(g.orientation, extra_quarter_turns);
         let (sw, sh) = (g.sep.lum.width, g.sep.lum.height);
-        let (dw, dh) = if matches!(o, 5..=8) { (sh, sw) } else { (sw, sh) };
+        let (dw, dh) = if matches!(o, 5..=8) {
+            (sh, sw)
+        } else {
+            (sw, sh)
+        };
         let x0 = (x as usize).min(dw.saturating_sub(1));
         let y0 = (y as usize).min(dh.saturating_sub(1));
         let rw = (width as usize).clamp(1, dw - x0);
@@ -397,12 +464,20 @@ impl Developed {
         // Radius the export would use, from the same geometry.
         let usm = usm_amount.clamp(0.0, 1.5);
         let r_px = if usm > 0.0 {
-            let params = PrintParams { look: look.to_file()?, usm_amount: usm, ..Default::default() };
+            let params = PrintParams {
+                look: look.to_file()?,
+                usm_amount: usm,
+                ..Default::default()
+            };
             pr::geometry(sw, sh, o, &params).3
         } else {
             0.0
         };
-        let margin = if usm > 0.0 { (3.0 * r_px).ceil() as usize + 1 } else { 0 };
+        let margin = if usm > 0.0 {
+            (3.0 * r_px).ceil() as usize + 1
+        } else {
+            0
+        };
         let mx0 = x0.saturating_sub(margin);
         let my0 = y0.saturating_sub(margin);
         let mx1 = (x0 + rw + margin).min(dw);
@@ -428,15 +503,25 @@ impl Developed {
         };
         // Cut the margin away again.
         let window = crop(&encoded, x0 - mx0, y0 - my0, rw, rh);
-        let data = window.data.par_iter().map(|&v| (v.clamp(0.0, 1.0) * 255.0).round() as u8).collect();
-        Ok(GrayImage { width: rw as u32, height: rh as u32, data })
+        let data = window
+            .data
+            .par_iter()
+            .map(|&v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)
+            .collect();
+        Ok(GrayImage {
+            width: rw as u32,
+            height: rh as u32,
+            data,
+        })
     }
 
     /// 256-bin histogram of the current mix after `look`, from the preview
     /// planes (the viewer's picture, not the TIFF's exact clipping counts).
     pub fn histogram(&self, look: Look) -> Result<Vec<u64>> {
         let g = lock_msg(self.inner.lock());
-        let pv = g.preview.as_ref().ok_or_else(|| MimizanError::Invalid { msg: "developed without preview planes".into() })?;
+        let pv = g.preview.as_ref().ok_or_else(|| MimizanError::Invalid {
+            msg: "developed without preview planes".into(),
+        })?;
         let curve = Curve::from_look(&look.to_file()?);
         let plane = mix_planes(&pv.lum, &pv.c1, &pv.c2, &g.weights);
         let mut bins = vec![0u64; 256];
@@ -451,7 +536,11 @@ impl Developed {
     /// (exact inverse of the known resampling and display losses, gain cap
     /// 2x; the desktop export's `_2048px.jpg`), unsharp masking with
     /// `usm_amount` (0..1.5, radius from the print geometry, saturation
-    /// masked), or nothing sharpened. Screen compensation wins over USM.
+    /// masked), Richardson–Lucy on every pixel (`deconvolution`,
+    /// `deconv_iterations` passes, same radius, no mask) followed by USM
+    /// when `usm_amount` > 0, or nothing sharpened. Screen compensation
+    /// wins over both.
+    #[allow(clippy::too_many_arguments)] // UniFFI method: a flat argument list is the interface
     pub fn export_jpeg(
         &self,
         path: String,
@@ -460,6 +549,8 @@ impl Developed {
         screen_compensation: bool,
         extra_quarter_turns: u8,
         usm_amount: f64,
+        deconvolution: bool,
+        deconv_iterations: u32,
     ) -> Result<ExportInfo> {
         let g = lock_msg(self.inner.lock());
         let params = PrintParams {
@@ -467,24 +558,52 @@ impl Developed {
             size: long_edge_px.map(|n| PrintSize::LongEdgePx(n.max(1) as usize)),
             screen: screen_compensation.then(ScreenSharpen::default),
             usm_amount: usm_amount.clamp(0.0, 1.5),
+            deconvolution,
+            deconv_iterations: if deconvolution {
+                deconv_iterations.clamp(1, 10)
+            } else {
+                0
+            },
             ..Default::default()
         };
         let p = PathBuf::from(path);
         if !pr::is_jpeg_path(&p) {
-            return Err(MimizanError::Invalid { msg: "export_jpeg needs a .jpg path".into() });
+            return Err(MimizanError::Invalid {
+                msg: "export_jpeg needs a .jpg path".into(),
+            });
         }
         g.export(&p, &params, extra_quarter_turns)
     }
 
     /// Print as 16-bit grey TIFF, gamma 2.2 ICC, full resolution, `look`
-    /// applied, USM with `usm_amount` (0 = nothing sharpened): the file to
-    /// work on (the desktop export).
-    pub fn export_tiff16(&self, path: String, look: Look, extra_quarter_turns: u8, usm_amount: f64) -> Result<ExportInfo> {
+    /// applied. Richardson–Lucy runs first when `deconvolution` is set,
+    /// then USM when `usm_amount` > 0.
+    pub fn export_tiff16(
+        &self,
+        path: String,
+        look: Look,
+        extra_quarter_turns: u8,
+        usm_amount: f64,
+        deconvolution: bool,
+        deconv_iterations: u32,
+    ) -> Result<ExportInfo> {
         let g = lock_msg(self.inner.lock());
-        let params = PrintParams { look: look.to_file()?, usm_amount: usm_amount.clamp(0.0, 1.5), ..Default::default() };
+        let params = PrintParams {
+            look: look.to_file()?,
+            usm_amount: usm_amount.clamp(0.0, 1.5),
+            deconvolution,
+            deconv_iterations: if deconvolution {
+                deconv_iterations.clamp(1, 10)
+            } else {
+                0
+            },
+            ..Default::default()
+        };
         let p = PathBuf::from(path);
         if pr::is_jpeg_path(&p) {
-            return Err(MimizanError::Invalid { msg: "export_tiff16 needs a .tif path".into() });
+            return Err(MimizanError::Invalid {
+                msg: "export_tiff16 needs a .tif path".into(),
+            });
         }
         g.export(&p, &params, extra_quarter_turns)
     }
@@ -498,12 +617,36 @@ impl Developed {
         let t = Instant::now();
         let p = PathBuf::from(path);
         let plane = mix(&g.sep, &g.weights);
-        let desc = serde_json::to_string(&g.info).map_err(|e| MimizanError::Internal { msg: e.to_string() })?;
-        write_gray16(&p, &plane, &TiffMeta { description: &desc, trc: GrayTrc::Linear, orientation: g.orientation, dpi: None })?;
-        let stem = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let desc = serde_json::to_string(&g.info)
+            .map_err(|e| MimizanError::Internal { msg: e.to_string() })?;
+        write_gray16(
+            &p,
+            &plane,
+            &TiffMeta {
+                description: &desc,
+                trc: GrayTrc::Linear,
+                orientation: g.orientation,
+                dpi: None,
+            },
+        )?;
+        let stem = p
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
         let side = p.with_file_name(format!("{stem}.mask.tif"));
-        write_gray8(&side, plane.width, plane.height, &g.mask8, "mimizan mask: 255*max(M), 255=saturated")?;
-        Ok(ExportInfo { path: p.display().to_string(), width: plane.width as u32, height: plane.height as u32, ms: t.elapsed().as_millis() as u64 })
+        write_gray8(
+            &side,
+            plane.width,
+            plane.height,
+            &g.mask8,
+            "mimizan mask: 255*max(M), 255=saturated",
+        )?;
+        Ok(ExportInfo {
+            path: p.display().to_string(),
+            width: plane.width as u32,
+            height: plane.height as u32,
+            ms: t.elapsed().as_millis() as u64,
+        })
     }
 
     /// 16-bit samples of the current full-resolution mix (`round(clamp(v)*65535)`,
@@ -513,10 +656,12 @@ impl Developed {
         let g = lock_msg(self.inner.lock());
         let plane = mix(&g.sep, &g.weights);
         let mut out = vec![0u8; plane.data.len() * 2];
-        out.par_chunks_mut(2).zip(plane.data.par_iter()).for_each(|(o, &v)| {
-            let q = (v.clamp(0.0, 1.0) * 65535.0).round() as u16;
-            o.copy_from_slice(&q.to_le_bytes());
-        });
+        out.par_chunks_mut(2)
+            .zip(plane.data.par_iter())
+            .for_each(|(o, &v)| {
+                let q = (v.clamp(0.0, 1.0) * 65535.0).round() as u16;
+                o.copy_from_slice(&q.to_le_bytes());
+            });
         out
     }
 

@@ -15,7 +15,9 @@ pub fn as_shot_from_gains(g: &[f64]) -> Result<[f64; 3]> {
             let g_mean = 0.5 * (g[1] + g[2]);
             Ok([g[0] / g_mean, 1.0, g[3] / g_mean])
         }
-        _ => Err(MimizanError::Invalid { msg: "wb_gains needs 3 (RGB) or 4 (RGGB) positive values".into() }),
+        _ => Err(MimizanError::Invalid {
+            msg: "wb_gains needs 3 (RGB) or 4 (RGGB) positive values".into(),
+        }),
     }
 }
 
@@ -24,25 +26,43 @@ pub fn as_shot_from_gains(g: &[f64]) -> Result<[f64; 3]> {
 pub fn to_raw_frame(input: &RawInput) -> Result<RawFrame> {
     let (w, h) = (input.width as usize, input.height as usize);
     if w < 4 || h < 4 {
-        return Err(MimizanError::Invalid { msg: format!("frame {w}x{h} is too small") });
+        return Err(MimizanError::Invalid {
+            msg: format!("frame {w}x{h} is too small"),
+        });
     }
     if input.data.len() != w * h * 2 {
         return Err(MimizanError::Invalid {
-            msg: format!("data has {} bytes, expected {}x{}x2 = {}", input.data.len(), w, h, w * h * 2),
+            msg: format!(
+                "data has {} bytes, expected {}x{}x2 = {}",
+                input.data.len(),
+                w,
+                h,
+                w * h * 2
+            ),
         });
     }
     if input.black_tile.len() != 4 && input.black_tile.len() != 1 {
         return Err(MimizanError::Invalid {
-            msg: format!("black_tile needs 1 or 4 values, got {}", input.black_tile.len()),
+            msg: format!(
+                "black_tile needs 1 or 4 values, got {}",
+                input.black_tile.len()
+            ),
         });
     }
     if input.white_level <= 0.0 || !input.white_level.is_finite() {
-        return Err(MimizanError::Invalid { msg: format!("white level {} is not positive", input.white_level) });
+        return Err(MimizanError::Invalid {
+            msg: format!("white level {} is not positive", input.white_level),
+        });
     }
     let black_tile: [f64; 4] = if input.black_tile.len() == 1 {
         [input.black_tile[0]; 4]
     } else {
-        [input.black_tile[0], input.black_tile[1], input.black_tile[2], input.black_tile[3]]
+        [
+            input.black_tile[0],
+            input.black_tile[1],
+            input.black_tile[2],
+            input.black_tile[3],
+        ]
     };
     for b in black_tile {
         if !b.is_finite() || b < 0.0 || b >= input.white_level {
@@ -54,10 +74,18 @@ pub fn to_raw_frame(input: &RawInput) -> Result<RawFrame> {
 
     let crop = match input.crop {
         Some(r) => {
-            let rect = Rect { x: r.x as usize, y: r.y as usize, w: r.width as usize, h: r.height as usize };
+            let rect = Rect {
+                x: r.x as usize,
+                y: r.y as usize,
+                w: r.width as usize,
+                h: r.height as usize,
+            };
             if rect.w < 4 || rect.h < 4 || rect.x + rect.w > w || rect.y + rect.h > h {
                 return Err(MimizanError::Invalid {
-                    msg: format!("crop {}x{}+{}+{} does not fit {}x{}", rect.w, rect.h, rect.x, rect.y, w, h),
+                    msg: format!(
+                        "crop {}x{}+{}+{} does not fit {}x{}",
+                        rect.w, rect.h, rect.x, rect.y, w, h
+                    ),
                 });
             }
             rect
@@ -71,11 +99,17 @@ pub fn to_raw_frame(input: &RawInput) -> Result<RawFrame> {
     };
 
     let xyz_to_cam = match &input.xyz_to_cam {
-        Some(m) if m.len() == 9 && m.iter().all(|v| v.is_finite()) && m.iter().any(|v| *v != 0.0) => {
+        Some(m)
+            if m.len() == 9 && m.iter().all(|v| v.is_finite()) && m.iter().any(|v| *v != 0.0) =>
+        {
             Some([[m[0], m[1], m[2]], [m[3], m[4], m[5]], [m[6], m[7], m[8]]])
         }
         Some(m) if m.len() == 9 => None,
-        Some(_) => return Err(MimizanError::Invalid { msg: "xyz_to_cam needs 9 values".into() }),
+        Some(_) => {
+            return Err(MimizanError::Invalid {
+                msg: "xyz_to_cam needs 9 values".into(),
+            })
+        }
         None => None,
     };
 
@@ -93,11 +127,20 @@ pub fn to_raw_frame(input: &RawInput) -> Result<RawFrame> {
     let samples: Vec<u16> = input
         .data
         .par_chunks_exact(2 * w)
-        .flat_map_iter(|row| row.as_chunks::<2>().0.iter().map(|p| u16::from_le_bytes(*p)))
+        .flat_map_iter(|row| {
+            row.as_chunks::<2>()
+                .0
+                .iter()
+                .map(|p| u16::from_le_bytes(*p))
+        })
         .collect();
 
     let bits = ((input.white_level + 1.0).log2().ceil() as usize).clamp(8, 16);
-    let orientation = if (1..=8).contains(&input.orientation) { input.orientation as u16 } else { 0 };
+    let orientation = if (1..=8).contains(&input.orientation) {
+        input.orientation as u16
+    } else {
+        0
+    };
 
     Ok(RawFrame {
         make: input.make.clone(),
@@ -141,7 +184,9 @@ fn exposure_rational(ns: u64) -> (u32, u32) {
 /// unchanged (means of equal black levels), the noise sigma halves.
 pub fn bin_cfa_2x(f: &RawFrame) -> Result<RawFrame> {
     let SensorKind::Bayer(_) = f.kind else {
-        return Err(MimizanError::Unsupported { msg: "binning needs a Bayer frame".into() });
+        return Err(MimizanError::Unsupported {
+            msg: "binning needs a Bayer frame".into(),
+        });
     };
     let mut c = f.crop;
     if c.x & 1 == 1 {
@@ -155,7 +200,9 @@ pub fn bin_cfa_2x(f: &RawFrame) -> Result<RawFrame> {
     let bw = c.w / 4;
     let bh = c.h / 4;
     if bw < 2 || bh < 2 {
-        return Err(MimizanError::Invalid { msg: format!("crop {}x{} too small to bin", c.w, c.h) });
+        return Err(MimizanError::Invalid {
+            msg: format!("crop {}x{} too small to bin", c.w, c.h),
+        });
     }
     let (nw, nh) = (bw * 2, bh * 2);
     let src_w = f.width;
@@ -171,7 +218,10 @@ pub fn bin_cfa_2x(f: &RawFrame) -> Result<RawFrame> {
             let dx = nx & 1;
             let x0 = c.x + 4 * i + dx;
             let x1 = x0 + 2;
-            let s = data.get(y0 * src_w + x0) + data.get(y0 * src_w + x1) + data.get(y1 * src_w + x0) + data.get(y1 * src_w + x1);
+            let s = data.get(y0 * src_w + x0)
+                + data.get(y0 * src_w + x1)
+                + data.get(y1 * src_w + x0)
+                + data.get(y1 * src_w + x1);
             *o = (0.25 * s) as f32;
         }
     });
@@ -188,7 +238,12 @@ pub fn bin_cfa_2x(f: &RawFrame) -> Result<RawFrame> {
         kind: f.kind,
         black_tile: f.black_tile,
         white_rgb: f.white_rgb,
-        crop: Rect { x: 0, y: 0, w: nw, h: nh },
+        crop: Rect {
+            x: 0,
+            y: 0,
+            w: nw,
+            h: nh,
+        },
         orientation: f.orientation,
         xyz_to_cam: f.xyz_to_cam,
         wb_as_shot: f.wb_as_shot,
@@ -234,7 +289,15 @@ mod tests {
         assert_eq!(f.data.get(3 + 2 * 8), 23.0);
         assert_eq!(f.wb_as_shot, Some([2.0, 1.0, 1.5]));
         assert_eq!(f.orientation, 6);
-        assert_eq!(f.crop, Rect { x: 0, y: 0, w: 8, h: 6 });
+        assert_eq!(
+            f.crop,
+            Rect {
+                x: 0,
+                y: 0,
+                w: 8,
+                h: 6
+            }
+        );
     }
 
     #[test]
@@ -243,7 +306,12 @@ mod tests {
         inp.data.pop();
         assert!(to_raw_frame(&inp).is_err());
         let mut inp = input(8, 6, |_, _| 100);
-        inp.crop = Some(RawRect { x: 2, y: 0, width: 8, height: 4 });
+        inp.crop = Some(RawRect {
+            x: 2,
+            y: 0,
+            width: 8,
+            height: 4,
+        });
         assert!(to_raw_frame(&inp).is_err());
     }
 
@@ -268,8 +336,17 @@ mod tests {
         // New (2,0) is R of block 1: ramp +1.
         assert_eq!(b.data.get(2), 101.0);
         // Odd crop origin is shifted to even: phase preserved.
-        let mut inp2 = input(17, 13, |x, y| if (x & 1, y & 1) == (0, 0) { 100 } else { 200 });
-        inp2.crop = Some(RawRect { x: 1, y: 1, width: 16, height: 12 });
+        let mut inp2 = input(
+            17,
+            13,
+            |x, y| if (x & 1, y & 1) == (0, 0) { 100 } else { 200 },
+        );
+        inp2.crop = Some(RawRect {
+            x: 1,
+            y: 1,
+            width: 16,
+            height: 12,
+        });
         let f2 = to_raw_frame(&inp2).unwrap();
         let b2 = bin_cfa_2x(&f2).unwrap();
         assert_eq!(b2.data.get(0), 100.0);

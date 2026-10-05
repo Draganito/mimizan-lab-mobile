@@ -35,7 +35,9 @@ pub fn init_logging() {
     #[cfg(target_os = "android")]
     {
         use tracing_subscriber::prelude::*;
-        let _ = tracing_subscriber::registry().with(tracing_android::layer("mimizan").ok()).try_init();
+        let _ = tracing_subscriber::registry()
+            .with(tracing_android::layer("mimizan").ok())
+            .try_init();
     }
 }
 
