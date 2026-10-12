@@ -14,8 +14,26 @@ use mimizan_core::plane::Plane;
 use mimizan_core::print::{
     self as pr, orient, rotate_gray8_cw, rotated, PrintParams, PrintSize, PrintSource,
 };
+use mimizan_core::recipe::{Recipe, Sharpen};
 use mimizan_core::resize::{fit_dims, resize};
 use mimizan_core::screen::ScreenSharpen;
+
+/// The sharpening mode of an export from the bridge's flat arguments:
+/// screen compensation wins, then Richardson–Lucy with an optional USM,
+/// then USM alone, else off.
+fn sharpen_mode(screen: bool, usm_amount: f64, deconvolution: bool, deconv_iterations: u32) -> Sharpen {
+    let usm = usm_amount.clamp(0.0, 1.5);
+    if screen {
+        let s = ScreenSharpen::default();
+        Sharpen::Screen { amount: s.amount, max_gain: s.max_gain }
+    } else if deconvolution {
+        Sharpen::Deconv { passes: deconv_iterations.clamp(1, 10), usm_amount: usm }
+    } else if usm > 0.0 {
+        Sharpen::Usm { amount: usm }
+    } else {
+        Sharpen::Off
+    }
+}
 use mimizan_core::separate::Separation;
 use mimizan_core::tiffout::{write_gray16, write_gray8, TiffMeta};
 use mimizan_core::usm::unsharp;
@@ -414,7 +432,14 @@ impl Developed {
         // Radius the export would use, from the same geometry.
         let usm = usm_amount.clamp(0.0, 1.5);
         let r_px = if usm > 0.0 {
-            let params = PrintParams { look: look.to_file()?, usm_amount: usm, ..Default::default() };
+            let params = PrintParams {
+                recipe: Recipe {
+                    curve: look.to_file()?,
+                    sharpen: Sharpen::Usm { amount: usm },
+                    ..Recipe::default()
+                },
+                ..Default::default()
+            };
             pr::geometry(sw, sh, o, &params).3
         } else {
             0.0
@@ -489,12 +514,12 @@ impl Developed {
     ) -> Result<ExportInfo> {
         let g = lock_msg(self.inner.lock());
         let params = PrintParams {
-            look: look.to_file()?,
-            size: long_edge_px.map(|n| PrintSize::LongEdgePx(n.max(1) as usize)),
-            screen: screen_compensation.then(ScreenSharpen::default),
-            usm_amount: usm_amount.clamp(0.0, 1.5),
-            deconvolution,
-            deconv_iterations: if deconvolution { deconv_iterations.clamp(1, 10) } else { 0 },
+            recipe: Recipe {
+                curve: look.to_file()?,
+                size: long_edge_px.map(|n| PrintSize::LongEdgePx(n.max(1) as usize)),
+                sharpen: sharpen_mode(screen_compensation, usm_amount, deconvolution, deconv_iterations),
+                ..Recipe::default()
+            },
             ..Default::default()
         };
         let p = PathBuf::from(path);
@@ -518,10 +543,11 @@ impl Developed {
     ) -> Result<ExportInfo> {
         let g = lock_msg(self.inner.lock());
         let params = PrintParams {
-            look: look.to_file()?,
-            usm_amount: usm_amount.clamp(0.0, 1.5),
-            deconvolution,
-            deconv_iterations: if deconvolution { deconv_iterations.clamp(1, 10) } else { 0 },
+            recipe: Recipe {
+                curve: look.to_file()?,
+                sharpen: sharpen_mode(false, usm_amount, deconvolution, deconv_iterations),
+                ..Recipe::default()
+            },
             ..Default::default()
         };
         let p = PathBuf::from(path);
