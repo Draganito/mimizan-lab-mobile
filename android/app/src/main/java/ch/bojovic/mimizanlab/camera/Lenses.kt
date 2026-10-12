@@ -41,8 +41,6 @@ data class LensInfo(
     /** `SENSOR_INFO_COLOR_FILTER_ARRANGEMENT` of the sensor (0 when unknown). */
     val cfa: Int = 0,
 ) {
-    val isUltraWide: Boolean get() = equivalentMm in 1..20
-
     /** Id whose characteristics describe the sensor (black level, CFA, arrays). */
     val sensorId: String get() = physicalId ?: cameraId
 

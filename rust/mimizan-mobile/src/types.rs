@@ -459,14 +459,6 @@ pub fn look_with_contrast(look: Look, contrast: f64) -> Result<Look> {
     Ok(Look { name: format!("{} contrast {:+.2}", look.name, c), points, gamma22: look.gamma22 })
 }
 
-/// 65 samples of [Curve::eval] on 0..1, the display value of a linear input.
-#[uniffi::export]
-pub fn look_lut(look: Look) -> Result<Vec<f32>> {
-    let curve = Curve::from_look(&look.to_file()?);
-    const N: usize = 64;
-    Ok((0..=N).map(|i| curve.eval(i as f64 / N as f64) as f32).collect())
-}
-
 /// `n + 1` display values of `look` over the *encoded* axis: entry `i` is
 /// the output for the linear value whose plain gamma-2.2 code is `i/n`
 /// (the linear value itself when the look has no gamma). A renderer that

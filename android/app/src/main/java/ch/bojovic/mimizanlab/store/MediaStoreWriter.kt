@@ -38,7 +38,6 @@ class MediaStoreWriter(private val context: Context) {
 
     companion object {
         const val ALBUM = "Mimizan Lab"
-        const val MIME_DNG = "image/x-adobe-dng"
         const val MIME_JPEG = "image/jpeg"
         const val MIME_TIFF = "image/tiff"
     }

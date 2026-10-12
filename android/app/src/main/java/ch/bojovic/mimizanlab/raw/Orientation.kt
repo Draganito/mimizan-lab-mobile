@@ -4,7 +4,7 @@ import android.view.OrientationEventListener
 
 /**
  * Orientation bookkeeping: the Camera2 JPEG rotation rule turned into the TIFF
- * orientation tag the Rust side (and the DNG) carry.
+ * orientation tag the Rust side carries.
  */
 object Orientation {
     /** Snap an [OrientationEventListener] angle to 0/90/180/270; -1 = unknown. */
@@ -31,6 +31,4 @@ object Orientation {
         else -> 1
     }
 
-    fun tiff(sensorOrientation: Int, deviceDegrees: Int): Int =
-        tiffFromRotation(rotationDegrees(sensorOrientation, deviceDegrees))
 }

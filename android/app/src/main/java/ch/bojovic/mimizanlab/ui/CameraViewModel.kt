@@ -16,10 +16,8 @@ import ch.bojovic.mimizanlab.camera.LensInfo
 import ch.bojovic.mimizanlab.engine.Darkroom
 import ch.bojovic.mimizanlab.engine.DevelopSettings
 import ch.bojovic.mimizanlab.engine.Filter
-import ch.bojovic.mimizanlab.engine.FilterInfo
 import ch.bojovic.mimizanlab.engine.Look
 import ch.bojovic.mimizanlab.engine.SeparationMode
-import ch.bojovic.mimizanlab.engine.filters
 import ch.bojovic.mimizanlab.engine.lookLutEncoded
 import ch.bojovic.mimizanlab.engine.lookNeutral
 import ch.bojovic.mimizanlab.engine.lookReference
@@ -47,8 +45,6 @@ data class ViewfinderSettings(
 class CameraViewModel(app: Application) : AndroidViewModel(app) {
     val controller = CameraController(app)
     val darkroom = Darkroom.get(app)
-    val filterInfos: List<FilterInfo> = filters()
-
     val lenses: List<LensInfo> get() = controller.lenses
     val stream = controller.state
     val histogram = controller.histogram

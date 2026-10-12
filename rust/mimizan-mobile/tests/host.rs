@@ -160,8 +160,11 @@ fn encoded_lut_is_the_look_over_the_gamma_axis() {
     let e = 0.18f64.powf(1.0 / 2.2);
     let v = lut[(e * 1000.0).round() as usize];
     assert!((v - 0.612).abs() < 0.01, "got {v}");
-    let linear = look_lut(look_reference()).unwrap();
-    assert!((linear[32] - lut[(0.5f64.powf(1.0 / 2.2) * 1000.0).round() as usize]).abs() < 0.01);
+    // The look at linear 0.5, which the encoded table holds at the
+    // gamma-2.2 code of 0.5.
+    let at_half =
+        mimizan_core::curve::Curve::from_look(&look_reference().to_file().unwrap()).eval(0.5) as f32;
+    assert!((at_half - lut[(0.5f64.powf(1.0 / 2.2) * 1000.0).round() as usize]).abs() < 0.01);
 }
 
 #[test]

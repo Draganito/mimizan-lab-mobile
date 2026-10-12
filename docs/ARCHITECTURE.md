@@ -6,7 +6,7 @@
 ┌──────────────────────────── Android app (Kotlin / Compose) ────────────────────────────┐
 │ ui/        CameraScreen · MonoViewfinder (AGSL) · ReviewScreen (zoom, remix) · RollScreen │
 │ camera/    Lenses (RAW-capable back cameras) · CameraController (Camera2 session)          │
-│ raw/       RawFrameBridge (Characteristics + CaptureResult -> RawInput, DNG) · Orientation  │
+│ raw/       RawFrameBridge (Characteristics + CaptureResult -> RawInput) · Orientation     │
 │ engine/    Darkroom (roll state, queue, exports) · DevelopService (foreground)              │
 │ store/     RawCache (app cache: .raw + .json) · MediaStoreWriter (Pictures/Mimizan Lab)     │
 │ engine/*   generated UniFFI bindings (package ch.bojovic.mimizanlab.engine)                 │
@@ -90,8 +90,8 @@ partial wake lock and stops itself when the queue is empty. For each frame:
   saturation mask of the full frame is dropped after the first mix.
 * The `Developed` handle replaces the previous one in `Darkroom.current`
   (the old one is closed -> native memory freed); the thumbnail and, if
-  enabled, a full-size JPEG (reference look, no sharpening) are produced
-  right away.
+  enabled, a full-size JPEG (the settings look, with the settings
+  sharpening) are produced right away.
 
 Memory budget per development at 12.5 MP (f64 planes): ingest ~200 MB,
 Dubois separation ~1 GB peak (measured 1016 MB on the host for the same
@@ -116,13 +116,14 @@ separation:
   `Prefs` (settings sheet) and is also used for the automatic JPEG.
 * pinch zoom beyond the preview resolution -> `detail(x, y, w, h, look,
   turns, usm_amount)` for the visible window, drawn 1:1 on top of the
-  scaled preview. With `usm_amount > 0` the window is mixed with a margin
-  of `3r + 1` px, the curve is applied, `usm::unsharp` runs with the radius
+  scaled preview. The app passes `usm_amount = 0` (the 1:1 window is the
+  plain mix); with `usm_amount > 0` the window is mixed with a margin of
+  `3r + 1` px, the curve is applied, `usm::unsharp` runs with the radius
   `print::geometry` gives for the full-size print (1.49 px for 4080x3072 at
   300 dpi) and the saturation mask window (`mask8` crop), then the margin
   is cut off again.
-* export -> `export_jpeg` (full size, with `usm_amount`), `export_tiff16`
-  (with `usm_amount`),
+* export -> `export_jpeg` (full size, with `usm_amount`, `deconvolution`,
+  `deconv_iterations`), `export_tiff16` (with the same),
   `export_negative` (linear 16-bit TIFF + `.mask.tif`), written to a
   scratch file and imported into MediaStore. JPEG quality is the core's
   fixed 100.

@@ -5,5 +5,4 @@
     <string name="notification_channel_develop_desc">Progress of RAW development in the background</string>
     <string name="developing">Developing</string>
     <string name="developed">Developed</string>
-    <string name="develop_failed">Development failed</string>
 </resources>

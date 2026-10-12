@@ -351,7 +351,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                     if (deconvolution) {
                         "Runs first, on every pixel. If USM is above zero, it sharpens that result afterwards. USM off leaves only the deconvolution."
                     } else {
-                        "USM sharpens the automatic JPEG and the full-size JPEG / TIFF. The 2048 px JPEG keeps its screen compensation."
+                        "USM sharpens the automatic JPEG and the full-size JPEG / TIFF."
                     },
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )

@@ -105,8 +105,9 @@ cargo ndk -t arm64-v8a --platform 34 build --release --lib
    again (`remix`).
 3. The shutter records one RAW frame into the app cache (no DNG is
    written). The development runs in a foreground service (notification),
-   one frame at a time, and a full-size JPEG (reference look, the default
-   contrast, quality 100) lands in `Pictures/Mimizan Lab` when it is done.
+   one frame at a time, and a full-size JPEG (the settings look, the
+   default contrast, quality 100) lands in `Pictures/Mimizan Lab` when it
+   is done.
    The settings sheet (slider icon) chooses the separation (Dubois /
    adaptive / mask off), Quick mode, whether the JPEG is saved
    automatically, the default contrast, the unsharp-mask amount for the

@@ -569,10 +569,11 @@ impl Developed {
             ms: t.elapsed().as_millis() as u64,
         })
     }
+}
 
-    /// 16-bit samples of the current full-resolution mix (`round(clamp(v)*65535)`,
-    /// little-endian), sensor frame, for tests and for callers that want to
-    /// write their own files.
+impl Developed {
+    /// 16-bit samples of the current full-resolution mix, little-endian,
+    /// sensor frame (host tests).
     pub fn negative_u16_le(&self) -> Vec<u8> {
         let g = lock_msg(self.inner.lock());
         let plane = mix(&g.sep, &g.weights);
@@ -584,14 +585,11 @@ impl Developed {
         out
     }
 
-    /// Drop the preview planes (about 3 x 8 bytes per preview pixel) when
-    /// the viewer is closed but exports may still follow.
+    /// Drop the preview planes (about 3 x 8 bytes per preview pixel).
     pub fn release_preview(&self) {
         lock_msg(self.inner.lock()).preview = None;
     }
-}
 
-impl Developed {
     /// Full-resolution mix plane (host tests).
     pub fn mix_plane(&self) -> Plane {
         let g = lock_msg(self.inner.lock());

@@ -37,7 +37,6 @@ tracing-android = "0.2"
 tracing-subscriber = "0.3"
 
 [dev-dependencies]
-approx = "0.5"
 
 [profile.release]
 opt-level = 3

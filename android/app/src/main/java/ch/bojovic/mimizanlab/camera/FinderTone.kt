@@ -52,10 +52,6 @@ class FinderTone(
     /** Display value of the linear gray `i / (size - 1)`, for the histogram's inner loop. */
     val grayTable: FloatArray by lazy { FloatArray(1024) { displayOfGray(it / 1023f) } }
 
-    /** Display value 0..1 of one linear-sRGB pixel. */
-    fun display(r: Float, g: Float, b: Float): Float =
-        displayOfGray((v[0] * r + v[1] * g + v[2] * b).coerceIn(0f, 1f))
-
     private fun displayOfGray(gray: Float): Float {
         val e = if (invGamma == 1f) gray else gray.toDouble().pow(invGamma.toDouble()).toFloat()
         val x = e * (lut.size - 1)

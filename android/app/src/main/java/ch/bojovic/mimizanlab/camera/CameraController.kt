@@ -337,8 +337,6 @@ class CameraController(context: Context) {
         if (session != null) startRepeatingLocked()
     }
 
-    fun currentExposure(): ExposureSettings = exposure
-
     suspend fun setFlash(mode: FlashMode) = lock.withLock {
         flash = mode
         _state.update { it.copy(flash = mode) }

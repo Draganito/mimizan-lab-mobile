@@ -38,16 +38,6 @@ object Format {
         Filter.BLUE47 -> "B47"
     }
 
-    fun filterLong(f: Filter): String = when (f) {
-        Filter.NONE -> "Panchromatic (no filter)"
-        Filter.YELLOW8 -> "Yellow 8"
-        Filter.YELLOW_GREEN11 -> "Yellow-green 11"
-        Filter.ORANGE16 -> "Orange 16"
-        Filter.RED25 -> "Red 25"
-        Filter.GREEN58 -> "Green 58"
-        Filter.BLUE47 -> "Blue 47"
-    }
-
     /** Log-spaced shutter slider: 0..1 -> [lo, hi] ns. */
     fun sliderToNs(t: Float, lo: Long, hi: Long): Long {
         val a = ln(lo.toDouble()); val b = ln(hi.toDouble())

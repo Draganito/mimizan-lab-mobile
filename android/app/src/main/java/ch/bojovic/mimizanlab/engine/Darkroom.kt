@@ -175,8 +175,6 @@ class Darkroom private constructor(private val context: Context) {
         DevelopService.start(context)
     }
 
-    suspend fun pendingCount(): Int = queueLock.withLock { queue.size }
-
     /** Develop the next queued frame; false when the queue is empty. */
     suspend fun runNext(onProgress: (String) -> Unit): Boolean {
         val name = queueLock.withLock { queue.removeFirstOrNull() } ?: return false
@@ -214,9 +212,6 @@ class Darkroom private constructor(private val context: Context) {
         }
         return true
     }
-
-    /** Same parameters the still uses, so the viewfinder develops the same negative. */
-    fun developParams(meta: RawMeta, s: DevelopSettings): DevelopParams = paramsFor(meta, s)
 
     /** The same, before any frame exists: camera file by device and sensor CFA. */
     fun developParamsFor(make: String, model: String, cfa: Int, s: DevelopSettings): DevelopParams {
