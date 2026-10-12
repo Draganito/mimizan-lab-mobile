@@ -878,7 +878,7 @@ dependencies = [
 
 [[package]]
 name = "mimizan-core"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "image",
  "libm",
@@ -894,7 +894,7 @@ dependencies = [
 
 [[package]]
 name = "mimizan-mobile"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "mimizan-core",
  "rayon",
