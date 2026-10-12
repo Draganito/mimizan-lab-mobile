@@ -226,9 +226,9 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(detail = null) }
     }
 
-    fun exportJpeg(fullSize: Boolean) = export(if (fullSize) "JPEG" else "JPEG 2048") { d, name, f ->
+    fun exportJpeg() = export("JPEG") { d, name, f ->
         darkroom.exportJpeg(
-            d, name, f, fullSize, look,
+            d, name, f, look,
             darkroom.prefs.sharpen.value, darkroom.prefs.deconvolution.value, darkroom.prefs.deconvPasses.value,
         )
     }

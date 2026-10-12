@@ -121,8 +121,8 @@ separation:
   `print::geometry` gives for the full-size print (1.49 px for 4080x3072 at
   300 dpi) and the saturation mask window (`mask8` crop), then the margin
   is cut off again.
-* export -> `export_jpeg` (full size with `usm_amount`, or 2048 px with
-  screen compensation), `export_tiff16` (with `usm_amount`),
+* export -> `export_jpeg` (full size, with `usm_amount`), `export_tiff16`
+  (with `usm_amount`),
   `export_negative` (linear 16-bit TIFF + `.mask.tif`), written to a
   scratch file and imported into MediaStore. JPEG quality is the core's
   fixed 100.

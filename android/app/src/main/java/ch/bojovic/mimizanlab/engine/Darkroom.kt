@@ -200,7 +200,7 @@ class Darkroom private constructor(private val context: Context) {
                 if (shot.settings.autoJpeg && shot.jpegUri == null) {
                     val look = lookWithContrast(baseLook(), prefs.contrast.value)
                     val uri = exportJpeg(
-                        developed, name, shot.settings.filter, fullSize = true, look = look,
+                        developed, name, shot.settings.filter, look = look,
                         usm = prefs.sharpen.value,
                         deconvolution = prefs.deconvolution.value,
                         deconvPasses = prefs.deconvPasses.value,
@@ -256,26 +256,24 @@ class Darkroom private constructor(private val context: Context) {
     }
 
     /**
-     * Export through a scratch file (Rust writes paths) into the album.
-     * `usm` (0..1.5) sharpens the full-size JPEG; the 2048 px version uses
-     * screen compensation instead. `deconvolution` replaces USM on the
-     * full-size file and is ignored for the 2048 px JPEG.
+     * Export through a scratch file (Rust writes paths) into the album:
+     * the full-size JPEG, `usm` (0..1.5) sharpened, or deconvolved first
+     * when `deconvolution` is set.
      */
     fun exportJpeg(
         d: Developed,
         name: String,
         filter: Filter,
-        fullSize: Boolean,
         look: Look = lookReference(),
         usm: Double = 0.0,
         deconvolution: Boolean = false,
         deconvPasses: Int = 2,
     ): Uri {
-        val suffix = suffixFor(filter) + if (fullSize) "" else "_2048"
+        val suffix = suffixFor(filter)
         val tmp = File(context.cacheDir, "$name$suffix.jpg")
-        val passes = if (fullSize && deconvolution) deconvPasses.coerceIn(1, 10).toUInt() else 0u
+        val passes = if (deconvolution) deconvPasses.coerceIn(1, 10).toUInt() else 0u
         try {
-            d.exportJpeg(tmp.absolutePath, look, if (fullSize) null else 2048u, !fullSize, 0u, if (fullSize) usm else 0.0, fullSize && deconvolution, passes)
+            d.exportJpeg(tmp.absolutePath, look, 0u, usm, deconvolution, passes)
             return media.importFile(tmp, "$name$suffix.jpg", MediaStoreWriter.MIME_JPEG)
         } finally {
             tmp.delete()

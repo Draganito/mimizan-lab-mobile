@@ -178,8 +178,7 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                                 sharpen > 0.0 -> ", sharpened"
                                 else -> ""
                             }
-                            DropdownMenuItem(text = { Text("JPEG, full size$usm") }, onClick = { exportMenu = false; vm.exportJpeg(true) })
-                            DropdownMenuItem(text = { Text("JPEG 2048 px, screen sharpened") }, onClick = { exportMenu = false; vm.exportJpeg(false) })
+                            DropdownMenuItem(text = { Text("JPEG$usm") }, onClick = { exportMenu = false; vm.exportJpeg() })
                             DropdownMenuItem(text = { Text("TIFF 16-bit$usm") }, onClick = { exportMenu = false; vm.exportTiff() })
                             DropdownMenuItem(text = { Text("Negative (linear TIFF + mask)") }, onClick = { exportMenu = false; vm.exportNegative() })
                         }

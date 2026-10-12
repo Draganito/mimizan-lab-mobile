@@ -11,22 +11,15 @@ use mimizan_core::icc::GrayTrc;
 use mimizan_core::mix::{mix, Weights as CoreWeights};
 use mimizan_core::pipeline::{negative_from_frame, NegativeInfo, NegativeParams};
 use mimizan_core::plane::Plane;
-use mimizan_core::print::{
-    self as pr, orient, rotate_gray8_cw, rotated, PrintParams, PrintSize, PrintSource,
-};
+use mimizan_core::print::{self as pr, orient, rotate_gray8_cw, rotated, PrintParams, PrintSource};
 use mimizan_core::recipe::{Recipe, Sharpen};
 use mimizan_core::resize::{fit_dims, resize};
-use mimizan_core::screen::ScreenSharpen;
 
 /// The sharpening mode of an export from the bridge's flat arguments:
-/// screen compensation wins, then Richardson–Lucy with an optional USM,
-/// then USM alone, else off.
-fn sharpen_mode(screen: bool, usm_amount: f64, deconvolution: bool, deconv_iterations: u32) -> Sharpen {
+/// Richardson–Lucy with an optional USM, then USM alone, else off.
+fn sharpen_mode(usm_amount: f64, deconvolution: bool, deconv_iterations: u32) -> Sharpen {
     let usm = usm_amount.clamp(0.0, 1.5);
-    if screen {
-        let s = ScreenSharpen::default();
-        Sharpen::Screen { amount: s.amount, max_gain: s.max_gain }
-    } else if deconvolution {
+    if deconvolution {
         Sharpen::Deconv { passes: deconv_iterations.clamp(1, 10), usm_amount: usm }
     } else if usm > 0.0 {
         Sharpen::Usm { amount: usm }
@@ -491,22 +484,16 @@ impl Developed {
         Ok(bins)
     }
 
-    /// Print as JPEG (8-bit grey, quality 100, grey ICC): `look` applied,
-    /// fitted into `long_edge_px` when given, and either screen compensation
-    /// (exact inverse of the known resampling and display losses, gain cap
-    /// 2x; the desktop export's `_2048px.jpg`), unsharp masking with
-    /// `usm_amount` (0..1.5, radius from the print geometry, saturation
-    /// masked), Richardson–Lucy on every pixel (`deconvolution`,
-    /// `deconv_iterations` passes, same radius, no mask) followed by USM
-    /// when `usm_amount` > 0, or nothing sharpened. Screen compensation
-    /// wins over both.
-    #[allow(clippy::too_many_arguments)] // UniFFI method: a flat argument list is the interface
+    /// Print as JPEG (8-bit grey, quality 100, grey ICC) at full size:
+    /// `look` applied, then unsharp masking with `usm_amount` (0..1.5,
+    /// radius from the print geometry, saturation masked), Richardson–Lucy
+    /// on every pixel (`deconvolution`, `deconv_iterations` passes, same
+    /// radius, no mask) followed by USM when `usm_amount` > 0, or nothing
+    /// sharpened.
     pub fn export_jpeg(
         &self,
         path: String,
         look: Look,
-        long_edge_px: Option<u32>,
-        screen_compensation: bool,
         extra_quarter_turns: u8,
         usm_amount: f64,
         deconvolution: bool,
@@ -516,8 +503,7 @@ impl Developed {
         let params = PrintParams {
             recipe: Recipe {
                 curve: mimizan_core::tone::Tone::Look(look.to_file()?),
-                size: long_edge_px.map(|n| PrintSize::LongEdgePx(n.max(1) as usize)),
-                sharpen: sharpen_mode(screen_compensation, usm_amount, deconvolution, deconv_iterations),
+                sharpen: sharpen_mode(usm_amount, deconvolution, deconv_iterations),
                 ..Recipe::default()
             },
             ..Default::default()
@@ -545,7 +531,7 @@ impl Developed {
         let params = PrintParams {
             recipe: Recipe {
                 curve: mimizan_core::tone::Tone::Look(look.to_file()?),
-                sharpen: sharpen_mode(false, usm_amount, deconvolution, deconv_iterations),
+                sharpen: sharpen_mode(usm_amount, deconvolution, deconv_iterations),
                 ..Recipe::default()
             },
             ..Default::default()

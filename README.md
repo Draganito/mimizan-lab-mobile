@@ -120,10 +120,9 @@ cargo ndk -t arm64-v8a --platform 34 build --release --lib
    curve or pure gamma 2.2, **Con** adds an S-curve around middle grey
    (-1..1; starts from the settings default and affects preview, histogram
    and every export of this picture). Sharpening and deconvolution are the
-   settings amounts: full-size JPEG and TIFF, not the 1:1 view; the 2048 px
-   JPEG keeps its screen compensation. Export writes JPEG (full or 2048 px),
-   16-bit TIFF, or the linear negative + saturation mask for the desktop
-   CLI. Share sends the last export.
+   settings amounts: JPEG and TIFF, not the 1:1 view. Export writes the
+   full-size JPEG, 16-bit TIFF, or the linear negative + saturation mask
+   for the desktop CLI. Share sends the last export.
 5. The roll lists every frame in the cache; the bin icon (or a long press)
    deletes one for good, pictures already in the gallery stay.
 

@@ -105,34 +105,13 @@ fn synthetic_develop_preview_remix_export() {
 
     // Exports.
     let dir = tmp_dir("synth");
-    let jpg = dev
-        .export_jpeg(
-            dir.join("p.jpg").display().to_string(),
-            look_reference(),
-            Some(128),
-            true,
-            0,
-            0.0,
-            false,
-            0,
-        )
-        .unwrap();
-    assert_eq!((jpg.width, jpg.height), (96, 128));
-    let jpg_usm = dev
-        .export_jpeg(dir.join("u.jpg").display().to_string(), look_reference(), None, false, 0, 0.8, false, 0)
-        .unwrap();
+    let jpg =
+        dev.export_jpeg(dir.join("p.jpg").display().to_string(), look_reference(), 0, 0.0, false, 0).unwrap();
+    assert_eq!((jpg.width, jpg.height), (240, 320), "full size, upright");
+    let jpg_usm =
+        dev.export_jpeg(dir.join("u.jpg").display().to_string(), look_reference(), 0, 0.8, false, 0).unwrap();
     assert_eq!((jpg_usm.width, jpg_usm.height), (240, 320));
-    dev.export_jpeg(
-        dir.join("deconv.jpg").display().to_string(),
-        look_reference(),
-        None,
-        false,
-        0,
-        0.0,
-        true,
-        3,
-    )
-    .unwrap();
+    dev.export_jpeg(dir.join("deconv.jpg").display().to_string(), look_reference(), 0, 0.0, true, 3).unwrap();
     let tif =
         dev.export_tiff16(dir.join("p.tif").display().to_string(), look_neutral(), 1, 0.0, false, 0).unwrap();
     assert_eq!(
@@ -144,7 +123,7 @@ fn synthetic_develop_preview_remix_export() {
     assert_eq!((neg.width, neg.height), (w as u32, h as u32));
     assert!(dir.join("neg.mask.tif").exists());
     assert!(dev
-        .export_jpeg(dir.join("x.tif").display().to_string(), look_neutral(), None, false, 0, 0.0, false, 0)
+        .export_jpeg(dir.join("x.tif").display().to_string(), look_neutral(), 0, 0.0, false, 0)
         .is_err());
     std::fs::remove_dir_all(&dir).unwrap();
 
