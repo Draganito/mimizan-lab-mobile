@@ -434,7 +434,7 @@ impl Developed {
         let r_px = if usm > 0.0 {
             let params = PrintParams {
                 recipe: Recipe {
-                    curve: look.to_file()?,
+                    curve: mimizan_core::tone::Tone::Look(look.to_file()?),
                     sharpen: Sharpen::Usm { amount: usm },
                     ..Recipe::default()
                 },
@@ -515,7 +515,7 @@ impl Developed {
         let g = lock_msg(self.inner.lock());
         let params = PrintParams {
             recipe: Recipe {
-                curve: look.to_file()?,
+                curve: mimizan_core::tone::Tone::Look(look.to_file()?),
                 size: long_edge_px.map(|n| PrintSize::LongEdgePx(n.max(1) as usize)),
                 sharpen: sharpen_mode(screen_compensation, usm_amount, deconvolution, deconv_iterations),
                 ..Recipe::default()
@@ -544,7 +544,7 @@ impl Developed {
         let g = lock_msg(self.inner.lock());
         let params = PrintParams {
             recipe: Recipe {
-                curve: look.to_file()?,
+                curve: mimizan_core::tone::Tone::Look(look.to_file()?),
                 sharpen: sharpen_mode(false, usm_amount, deconvolution, deconv_iterations),
                 ..Recipe::default()
             },
