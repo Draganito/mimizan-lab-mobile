@@ -55,40 +55,32 @@ fn synthetic_develop_preview_remix_export() {
     assert!(info.json.contains("\"stage\":\"negative\""));
 
     // Preview: upright, long edge 160, then one more quarter turn.
-    let pv = dev.preview(look_neutral(), 0).unwrap();
+    let pv = dev.preview(0.0, 0.0, 0).unwrap();
     assert_eq!((pv.width, pv.height), (120, 160));
     assert_eq!(pv.data.len(), 120 * 160);
-    let pv_turned = dev.preview(look_neutral(), 1).unwrap();
+    let pv_turned = dev.preview(0.0, 0.0, 1).unwrap();
     assert_eq!((pv_turned.width, pv_turned.height), (160, 120));
 
     // Histogram covers every preview pixel.
-    let hist = dev.histogram(look_reference()).unwrap();
+    let hist = dev.histogram(0.0, 0.0).unwrap();
     assert_eq!(hist.iter().sum::<u64>(), 120 * 160);
 
     // Detail is 1:1 in display coordinates.
-    let d = dev.detail(10, 20, 64, 48, look_neutral(), 0, 0.0).unwrap();
+    let d = dev.detail(10, 20, 64, 48, 0.0, 0.0, 0, 0.0).unwrap();
     assert_eq!((d.width, d.height), (64, 48));
-    let d_edge = dev.detail(230, 300, 100, 100, look_neutral(), 0, 0.0).unwrap();
+    let d_edge = dev.detail(230, 300, 100, 100, 0.0, 0.0, 0, 0.0).unwrap();
     assert_eq!((d_edge.width, d_edge.height), (10, 20), "clamped to the upright 240x320 picture");
     // Sharpened detail keeps the window size (the radius for this tiny
     // 240x320 "print" is 0.12 px, so the picture itself barely moves).
-    let d_usm = dev.detail(10, 20, 64, 48, look_neutral(), 0, 1.0).unwrap();
+    let d_usm = dev.detail(10, 20, 64, 48, 0.0, 0.0, 0, 1.0).unwrap();
     assert_eq!((d_usm.width, d_usm.height), (64, 48));
-    let d_corner = dev.detail(0, 0, 32, 32, look_neutral(), 0, 1.0).unwrap();
+    let d_corner = dev.detail(0, 0, 32, 32, 0.0, 0.0, 0, 1.0).unwrap();
     assert_eq!((d_corner.width, d_corner.height), (32, 32), "margin clamps at the picture edge");
 
-    // Contrast: a composed look keeps the end points and steepens the middle.
-    let flat = look_neutral();
-    let hard = look_with_contrast(flat.clone(), 0.6).unwrap();
-    assert_eq!(hard.points.len(), 65);
-    assert!((hard.points[0].y).abs() < 1e-9 && (hard.points[64].y - 1.0).abs() < 1e-9);
-    assert!(hard.points[48].y > 0.75, "{:?}", hard.points[48]);
-    assert!(hard.points[16].y < 0.25, "{:?}", hard.points[16]);
-    let soft = look_with_contrast(flat.clone(), -0.6).unwrap();
-    assert!(soft.points[48].y < 0.75 && soft.points[16].y > 0.25);
-    assert_eq!(look_with_contrast(flat.clone(), 0.0).unwrap(), flat);
-    let pv_hard = dev.preview(hard, 0).unwrap();
-    assert_ne!(pv_hard.data, pv.data);
+    // A stop of soft light is a different print from the base exposure.
+    let pv_soft = dev.preview(1.0, 0.0, 0).unwrap();
+    assert_ne!(pv_soft.data, pv.data);
+    assert!(dev.preview(4.0, 0.0, 0).is_err(), "exposures stay inside the slider");
 
     // Remix: a red filter changes the picture on the colour patches.
     let before = dev.negative_u16_le();
@@ -106,14 +98,14 @@ fn synthetic_develop_preview_remix_export() {
     // Exports.
     let dir = tmp_dir("synth");
     let jpg =
-        dev.export_jpeg(dir.join("p.jpg").display().to_string(), look_reference(), 0, 0.0, false, 0).unwrap();
+        dev.export_jpeg(dir.join("p.jpg").display().to_string(), 0.0, 0.0, 0, 0.0, false, 0).unwrap();
     assert_eq!((jpg.width, jpg.height), (240, 320), "full size, upright");
     let jpg_usm =
-        dev.export_jpeg(dir.join("u.jpg").display().to_string(), look_reference(), 0, 0.8, false, 0).unwrap();
+        dev.export_jpeg(dir.join("u.jpg").display().to_string(), 0.0, 0.0, 0, 0.8, false, 0).unwrap();
     assert_eq!((jpg_usm.width, jpg_usm.height), (240, 320));
-    dev.export_jpeg(dir.join("deconv.jpg").display().to_string(), look_reference(), 0, 0.0, true, 3).unwrap();
+    dev.export_jpeg(dir.join("deconv.jpg").display().to_string(), 0.0, 0.0, 0, 0.0, true, 3).unwrap();
     let tif =
-        dev.export_tiff16(dir.join("p.tif").display().to_string(), look_neutral(), 1, 0.0, false, 0).unwrap();
+        dev.export_tiff16(dir.join("p.tif").display().to_string(), 0.0, 0.0, 1, 0.0, false, 0).unwrap();
     assert_eq!(
         (tif.width, tif.height),
         (320, 240),
@@ -123,12 +115,12 @@ fn synthetic_develop_preview_remix_export() {
     assert_eq!((neg.width, neg.height), (w as u32, h as u32));
     assert!(dir.join("neg.mask.tif").exists());
     assert!(dev
-        .export_jpeg(dir.join("x.tif").display().to_string(), look_neutral(), 0, 0.0, false, 0)
+        .export_jpeg(dir.join("x.tif").display().to_string(), 0.0, 0.0, 0, 0.0, false, 0)
         .is_err());
     std::fs::remove_dir_all(&dir).unwrap();
 
     dev.release_preview();
-    assert!(dev.preview(look_neutral(), 0).is_err());
+    assert!(dev.preview(0.0, 0.0, 0).is_err());
 }
 
 #[test]
@@ -150,21 +142,24 @@ fn viewfinder_weights_are_the_developments_weights() {
 }
 
 #[test]
-fn encoded_lut_is_the_look_over_the_gamma_axis() {
-    let lut = look_lut_encoded(look_neutral(), 4).unwrap();
-    for (i, v) in lut.iter().enumerate() {
-        assert!((v - i as f32 / 4.0).abs() < 1e-5, "neutral look is identity over its own gamma axis");
+fn paper_lut_is_the_print_curve() {
+    let lut = paper_lut(0.0, 0.0, 4096).unwrap();
+    let curve = mimizan_core::paper::SplitGrade::default().curve();
+    for &i in &[0usize, 184, 736, 2048, 3000, 4096] {
+        let l = i as f64 / 4096.0;
+        assert!((lut[i] as f64 - curve.eval(l)).abs() < 1e-6, "{i}");
     }
-    // Reference look: linear 0.18 encodes to 0.459, which the look lifts to about 0.61.
-    let lut = look_lut_encoded(look_reference(), 1000).unwrap();
-    let e = 0.18f64.powf(1.0 / 2.2);
-    let v = lut[(e * 1000.0).round() as usize];
-    assert!((v - 0.612).abs() < 0.01, "got {v}");
-    // The look at linear 0.5, which the encoded table holds at the
-    // gamma-2.2 code of 0.5.
-    let at_half =
-        mimizan_core::curve::Curve::from_look(&look_reference().to_file().unwrap()).eval(0.5) as f32;
-    assert!((at_half - lut[(0.5f64.powf(1.0 / 2.2) * 1000.0).round() as usize]).abs() < 0.01);
+    // Grey card, interpolated the way the viewfinder reads the table.
+    let x = 0.18f64 * 4096.0;
+    let i = x.floor() as usize;
+    let f = x - i as f64;
+    let v = lut[i] as f64 + (lut[i + 1] as f64 - lut[i] as f64) * f;
+    assert!((v - curve.eval(0.18)).abs() < 1e-4, "viewfinder grey {v}");
+    let g = paper_grade(0.0, 0.0).unwrap();
+    assert_eq!(g.label, "2");
+    assert!((5.0..5.4).contains(&g.scene_stops), "{}", g.scene_stops);
+    assert!(paper_lut(3.5, 0.0, 16).is_err());
+    assert!((paper_stop_limit() - 3.0).abs() < 1e-12);
 }
 
 #[test]
@@ -222,8 +217,6 @@ fn invalid_input_is_an_error_not_a_panic() {
     let n = normalise_weights(Weights { r: 1.0, g: 1.0, b: 2.0 }).unwrap();
     assert!((n.b - 0.5).abs() < 1e-12);
     assert_eq!(filters().len(), 7);
-    assert_eq!(look_reference().name, "reference");
-    assert!(look_reference().points.len() > 2);
 }
 
 /// The proof the port rests on: a RAW decoded by `rawler` on the desktop,

@@ -13,13 +13,10 @@ import ch.bojovic.mimizanlab.engine.DevelopSettings
 import ch.bojovic.mimizanlab.engine.Developed
 import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.GrayImage
-import ch.bojovic.mimizanlab.engine.Look
 import ch.bojovic.mimizanlab.engine.WeightSpace
 import ch.bojovic.mimizanlab.engine.Weights
-import ch.bojovic.mimizanlab.engine.lookNeutral
-import ch.bojovic.mimizanlab.engine.lookReference
-import ch.bojovic.mimizanlab.engine.lookWithContrast
 import ch.bojovic.mimizanlab.engine.normaliseWeights
+import ch.bojovic.mimizanlab.store.Prefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -43,9 +40,10 @@ data class ReviewState(
     /** What the mix actually uses: [weights] with the filter applied. */
     val effective: Weights = Weights(0.25, 0.5, 0.25),
     val filter: Filter = Filter.NONE,
-    val reference: Boolean = true,
-    /** S-curve on top of the look, -1..1 (0 = the look as it is). */
-    val contrast: Double = 0.0,
+    /** Soft-pass time in stops from the base exposure. */
+    val soft: Double = 0.0,
+    /** Hard-pass time in stops from the base exposure. */
+    val hard: Double = 0.0,
     val preview: Bitmap? = null,
     val histogram: FloatArray = FloatArray(0),
     val detail: Detail? = null,
@@ -70,23 +68,15 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     /** Last 1:1 window asked for, so a slider change can refresh it. */
     private var detailRegion: IntArray? = null
 
-    /** Base look plus the contrast of this review. */
-    private val look: Look
-        get() {
-            val s = _state.value
-            val base = if (s.reference) lookReference() else lookNeutral()
-            return if (s.contrast == 0.0) base else lookWithContrast(base, s.contrast)
-        }
-
     /** Bind to a shot; follows [Darkroom.current] so a (re)development shows up. */
     fun open(name: String) {
         if (_state.value.name == name && openJob?.isActive == true) {
             // The collector stays alive, so a second visit must still pick up
-            // the settings look. Otherwise the switch appears to do nothing.
+            // the settings exposures.
             _state.update {
                 it.copy(
-                    contrast = darkroom.prefs.contrast.value,
-                    reference = darkroom.prefs.referenceLook.value,
+                    soft = darkroom.prefs.soft.value,
+                    hard = darkroom.prefs.hard.value,
                 )
             }
             render()
@@ -96,8 +86,8 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
         detailRegion = null
         _state.value = ReviewState(
             name = name,
-            contrast = darkroom.prefs.contrast.value,
-            reference = darkroom.prefs.referenceLook.value,
+            soft = darkroom.prefs.soft.value,
+            hard = darkroom.prefs.hard.value,
         )
         openJob = viewModelScope.launch {
             darkroom.current.collect { neg ->
@@ -150,13 +140,12 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
         remixAndRender()
     }
 
-    fun setReference(on: Boolean) {
-        _state.update { it.copy(reference = on) }
-        render()
-    }
+    fun setSoft(stops: Double) = setPaper(soft = Prefs.snapStops(stops), hard = null)
 
-    fun setContrast(c: Double) {
-        _state.update { it.copy(contrast = c.coerceIn(-1.0, 1.0)) }
+    fun setHard(stops: Double) = setPaper(soft = null, hard = Prefs.snapStops(stops))
+
+    private fun setPaper(soft: Double?, hard: Double?) {
+        _state.update { it.copy(soft = soft ?: it.soft, hard = hard ?: it.hard) }
         renderJob?.cancel()
         renderJob = viewModelScope.launch {
             delay(60)
@@ -184,8 +173,8 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                         val w = d.remix(normaliseWeights(s.weights), WeightSpace.BALANCED, s.filter)
                         _state.update { it.copy(effective = w) }
                     }
-                    val g = d.preview(look, 0u)
-                    val h = d.histogram(look)
+                    val g = d.preview(s.soft, s.hard, 0u)
+                    val h = d.histogram(s.soft, s.hard)
                     val max = (h.maxOrNull() ?: 1uL).toDouble().coerceAtLeast(1.0)
                     val hist = FloatArray(h.size) { (h[it].toDouble() / max).toFloat() }
                     _state.update { it.copy(preview = toBitmap(g), histogram = hist, detail = null, busy = false, info = d.info()) }
@@ -211,7 +200,8 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
             val d = developed ?: return@launch
             renderLock.withLock {
                 try {
-                    val g = d.detail(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), look, 0u, 0.0)
+                    val s = _state.value
+                    val g = d.detail(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.soft, s.hard, 0u, 0.0)
                     _state.update { it.copy(detail = Detail(x, y, toBitmap(g))) }
                 } catch (t: Throwable) {
                     Log.w("Review", "detail", t)
@@ -227,15 +217,17 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun exportJpeg() = export("JPEG") { d, name, f ->
+        val s = _state.value
         darkroom.exportJpeg(
-            d, name, f, look,
+            d, name, f, s.soft, s.hard,
             darkroom.prefs.sharpen.value, darkroom.prefs.deconvolution.value, darkroom.prefs.deconvPasses.value,
         )
     }
 
     fun exportTiff() = export("TIFF 16-bit") { d, name, f ->
+        val s = _state.value
         darkroom.exportTiff(
-            d, name, f, look,
+            d, name, f, s.soft, s.hard,
             darkroom.prefs.sharpen.value, darkroom.prefs.deconvolution.value, darkroom.prefs.deconvPasses.value,
         )
     }

@@ -90,8 +90,8 @@ partial wake lock and stops itself when the queue is empty. For each frame:
   saturation mask of the full frame is dropped after the first mix.
 * The `Developed` handle replaces the previous one in `Darkroom.current`
   (the old one is closed -> native memory freed); the thumbnail and, if
-  enabled, a full-size JPEG (the settings look, with the settings
-  sharpening) are produced right away.
+  enabled, a full-size JPEG (the paper at the settings exposures, with the
+  settings sharpening) are produced right away.
 
 Memory budget per development at 12.5 MP (f64 planes): ingest ~200 MB,
 Dubois separation ~1 GB peak (measured 1016 MB on the host for the same
@@ -106,19 +106,21 @@ interactions go through the `Developed` object without touching the
 separation:
 
 * filter / sliders -> `remix(weights, BALANCED, filter)` (returns the weights
-  the mix now uses, including the filter) -> `preview(look)` + `histogram(look)`
-* contrast -> `look_with_contrast(look, c)`: the look's points (without the
-  encoding) are evaluated, an S-curve around 0.5 in the encoded domain is
-  composed on top (`tanh` with slope `4|c|`, its exact inverse for negative
-  `c`, end points fixed) and the result is sampled at 65 points into a new
-  `Look`. Every consumer (preview, histogram, detail, exports) gets that
-  look, so the tones are identical everywhere. The default comes from
-  `Prefs` (settings sheet) and is also used for the automatic JPEG.
-* pinch zoom beyond the preview resolution -> `detail(x, y, w, h, look,
-  turns, usm_amount)` for the visible window, drawn 1:1 on top of the
+  the mix now uses, including the filter) -> `preview(soft, hard)` +
+  `histogram(soft, hard)`
+* soft / hard -> stops of time from the paper's base exposure, ±3, in
+  twelfths. Zero is the base print (about grade 2). Preview, histogram and
+  the 1:1 window evaluate `Tone::Paper` per pixel, the same map the JPEG
+  and TIFF use, so the screen and the file agree. The viewfinder cannot
+  do that per pixel in Rust, so it indexes `paper_lut` (4097 samples of
+  that map over linear grey). The starting pair comes from `Prefs` (the
+  settings sheet) and is also the automatic JPEG; a review does not write
+  the pair back.
+* pinch zoom beyond the preview resolution -> `detail(x, y, w, h, soft,
+  hard, turns, usm_amount)` for the visible window, drawn 1:1 on top of the
   scaled preview. The app passes `usm_amount = 0` (the 1:1 window is the
   plain mix); with `usm_amount > 0` the window is mixed with a margin of
-  `3r + 1` px, the curve is applied, `usm::unsharp` runs with the radius
+  `3r + 1` px, the paper is applied, `usm::unsharp` runs with the radius
   `print::geometry` gives for the full-size print (1.49 px for 4080x3072 at
   300 dpi) and the saturation mask window (`mask8` crop), then the margin
   is cut off again.
@@ -136,13 +138,13 @@ expanded to ARGB bitmaps on the Kotlin side.
 `MonoViewfinder` wraps the preview `TextureView` in a Compose
 `graphicsLayer` whose `renderEffect` is a `RuntimeShader` (a `RenderEffect`
 on the `TextureView` itself blacked out the UI above it on the Pixel 9).
-The AGSL program linearises the display-referred RGB
-(`pow 2.2`), applies the weights `w = native (0.25, 0.5, 0.25) x filter
-transmission`, normalised, encodes with `1/2.2`, overlays zebra stripes above
-0.985 and an optional thirds grid. It is an approximation of the mix on
-balanced raw channels (the camera's preview is already white balanced and
-tone mapped), good enough to see what a filter does to the tonal
-separation; the negative itself never passes through it.
+The AGSL program linearises the pinned sRGB preview, mixes with the
+development's weights pulled back through the frame's ISP matrix, and
+indexes `paper_lut` (the print curve over linear grey, no second gamma).
+Zebra stripes mark display values above 0.985. It is an approximation of
+the mix on balanced raw channels (the camera's preview is already white
+balanced and tone mapped), good enough to see what a filter and the paper
+do to the tonal separation; the negative itself never passes through it.
 
 ## Build wiring
 

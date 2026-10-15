@@ -6,13 +6,13 @@
 use crate::frame::{as_shot_from_gains, bin_cfa_2x, to_raw_frame};
 use crate::types::*;
 use mimizan_core::calib::CameraFile;
-use mimizan_core::curve::Curve;
 use mimizan_core::icc::GrayTrc;
 use mimizan_core::mix::{mix, Weights as CoreWeights};
 use mimizan_core::pipeline::{negative_from_frame, NegativeInfo, NegativeParams};
 use mimizan_core::plane::Plane;
 use mimizan_core::print::{self as pr, orient, rotate_gray8_cw, rotated, PrintParams, PrintSource};
 use mimizan_core::recipe::{Recipe, Sharpen};
+use mimizan_core::tone::{Tone, ToneMap};
 use mimizan_core::resize::{fit_dims, resize};
 
 /// The sharpening mode of an export from the bridge's flat arguments:
@@ -224,8 +224,14 @@ fn mix_planes(lum: &Plane, c1: &Plane, c2: &Plane, w: &CoreWeights) -> Plane {
     out
 }
 
-fn gray8(plane: &Plane, curve: &Curve) -> Vec<u8> {
-    plane.data.par_iter().map(|&v| (curve.eval(v) * 255.0).round() as u8).collect()
+/// The print map for these exposures. Preview, histogram, the 1:1 window and
+/// the file all evaluate this map, so the screen and the file agree.
+fn paper(soft: f64, hard: f64) -> Result<ToneMap> {
+    Ok(Tone::Paper(split_grade(soft, hard)?).compile())
+}
+
+fn gray8(plane: &Plane, map: &ToneMap) -> Vec<u8> {
+    plane.data.par_iter().map(|&v| (map.eval(v) * 255.0).round() as u8).collect()
 }
 
 /// Map a rectangle of the upright image (after `orientation`) back to the
@@ -381,17 +387,19 @@ impl Developed {
     }
 
     /// The negative as the viewer shows it: current mix on the cached
-    /// upright preview planes, `look` applied, no sharpening, then
-    /// `extra_quarter_turns` clockwise.
-    pub fn preview(&self, look: Look, extra_quarter_turns: u8) -> Result<GrayImage> {
+    /// upright preview planes, the paper applied pixel by pixel (the same
+    /// evaluation the file uses), no sharpening, then
+    /// `extra_quarter_turns` clockwise. `soft` and `hard` are stops from
+    /// the base exposure.
+    pub fn preview(&self, soft: f64, hard: f64, extra_quarter_turns: u8) -> Result<GrayImage> {
         let g = lock_msg(self.inner.lock());
         let pv = g
             .preview
             .as_ref()
             .ok_or_else(|| MimizanError::Invalid { msg: "developed without preview planes".into() })?;
-        let curve = Curve::from_look(&look.to_file()?);
+        let map = paper(soft, hard)?;
         let plane = mix_planes(&pv.lum, &pv.c1, &pv.c2, &g.weights);
-        let bytes = gray8(&plane, &curve);
+        let bytes = gray8(&plane, &map);
         let (w, h, data) = rotate_gray8_cw(plane.width, plane.height, &bytes, extra_quarter_turns);
         Ok(GrayImage { width: w as u32, height: h as u32, data })
     }
@@ -409,7 +417,8 @@ impl Developed {
         y: u32,
         width: u32,
         height: u32,
-        look: Look,
+        soft: f64,
+        hard: f64,
         extra_quarter_turns: u8,
         usm_amount: f64,
     ) -> Result<GrayImage> {
@@ -423,11 +432,12 @@ impl Developed {
         let rh = (height as usize).clamp(1, dh - y0);
 
         // Radius the export would use, from the same geometry.
+        let map = paper(soft, hard)?;
         let usm = usm_amount.clamp(0.0, 1.5);
         let r_px = if usm > 0.0 {
             let params = PrintParams {
                 recipe: Recipe {
-                    curve: mimizan_core::tone::Tone::Look(look.to_file()?),
+                    curve: Tone::Paper(split_grade(soft, hard)?),
                     sharpen: Sharpen::Usm { amount: usm },
                     ..Recipe::default()
                 },
@@ -454,12 +464,11 @@ impl Developed {
             mix_planes(&lum, &c1, &c2, &g.weights)
         };
         let up = orient(&mixed, o);
-        let curve = Curve::from_look(&look.to_file()?);
         let encoded = if usm > 0.0 {
             let mask = orient(&g.mask_crop(cx, cy, cw, ch), o);
-            unsharp(&curve.apply(&up), r_px, usm, Some(&mask))
+            unsharp(&map.apply(&up), r_px, usm, Some(&mask))
         } else {
-            curve.apply(&up)
+            map.apply(&up)
         };
         // Cut the margin away again.
         let window = crop(&encoded, x0 - mx0, y0 - my0, rw, rh);
@@ -467,33 +476,35 @@ impl Developed {
         Ok(GrayImage { width: rw as u32, height: rh as u32, data })
     }
 
-    /// 256-bin histogram of the current mix after `look`, from the preview
+    /// 256-bin histogram of the current mix after the paper, from the preview
     /// planes (the viewer's picture, not the TIFF's exact clipping counts).
-    pub fn histogram(&self, look: Look) -> Result<Vec<u64>> {
+    pub fn histogram(&self, soft: f64, hard: f64) -> Result<Vec<u64>> {
         let g = lock_msg(self.inner.lock());
         let pv = g
             .preview
             .as_ref()
             .ok_or_else(|| MimizanError::Invalid { msg: "developed without preview planes".into() })?;
-        let curve = Curve::from_look(&look.to_file()?);
+        let map = paper(soft, hard)?;
         let plane = mix_planes(&pv.lum, &pv.c1, &pv.c2, &g.weights);
         let mut bins = vec![0u64; 256];
         for &v in &plane.data {
-            bins[(curve.eval(v) * 255.0).round() as usize] += 1;
+            bins[(map.eval(v) * 255.0).round() as usize] += 1;
         }
         Ok(bins)
     }
 
     /// Print as JPEG (8-bit grey, quality 100, grey ICC) at full size:
-    /// `look` applied, then unsharp masking with `usm_amount` (0..1.5,
+    /// the paper applied, then unsharp masking with `usm_amount` (0..1.5,
     /// radius from the print geometry, saturation masked), Richardson–Lucy
     /// on every pixel (`deconvolution`, `deconv_iterations` passes, same
     /// radius, no mask) followed by USM when `usm_amount` > 0, or nothing
-    /// sharpened.
+    /// sharpened. `soft` and `hard` are stops from the base exposure.
+    #[allow(clippy::too_many_arguments)] // UniFFI method: a flat argument list is the interface
     pub fn export_jpeg(
         &self,
         path: String,
-        look: Look,
+        soft: f64,
+        hard: f64,
         extra_quarter_turns: u8,
         usm_amount: f64,
         deconvolution: bool,
@@ -502,7 +513,7 @@ impl Developed {
         let g = lock_msg(self.inner.lock());
         let params = PrintParams {
             recipe: Recipe {
-                curve: mimizan_core::tone::Tone::Look(look.to_file()?),
+                curve: Tone::Paper(split_grade(soft, hard)?),
                 sharpen: sharpen_mode(usm_amount, deconvolution, deconv_iterations),
                 ..Recipe::default()
             },
@@ -515,13 +526,15 @@ impl Developed {
         g.export(&p, &params, extra_quarter_turns)
     }
 
-    /// Print as 16-bit grey TIFF, gamma 2.2 ICC, full resolution, `look`
+    /// Print as 16-bit grey TIFF, gamma 2.2 ICC, full resolution, the paper
     /// applied. Richardson–Lucy runs first when `deconvolution` is set,
     /// then USM when `usm_amount` > 0.
+    #[allow(clippy::too_many_arguments)] // UniFFI method: a flat argument list is the interface
     pub fn export_tiff16(
         &self,
         path: String,
-        look: Look,
+        soft: f64,
+        hard: f64,
         extra_quarter_turns: u8,
         usm_amount: f64,
         deconvolution: bool,
@@ -530,7 +543,7 @@ impl Developed {
         let g = lock_msg(self.inner.lock());
         let params = PrintParams {
             recipe: Recipe {
-                curve: mimizan_core::tone::Tone::Look(look.to_file()?),
+                curve: Tone::Paper(split_grade(soft, hard)?),
                 sharpen: sharpen_mode(usm_amount, deconvolution, deconv_iterations),
                 ..Recipe::default()
             },

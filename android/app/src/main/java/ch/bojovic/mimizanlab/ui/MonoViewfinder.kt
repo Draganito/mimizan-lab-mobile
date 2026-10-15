@@ -20,7 +20,7 @@ import ch.bojovic.mimizanlab.camera.FinderTone
  * preview with its tone curve pinned to sRGB (`IspControls`); this shader
  * undoes exactly that curve, pulls the colour step back through the
  * inverse matrix of the frame, mixes with the development's weights and
- * applies the JPEG's look — per pixel on the GPU, so the display costs
+ * applies the paper — per pixel on the GPU, so the display costs
  * nothing on the CPU. Zebra stripes mark display values above
  * [FinderTone.zebra].
  *
@@ -33,6 +33,7 @@ uniform shader content;
 uniform shader lut;
 uniform float3 v;
 uniform float invGamma;
+uniform float lutLast;
 uniform float zebra;
 
 float lin(float c) {
@@ -44,7 +45,7 @@ half4 main(float2 xy) {
     float3 l = float3(lin(float(c.r)), lin(float(c.g)), lin(float(c.b)));
     float g = clamp(dot(l, v), 0.0, 1.0);
     float e = pow(g, invGamma);
-    float o = float(lut.eval(float2(e * 255.0 + 0.5, 0.5)).r);
+    float o = float(lut.eval(float2(e * lutLast + 0.5, 0.5)).r);
     if (zebra <= 1.0 && o >= zebra) {
         if (mod(xy.x + xy.y, 18.0) < 9.0) o = 0.15;
     }
@@ -93,6 +94,7 @@ fun MonoViewfinder(
             .graphicsLayer {
                 shader.setFloatUniform("v", tone.v[0], tone.v[1], tone.v[2])
                 shader.setFloatUniform("invGamma", tone.invGamma)
+                shader.setFloatUniform("lutLast", (tone.lut.size - 1).toFloat())
                 shader.setFloatUniform("zebra", tone.zebra)
                 shader.setInputShader("lut", lutShader)
                 renderEffect = RenderEffect.createRuntimeShaderEffect(shader, "content").asComposeRenderEffect()

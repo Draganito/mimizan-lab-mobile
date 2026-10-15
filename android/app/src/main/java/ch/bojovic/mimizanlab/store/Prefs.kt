@@ -10,14 +10,24 @@ import kotlinx.coroutines.flow.asStateFlow
 class Prefs(context: Context) {
     private val sp = context.getSharedPreferences("mimizan", Context.MODE_PRIVATE)
 
-    private val _contrast = MutableStateFlow(sp.getFloat(KEY_CONTRAST, 0f).toDouble())
-    /** Default contrast (-1..1) for new reviews and the automatic JPEG. */
-    val contrast: StateFlow<Double> = _contrast.asStateFlow()
+    private val _soft = MutableStateFlow(snapStops(sp.getFloat(KEY_SOFT, 0f).toDouble()))
+    /** Soft-pass time in stops from the base exposure, for the viewfinder, the automatic JPEG and the start of review. */
+    val soft: StateFlow<Double> = _soft.asStateFlow()
 
-    fun setContrast(c: Double) {
-        val v = c.coerceIn(-1.0, 1.0)
-        _contrast.value = v
-        sp.edit { putFloat(KEY_CONTRAST, v.toFloat()) }
+    fun setSoft(stops: Double) {
+        val v = snapStops(stops)
+        _soft.value = v
+        sp.edit { putFloat(KEY_SOFT, v.toFloat()) }
+    }
+
+    private val _hard = MutableStateFlow(snapStops(sp.getFloat(KEY_HARD, 0f).toDouble()))
+    /** Hard-pass time in stops from the base exposure. */
+    val hard: StateFlow<Double> = _hard.asStateFlow()
+
+    fun setHard(stops: Double) {
+        val v = snapStops(stops)
+        _hard.value = v
+        sp.edit { putFloat(KEY_HARD, v.toFloat()) }
     }
 
     private val _sharpen = MutableStateFlow(sp.getFloat(KEY_SHARPEN, 0f).toDouble())
@@ -49,20 +59,18 @@ class Prefs(context: Context) {
         sp.edit { putInt(KEY_DECONV_N, v) }
     }
 
-    private val _referenceLook = MutableStateFlow(sp.getBoolean(KEY_REFERENCE, true))
-    /** Reference print curve for the automatic JPEG and the start of review. Off is gamma 2.2. */
-    val referenceLook: StateFlow<Boolean> = _referenceLook.asStateFlow()
+    companion object {
+        /** Same limit as the desktop enlarger (`paper::STOP_LIMIT`). */
+        const val STOP_LIMIT = 3.0
 
-    fun setReferenceLook(on: Boolean) {
-        _referenceLook.value = on
-        sp.edit { putBoolean(KEY_REFERENCE, on) }
-    }
+        /** Twelfths of a stop, inside ±[STOP_LIMIT]. */
+        fun snapStops(v: Double): Double =
+            (kotlin.math.round(v * 12.0) / 12.0).coerceIn(-STOP_LIMIT, STOP_LIMIT)
 
-    private companion object {
-        const val KEY_CONTRAST = "contrast_default"
-        const val KEY_SHARPEN = "usm_amount"
-        const val KEY_DECONV = "deconvolution"
-        const val KEY_DECONV_N = "deconv_passes"
-        const val KEY_REFERENCE = "reference_look"
+        private const val KEY_SOFT = "paper_soft"
+        private const val KEY_HARD = "paper_hard"
+        private const val KEY_SHARPEN = "usm_amount"
+        private const val KEY_DECONV = "deconvolution"
+        private const val KEY_DECONV_N = "deconv_passes"
     }
 }

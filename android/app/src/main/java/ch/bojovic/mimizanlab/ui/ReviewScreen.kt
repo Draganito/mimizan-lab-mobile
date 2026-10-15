@@ -34,7 +34,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -156,16 +155,8 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                     Spacer(Modifier.width(12.dp))
                     TextButton(onClick = vm::resetWeights) { Text("Reset") }
                     Spacer(Modifier.weight(1f))
-                    Text("Reference look", style = MaterialTheme.typography.bodySmall)
-                    Spacer(Modifier.width(6.dp))
-                    Switch(checked = s.reference, onCheckedChange = vm::setReference)
                 }
-                LabeledSlider(
-                    label = String.format(Locale.US, "Con %+.2f", s.contrast),
-                    value = s.contrast.toFloat(),
-                    onChange = { vm.setContrast(it.toDouble()) },
-                    range = -1f..1f,
-                )
+                PaperSliders(s.soft, s.hard, onSoft = vm::setSoft, onHard = vm::setHard)
                 Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box {
                         FilledTonalButton(onClick = { exportMenu = true }, enabled = s.exporting == null) {

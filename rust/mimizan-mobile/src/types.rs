@@ -2,9 +2,7 @@
 //! Every number keeps the unit and meaning of its `mimizan-core` counterpart
 //! (`docs/SPEC.md` in the mimizan repository).
 
-use mimizan_core::calib::{LookEncoding, LookFile};
 use mimizan_core::cfa::BayerPhase;
-use mimizan_core::curve::Curve;
 use mimizan_core::ingest::WhiteBalance;
 use mimizan_core::mix::{ColorFilter, WeightSpace as CoreWeightSpace, Weights as CoreWeights};
 use mimizan_core::separate::MaskMode;
@@ -371,112 +369,44 @@ pub fn default_develop_params() -> DevelopParams {
     DevelopParams::default()
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, uniffi::Record)]
-pub struct CurvePoint {
-    pub x: f64,
-    pub y: f64,
+/// The split-grade print the desktop enlarger uses. `soft` and `hard` are
+/// stops of time from the paper's base exposure, within ±[`paper_stop_limit`].
+pub(crate) fn split_grade(soft: f64, hard: f64) -> Result<mimizan_core::paper::SplitGrade> {
+    let s = mimizan_core::paper::SplitGrade::new(soft, hard);
+    s.validate()?;
+    Ok(s)
 }
 
-/// Print look: `gamma22` encodes linear -> x^(1/2.2) first, then the monotone
-/// PCHIP through `points` (identity when the points are (0,0),(1,1)).
-#[derive(Clone, Debug, PartialEq, uniffi::Record)]
-pub struct Look {
-    pub name: String,
-    pub points: Vec<CurvePoint>,
-    #[uniffi(default = true)]
-    pub gamma22: bool,
-}
-
-impl Look {
-    pub fn from_file(l: &LookFile) -> Self {
-        Self {
-            name: l.name.clone(),
-            points: l.points.iter().map(|p| CurvePoint { x: p[0], y: p[1] }).collect(),
-            gamma22: l.encoding == LookEncoding::Gamma22,
-        }
-    }
-    pub fn to_file(&self) -> Result<LookFile> {
-        let l = LookFile {
-            schema: 1,
-            name: self.name.clone(),
-            points: self.points.iter().map(|p| [p.x, p.y]).collect(),
-            encoding: if self.gamma22 { LookEncoding::Gamma22 } else { LookEncoding::None },
-            fitted_against: None,
-        };
-        l.validate()?;
-        Ok(l)
-    }
-}
-
-const REFERENCE_LOOK_JSON: &str = include_str!("../../../../mimizan/look/reference.json");
-
-/// Pure gamma 2.2.
+/// How far either exposure may move, in stops. The desktop slider uses the
+/// same limit.
 #[uniffi::export]
-pub fn look_neutral() -> Look {
-    Look::from_file(&LookFile::neutral())
+pub fn paper_stop_limit() -> f64 {
+    mimizan_core::paper::STOP_LIMIT
 }
 
-/// The fitted reference print curve shipped with Mimizan Lab.
+/// `n + 1` display values of the paper over the *linear* axis: entry `i` is
+/// the print value of linear `i/n`, the same function the file uses. The
+/// viewfinder indexes this table with linear grey (no extra gamma: the
+/// paper's encoding is already in the value).
 #[uniffi::export]
-pub fn look_reference() -> Look {
-    let l: LookFile = serde_json::from_str(REFERENCE_LOOK_JSON).expect("bundled reference look parses");
-    Look::from_file(&l)
-}
-
-/// Contrast on top of a look: an S-curve around middle grey in the encoded
-/// (display) domain, end points fixed. `contrast` in -1..1, 0 = the look as
-/// it is; positive steepens the middle (`tanh`), negative flattens it (the
-/// exact inverse). Returns a look with the composed curve sampled at 65
-/// points, so every consumer (preview, histogram, export) sees the same
-/// tones.
-#[uniffi::export]
-pub fn look_with_contrast(look: Look, contrast: f64) -> Result<Look> {
-    let c = contrast.clamp(-1.0, 1.0);
-    if c.abs() < 1e-6 {
-        return Ok(look);
-    }
-    let file = look.to_file()?;
-    // The points alone (without the encoding) as a curve: encoded -> output.
-    let pts = Curve::from_look(&LookFile { encoding: LookEncoding::None, ..file.clone() });
-    let s = c.abs() * 4.0;
-    let t = (0.5 * s).tanh();
-    let f = |y: f64| -> f64 {
-        let d = y - 0.5;
-        let out = if c > 0.0 {
-            0.5 + 0.5 * (s * d).tanh() / t
-        } else {
-            0.5 + ((2.0 * t * d).clamp(-0.999_999, 0.999_999)).atanh() / s
-        };
-        out.clamp(0.0, 1.0)
-    };
-    const N: usize = 64;
-    let points = (0..=N)
-        .map(|i| {
-            let x = i as f64 / N as f64;
-            CurvePoint { x, y: f(pts.eval(x)) }
-        })
-        .collect();
-    Ok(Look { name: format!("{} contrast {:+.2}", look.name, c), points, gamma22: look.gamma22 })
-}
-
-/// `n + 1` display values of `look` over the *encoded* axis: entry `i` is
-/// the output for the linear value whose plain gamma-2.2 code is `i/n`
-/// (the linear value itself when the look has no gamma). A renderer that
-/// applies the gamma first and then reads this table reproduces the look
-/// within one step of the table; a table over the linear axis would need
-/// thousands of entries to follow `x^(1/2.2)` near black.
-#[uniffi::export]
-pub fn look_lut_encoded(look: Look, n: u32) -> Result<Vec<f32>> {
+pub fn paper_lut(soft: f64, hard: f64, n: u32) -> Result<Vec<f32>> {
+    let map = mimizan_core::tone::Tone::Paper(split_grade(soft, hard)?).compile();
     let n = n.clamp(1, 4096) as usize;
-    let gamma22 = look.gamma22;
-    let curve = Curve::from_look(&look.to_file()?);
-    Ok((0..=n)
-        .map(|i| {
-            let e = i as f64 / n as f64;
-            let lin = if gamma22 { e.powf(2.2) } else { e };
-            curve.eval(lin) as f32
-        })
-        .collect())
+    Ok((0..=n).map(|i| map.eval(i as f64 / n as f64) as f32).collect())
+}
+
+/// The single-filter grade this pair of exposures equals, and the scene
+/// stops between the paper's first tone and its near-black.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct PaperGrade {
+    pub label: String,
+    pub scene_stops: f64,
+}
+
+#[uniffi::export]
+pub fn paper_grade(soft: f64, hard: f64) -> Result<PaperGrade> {
+    let curve = split_grade(soft, hard)?.curve();
+    Ok(PaperGrade { label: mimizan_core::paper::grade_label(curve.grade()), scene_stops: curve.scene_range_stops() })
 }
 
 /// 8-bit grey image, row-major, upright.

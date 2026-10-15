@@ -73,6 +73,8 @@ import ch.bojovic.mimizanlab.camera.FlashMode
 import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.SeparationMode
 import ch.bojovic.mimizanlab.engine.ShotStatus
+import ch.bojovic.mimizanlab.engine.paperGrade
+import ch.bojovic.mimizanlab.store.Prefs
 import kotlinx.coroutines.delay
 
 @Composable
@@ -86,8 +88,8 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val tone by vm.tone.collectAsStateWithLifecycle()
     val shots by vm.darkroom.shots.collectAsStateWithLifecycle()
     val cacheBytes by vm.darkroom.cacheBytes.collectAsStateWithLifecycle()
-    val contrastDefault by vm.darkroom.prefs.contrast.collectAsStateWithLifecycle()
-    val referenceLook by vm.darkroom.prefs.referenceLook.collectAsStateWithLifecycle()
+    val soft by vm.darkroom.prefs.soft.collectAsStateWithLifecycle()
+    val hard by vm.darkroom.prefs.hard.collectAsStateWithLifecycle()
     val sharpen by vm.darkroom.prefs.sharpen.collectAsStateWithLifecycle()
     val deconvolution by vm.darkroom.prefs.deconvolution.collectAsStateWithLifecycle()
     val deconvPasses by vm.darkroom.prefs.deconvPasses.collectAsStateWithLifecycle()
@@ -315,20 +317,10 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 SettingRow("Quick mode (2x binning, quarter time)", develop.binning == 2) { vm.setQuick(it) }
                 SettingRow("Save JPEG automatically", develop.autoJpeg) { vm.setAutoJpeg(it) }
                 Spacer(Modifier.height(8.dp))
-                Text("Picture", style = MaterialTheme.typography.titleMedium)
-                SettingRow("Reference look", referenceLook) { vm.setReferenceLook(it) }
+                Text("Paper", style = MaterialTheme.typography.titleMedium)
+                PaperSliders(soft, hard, onSoft = vm::setSoft, onHard = vm::setHard)
                 Text(
-                    "Live viewfinder, automatic JPEG, the roll thumbnail, and the starting value in review. Each picture can still be changed there. Off is gamma 2.2. A picture already in the gallery stays until you shoot again or export it.",
-                    style = MaterialTheme.typography.bodySmall, color = Color.Gray,
-                )
-                LabeledSlider(
-                    label = String.format(java.util.Locale.US, "Con %+.2f", contrastDefault),
-                    value = contrastDefault.toFloat(),
-                    onChange = { vm.setContrastDefault(it.toDouble()) },
-                    range = -1f..1f,
-                )
-                Text(
-                    "Live viewfinder, automatic JPEG, and the starting value in review; each picture can be changed there.",
+                    "Zero is the base print. These exposures drive the live viewfinder, the automatic JPEG, the roll thumbnail, and the starting values in review. Each picture can still be changed there.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 LabeledSlider(
@@ -432,6 +424,33 @@ private fun SettingRow(label: String, checked: Boolean, onChange: (Boolean) -> U
         Text(label, Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChange)
     }
+}
+
+@Composable
+fun PaperSliders(soft: Double, hard: Double, onSoft: (Double) -> Unit, onHard: (Double) -> Unit) {
+    val grade = remember(soft, hard) { runCatching { paperGrade(soft, hard) }.getOrNull() }
+    if (grade != null) {
+        Text(
+            String.format(java.util.Locale.US, "≈ grade %s · %.1f stops of scene", grade.label, grade.sceneStops),
+            fontFamily = FontFamily.Monospace,
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+    val range = -Prefs.STOP_LIMIT.toFloat()..Prefs.STOP_LIMIT.toFloat()
+    LabeledSlider(
+        label = String.format(java.util.Locale.US, "soft %+.2f", soft),
+        value = soft.toFloat(),
+        onChange = { onSoft(it.toDouble()) },
+        range = range,
+    )
+    Text("filter 00", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+    LabeledSlider(
+        label = String.format(java.util.Locale.US, "hard %+.2f", hard),
+        value = hard.toFloat(),
+        onChange = { onHard(it.toDouble()) },
+        range = range,
+    )
+    Text("filter 5", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
 }
 
 @Composable

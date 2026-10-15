@@ -34,7 +34,7 @@ data class DevelopSettings(
     val binning: Int = 1,
     val filter: Filter = Filter.NONE,
     val whiteBalance: WhiteBalanceMode = WhiteBalanceMode.AsShot,
-    /** Save a finished JPEG (reference look, full size) as soon as the frame is developed. */
+    /** Save a finished JPEG (the paper at the settings exposures, full size) as soon as the frame is developed. */
     val autoJpeg: Boolean = true,
 )
 
@@ -196,9 +196,9 @@ class Darkroom private constructor(private val context: Context) {
                 updateShot(name) { it.copy(status = ShotStatus.Ready(info), thumbnail = thumb) }
                 // A second development of the same frame does not add a second JPEG.
                 if (shot.settings.autoJpeg && shot.jpegUri == null) {
-                    val look = lookWithContrast(baseLook(), prefs.contrast.value)
                     val uri = exportJpeg(
-                        developed, name, shot.settings.filter, look = look,
+                        developed, name, shot.settings.filter,
+                        soft = prefs.soft.value, hard = prefs.hard.value,
                         usm = prefs.sharpen.value,
                         deconvolution = prefs.deconvolution.value,
                         deconvPasses = prefs.deconvPasses.value,
@@ -228,11 +228,8 @@ class Darkroom private constructor(private val context: Context) {
     private fun paramsFor(meta: RawMeta, s: DevelopSettings): DevelopParams =
         developParamsFor(meta.make, meta.model, meta.cfa, s)
 
-    /** Settings look, before the contrast curve: reference, or gamma 2.2. */
-    private fun baseLook() = if (prefs.referenceLook.value) lookReference() else lookNeutral()
-
     private fun thumbnail(d: Developed): Bitmap {
-        val g = d.preview(lookWithContrast(baseLook(), prefs.contrast.value), 0u)
+        val g = d.preview(prefs.soft.value, prefs.hard.value, 0u)
         // The preview planes are 2048 px; the thumbnail is a 256 px box.
         val scale = maxOf(1, (maxOf(g.width.toInt(), g.height.toInt()) + 255) / 256)
         val w = g.width.toInt() / scale
@@ -259,7 +256,8 @@ class Darkroom private constructor(private val context: Context) {
         d: Developed,
         name: String,
         filter: Filter,
-        look: Look = lookReference(),
+        soft: Double = 0.0,
+        hard: Double = 0.0,
         usm: Double = 0.0,
         deconvolution: Boolean = false,
         deconvPasses: Int = 2,
@@ -268,7 +266,7 @@ class Darkroom private constructor(private val context: Context) {
         val tmp = File(context.cacheDir, "$name$suffix.jpg")
         val passes = if (deconvolution) deconvPasses.coerceIn(1, 10).toUInt() else 0u
         try {
-            d.exportJpeg(tmp.absolutePath, look, 0u, usm, deconvolution, passes)
+            d.exportJpeg(tmp.absolutePath, soft, hard, 0u, usm, deconvolution, passes)
             return media.importFile(tmp, "$name$suffix.jpg", MediaStoreWriter.MIME_JPEG)
         } finally {
             tmp.delete()
@@ -279,7 +277,8 @@ class Darkroom private constructor(private val context: Context) {
         d: Developed,
         name: String,
         filter: Filter,
-        look: Look = lookReference(),
+        soft: Double = 0.0,
+        hard: Double = 0.0,
         usm: Double = 0.0,
         deconvolution: Boolean = false,
         deconvPasses: Int = 2,
@@ -287,7 +286,7 @@ class Darkroom private constructor(private val context: Context) {
         val tmp = File(context.cacheDir, "$name${suffixFor(filter)}.tif")
         val passes = if (deconvolution) deconvPasses.coerceIn(1, 10).toUInt() else 0u
         try {
-            d.exportTiff16(tmp.absolutePath, look, 0u, usm, deconvolution, passes)
+            d.exportTiff16(tmp.absolutePath, soft, hard, 0u, usm, deconvolution, passes)
             return media.importFile(tmp, "$name${suffixFor(filter)}.tif", MediaStoreWriter.MIME_TIFF)
         } finally {
             tmp.delete()

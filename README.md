@@ -92,8 +92,8 @@ cargo ndk -t arm64-v8a --platform 34 build --release --lib
 
 1. The viewfinder shows the scene as the negative will see it: the camera
    preview is linearised, mixed with the channel weights of the chosen
-   contrast filter, gamma-encoded and bent by the settings contrast
-   S-curve (AGSL shader). Zebra marks the highlights, a 64-bin luma
+   filter, then the paper at the settings exposures (AGSL shader, a table
+   of the print curve over linear grey). Zebra marks the highlights, a 64-bin luma
    histogram sits in the corner, tap sets focus and metering (long press
    clears it). The flash icon left of the exposure switch cycles Off /
    Auto / On; the viewfinder stays dark and the flash fires only on the
@@ -105,22 +105,23 @@ cargo ndk -t arm64-v8a --platform 34 build --release --lib
    again (`remix`).
 3. The shutter records one RAW frame into the app cache (no DNG is
    written). The development runs in a foreground service (notification),
-   one frame at a time, and a full-size JPEG (the settings look, the
-   default contrast, quality 100) lands in `Pictures/Mimizan Lab` when it
+   one frame at a time, and a full-size JPEG (the paper at the settings
+   exposures, quality 100) lands in `Pictures/Mimizan Lab` when it
    is done.
    The settings sheet (slider icon) chooses the separation (Dubois /
    adaptive / mask off), Quick mode, whether the JPEG is saved
-   automatically, the default contrast, the unsharp-mask amount for the
+   automatically, the soft and hard exposures, the unsharp-mask amount for the
    automatic JPEG and the full-size exports, the Richardson–Lucy
    deconvolution (1..10 passes on every pixel before the USM, same radius,
    no halo but the noise comes back; `mimizan print --deconv` on the
    desktop), and shows the storage the raw frames take with a "Delete all".
 4. The thumbnail opens the review: pinch to zoom (beyond the 2048 px
    preview the visible window is rendered 1:1 from the negative), filter
-   chips and R/B sliders change the mix, the look switch chooses reference
-   curve or pure gamma 2.2, **Con** adds an S-curve around middle grey
-   (-1..1; starts from the settings default and affects preview, histogram
-   and every export of this picture). Sharpening and deconvolution are the
+   chips and R/B sliders change the mix, **soft** and **hard** set the two
+   paper exposures in stops from the base print (±3, steps of 1/12; zero
+   is about grade 2). They start from the settings and change the preview,
+   the histogram, the 1:1 window and every export of this picture, all
+   through the same paper evaluation. Sharpening and deconvolution are the
    settings amounts: JPEG and TIFF, not the 1:1 view. Export writes the
    full-size JPEG, 16-bit TIFF, or the linear negative + saturation mask
    for the desktop CLI. Share sends the last export.
@@ -138,7 +139,7 @@ DNG: the way to the desktop is Export > Negative (linear TIFF + mask).
 Runs on the Pixel 9 (Android 17): main and ultrawide lens (the ultrawide
 through its physical camera id), RAW capture, monochrome JPEG in the
 gallery, development in 2.3–4.5 s per 12.5 MP frame, review with remix,
-contrast, sharpening and exports, roll with delete. The phone's negative
+the split-grade paper, sharpening and exports, roll with delete. The phone's negative
 matches the desktop CLI's development of a DNG of the same frame to
 0.015 % RMS (the rest is DNG metadata rounding; measured with 0.1.0, which
 still wrote DNGs). Numbers and device findings: `docs/RESULTS_MOBILE.md`.

@@ -16,13 +16,9 @@ import ch.bojovic.mimizanlab.camera.LensInfo
 import ch.bojovic.mimizanlab.engine.Darkroom
 import ch.bojovic.mimizanlab.engine.DevelopSettings
 import ch.bojovic.mimizanlab.engine.Filter
-import ch.bojovic.mimizanlab.engine.Look
 import ch.bojovic.mimizanlab.engine.SeparationMode
-import ch.bojovic.mimizanlab.engine.lookLutEncoded
-import ch.bojovic.mimizanlab.engine.lookNeutral
-import ch.bojovic.mimizanlab.engine.lookReference
-import ch.bojovic.mimizanlab.engine.lookWithContrast
 import ch.bojovic.mimizanlab.engine.mixWeights
+import ch.bojovic.mimizanlab.engine.paperLut
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -67,22 +63,29 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * What the viewfinder shader applies to the camera preview: the still's
      * mix weights for the current filter and this frame's balance, pulled
-     * back through the ISP's colour matrix, and the curve the automatic
+     * back through the ISP's colour matrix, and the paper the automatic
      * JPEG uses. Recomputed when the ISP colour moves (white balance), a
-     * develop setting changes, or the look changes.
+     * develop setting changes, or either exposure changes.
      */
     val tone: StateFlow<FinderTone> = combine(
         controller.ispColor,
         _develop,
-        combine(darkroom.prefs.contrast, darkroom.prefs.referenceLook) { c, r -> lookFor(r, c) },
+        combine(darkroom.prefs.soft, darkroom.prefs.hard) { s, h -> s to h },
         _viewfinder,
         _lens,
-    ) { color, dev, look, vf, lens ->
-        buildTone(color ?: IspColor.IDENTITY, dev, look, vf.zebra, lens)
+    ) { color, dev, paper, vf, lens ->
+        buildTone(color ?: IspColor.IDENTITY, dev, paper.first, paper.second, vf.zebra, lens)
     }.flowOn(Dispatchers.Default).stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
-        buildTone(IspColor.IDENTITY, DevelopSettings(), lookFor(true, 0.0), true, _lens.value),
+        buildTone(
+            IspColor.IDENTITY,
+            DevelopSettings(),
+            darkroom.prefs.soft.value,
+            darkroom.prefs.hard.value,
+            true,
+            _lens.value,
+        ),
     )
 
     init {
@@ -92,13 +95,14 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private var surface: SurfaceTexture? = null
     private var startJob: Job? = null
 
-    /** The curve the automatic JPEG and the roll thumbnail use. */
-    private fun lookFor(reference: Boolean, contrast: Double): Look {
-        val base = if (reference) lookReference() else lookNeutral()
-        return if (kotlin.math.abs(contrast) < 1e-6) base else lookWithContrast(base, contrast)
-    }
-
-    private fun buildTone(color: IspColor, dev: DevelopSettings, look: Look, zebra: Boolean, lens: LensInfo?): FinderTone {
+    private fun buildTone(
+        color: IspColor,
+        dev: DevelopSettings,
+        soft: Double,
+        hard: Double,
+        zebra: Boolean,
+        lens: LensInfo?,
+    ): FinderTone {
         val params = darkroom.developParamsFor(Build.MANUFACTURER, Build.MODEL, lens?.cfa ?: 0, dev)
         val gains = color.gains.map { it.toDouble() }
         val w = try {
@@ -110,8 +114,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         val weights = floatArrayOf(w.r.toFloat(), w.g.toFloat(), w.b.toFloat())
         return FinderTone(
             v = FinderTone.pullBack(weights, color),
-            lut = lookLutEncoded(look, 255u).toFloatArray(),
-            invGamma = if (look.gamma22) (1.0 / 2.2).toFloat() else 1f,
+            lut = paperLut(soft, hard, 4096u).toFloatArray(),
+            invGamma = 1f,
             zebra = if (zebra) 0.985f else 2f,
         )
     }
@@ -211,11 +215,11 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun setSeparation(m: SeparationMode) = _develop.update { it.copy(separation = m) }
     fun setQuick(quick: Boolean) = _develop.update { it.copy(binning = if (quick) 2 else 1) }
     fun setAutoJpeg(on: Boolean) = _develop.update { it.copy(autoJpeg = on) }
-    fun setContrastDefault(c: Double) = darkroom.prefs.setContrast(c)
+    fun setSoft(stops: Double) = darkroom.prefs.setSoft(stops)
+    fun setHard(stops: Double) = darkroom.prefs.setHard(stops)
     fun setSharpen(amount: Double) = darkroom.prefs.setSharpen(amount)
     fun setDeconvolution(on: Boolean) = darkroom.prefs.setDeconvolution(on)
     fun setDeconvPasses(n: Int) = darkroom.prefs.setDeconvPasses(n)
-    fun setReferenceLook(on: Boolean) = darkroom.prefs.setReferenceLook(on)
     fun toggleZebra() = _viewfinder.update { it.copy(zebra = !it.zebra) }
     fun toggleGrid() = _viewfinder.update { it.copy(grid = !it.grid) }
     fun toggleHistogram() = _viewfinder.update { it.copy(showHistogram = !it.showHistogram) }

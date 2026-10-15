@@ -29,7 +29,9 @@ class IspColor(val transform: FloatArray, val gains: FloatArray) {
  *                                       through the inverse ISP matrix and
  *                                       its green gain, so `gray` is the
  *                                       balanced mix the development computes
- *   value = lut[gray ^ invGamma]      — the look over its encoded axis
+ *   value = lut[gray ^ invGamma]      — the paper's display value of that
+ *                                      linear grey; invGamma is 1, because
+ *                                      the paper already encodes the print
  *
  * [zebra] marks display values at or above it; > 1 means off.
  */

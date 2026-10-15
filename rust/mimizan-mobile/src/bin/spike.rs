@@ -57,11 +57,11 @@ fn run(name: &str, input: RawInput, params: DevelopParams) {
     let ms = t.elapsed().as_millis();
     let info = dev.info();
     let t = Instant::now();
-    let _ = dev.preview(look_reference(), 0);
+    let _ = dev.preview(0.0, 0.0, 0);
     let preview_ms = t.elapsed().as_millis();
     let t = Instant::now();
     let _ = dev.remix(Weights { r: 0.4, g: 0.4, b: 0.2 }, WeightSpace::Balanced, Filter::Yellow8);
-    let _ = dev.preview(look_reference(), 0);
+    let _ = dev.preview(0.0, 0.0, 0);
     let remix_ms = t.elapsed().as_millis();
     println!(
         "{name:<10} {}x{}  develop {ms:>6} ms (ingest {} / separate {} / mix {} / preview planes {})  preview {preview_ms} ms  remix+preview {remix_ms} ms  peak RSS {:.0} MB",
