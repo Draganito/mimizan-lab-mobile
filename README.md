@@ -158,4 +158,4 @@ text and a short notice in its assets. Releases published before this change
 stay under the MIT license they were shipped with.
 
 The phone runs the Mimizan separation only. AMaZE, RCD, DCB and LMMSE stay
-in the desktop app.
+on the desktop branch `demosaic` and in desktop release 0.10.12.
