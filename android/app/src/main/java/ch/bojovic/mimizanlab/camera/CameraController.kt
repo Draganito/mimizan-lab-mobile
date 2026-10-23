@@ -149,8 +149,8 @@ class CameraController(context: Context) {
     /** Preview size for a 4:3 TextureView: the largest <= 1600 px wide of the sensor aspect. */
     fun previewSizeFor(lens: LensInfo): Size {
         val c = manager.getCameraCharacteristics(lens.sensorId)
-        val map = c.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)!!
-        val sizes = map.getOutputSizes(SurfaceTexture::class.java)
+        val map = c.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+        val sizes = map?.getOutputSizes(SurfaceTexture::class.java) ?: emptyArray()
         val aspect = lens.rawSize.width.toFloat() / lens.rawSize.height
         return sizes
             .filter { abs(it.width.toFloat() / it.height - aspect) < 0.02f && it.width <= 1600 }
@@ -159,15 +159,16 @@ class CameraController(context: Context) {
             ?: Size(1280, 960)
     }
 
-    private fun analysisSizeFor(lens: LensInfo): Size {
+    private fun analysisSizeFor(lens: LensInfo): Size? {
         val c = manager.getCameraCharacteristics(lens.sensorId)
-        val map = c.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)!!
-        val sizes = map.getOutputSizes(ImageFormat.YUV_420_888)
+        val map = c.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP) ?: return null
+        val sizes = map.getOutputSizes(ImageFormat.YUV_420_888) ?: return null
+        if (sizes.isEmpty()) return null
         val aspect = lens.rawSize.width.toFloat() / lens.rawSize.height
         return sizes
             .filter { abs(it.width.toFloat() / it.height - aspect) < 0.02f && it.width >= 240 }
             .minByOrNull { it.width.toLong() * it.height }
-            ?: Size(320, 240)
+            ?: sizes.minByOrNull { it.width.toLong() * it.height }
     }
 
     @RequiresPermission(Manifest.permission.CAMERA)
@@ -186,24 +187,44 @@ class CameraController(context: Context) {
 
         rawReader = ImageReader.newInstance(lens.rawSize.width, lens.rawSize.height, ImageFormat.RAW_SENSOR, 2)
         val an = analysisSizeFor(lens)
-        yuvReader = ImageReader.newInstance(an.width, an.height, ImageFormat.YUV_420_888, 2).apply {
-            setOnImageAvailableListener({ reader ->
-                val img = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
-                img.use {
-                    val now = SystemClock.elapsedRealtime()
-                    if (now - lastAnalysisMs >= ANALYSIS_PERIOD_MS) {
-                        lastAnalysisMs = now
-                        analyse(it)
+        yuvReader = an?.let { size ->
+            ImageReader.newInstance(size.width, size.height, ImageFormat.YUV_420_888, 2).apply {
+                setOnImageAvailableListener({ reader ->
+                    val img = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+                    img.use {
+                        val now = SystemClock.elapsedRealtime()
+                        if (now - lastAnalysisMs >= ANALYSIS_PERIOD_MS) {
+                            lastAnalysisMs = now
+                            analyse(it)
+                        }
                     }
-                }
-            }, analysisHandler)
+                }, analysisHandler)
+            }
         }
         orientationListener.enable()
 
         val dev = openDevice(lens.cameraId)
         device = dev
-        val outputs = listOf(previewSurface!!, yuvReader!!.surface, rawReader!!.surface)
-        session = createSession(dev, outputs, lens.physicalId)
+        val preview = previewSurface!!
+        val rawSurface = rawReader!!.surface
+        val withAnalysis = listOfNotNull(preview, yuvReader?.surface, rawSurface)
+        session = try {
+            try {
+                createSession(dev, withAnalysis, lens.physicalId)
+            } catch (e: IllegalStateException) {
+                if (e.message != "session configuration failed" || yuvReader == null) throw e
+                // Samsung HALs often reject RAW + preview + YUV on one session.
+                // The histogram needs the YUV stream; the still does not.
+                Log.w(TAG, "session with analysis stream failed, retrying RAW + preview", e)
+                yuvReader?.close()
+                yuvReader = null
+                createSession(dev, listOf(preview, rawSurface), lens.physicalId)
+            }
+        } catch (e: Exception) {
+            orientationListener.disable()
+            closeSessionLocked()
+            throw e
+        }
         _state.update { it.copy(lens = lens, previewSize = previewSize, error = null, focusPoint = null, flash = flash) }
         afRegion = null
         afMode = CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE
@@ -256,6 +277,7 @@ class CameraController(context: Context) {
                 object : CameraCaptureSession.StateCallback() {
                     override fun onConfigured(s: CameraCaptureSession) { if (cont.isActive) cont.resume(s) }
                     override fun onConfigureFailed(s: CameraCaptureSession) {
+                        s.close()
                         if (cont.isActive) cont.resumeWithException(IllegalStateException("session configuration failed"))
                     }
                 },
@@ -298,7 +320,9 @@ class CameraController(context: Context) {
             b.set(CaptureRequest.SENSOR_SENSITIVITY, exposure.iso!!.coerceIn(lens.isoRange.lower, lens.isoRange.upper))
             b.set(CaptureRequest.SENSOR_EXPOSURE_TIME, exposure.exposureNs!!.coerceIn(lens.exposureRangeNs.lower, lens.exposureRangeNs.upper))
             // Keep the preview watchable at long exposures: 1/15 s frame cap.
-            if (!still) b.set(CaptureRequest.SENSOR_FRAME_DURATION, maxOf(exposure.exposureNs!!, 33_333_333L))
+            if (!still && supports(CaptureRequest.SENSOR_FRAME_DURATION)) {
+                b.set(CaptureRequest.SENSOR_FRAME_DURATION, maxOf(exposure.exposureNs!!, 33_333_333L))
+            }
             // With AE off the automatics cannot decide; On fires once for the still.
             val single = still && armFlash && flash == FlashMode.On && lens.hasFlash
             b.set(CaptureRequest.FLASH_MODE, if (single) CameraMetadata.FLASH_MODE_SINGLE else CameraMetadata.FLASH_MODE_OFF)
@@ -315,19 +339,27 @@ class CameraController(context: Context) {
         b.set(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_AUTO)
         isp?.apply(b)
         if (still) {
-            b.set(CaptureRequest.STATISTICS_LENS_SHADING_MAP_MODE, CameraMetadata.STATISTICS_LENS_SHADING_MAP_MODE_ON)
-            b.set(CaptureRequest.CONTROL_ENABLE_ZSL, false)
+            val shading = characteristics?.get(CameraCharacteristics.STATISTICS_INFO_AVAILABLE_LENS_SHADING_MAP_MODES)
+            if (shading != null && CameraMetadata.STATISTICS_LENS_SHADING_MAP_MODE_ON in shading) {
+                b.set(CaptureRequest.STATISTICS_LENS_SHADING_MAP_MODE, CameraMetadata.STATISTICS_LENS_SHADING_MAP_MODE_ON)
+            }
+            if (supports(CaptureRequest.CONTROL_ENABLE_ZSL)) b.set(CaptureRequest.CONTROL_ENABLE_ZSL, false)
         }
+    }
+
+    /** True when the open camera lists [key], or when it publishes no key list at all. */
+    private fun supports(key: CaptureRequest.Key<*>): Boolean {
+        val keys = characteristics?.availableCaptureRequestKeys ?: return true
+        return keys.contains(key)
     }
 
     private fun startRepeatingLocked() {
         val s = session ?: return
         val dev = device ?: return
         val preview = previewSurface ?: return
-        val yuv = yuvReader?.surface ?: return
         val b = dev.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
         b.addTarget(preview)
-        b.addTarget(yuv)
+        yuvReader?.surface?.let { b.addTarget(it) }
         applyControls(b, still = false)
         s.setRepeatingRequest(b.build(), previewCallback, handler)
     }
@@ -395,6 +427,48 @@ class CameraController(context: Context) {
     }
 
     /**
+     * One still request. [includePreview] keeps the viewfinder attached;
+     * HALs that reject that combination are retried without it.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private suspend fun fireStill(
+        session: CameraCaptureSession,
+        dev: CameraDevice,
+        reader: ImageReader,
+        includePreview: Boolean,
+    ): Pair<TotalCaptureResult, Image> {
+        val imageDeferred = CompletableDeferred<Image>()
+        val resultDeferred = CompletableDeferred<TotalCaptureResult>()
+        reader.setOnImageAvailableListener({ r ->
+            val img = r.acquireNextImage()
+            if (img != null && !imageDeferred.complete(img)) img.close()
+        }, handler)
+        try {
+            val still = dev.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
+            still.addTarget(reader.surface)
+            if (includePreview) previewSurface?.let { still.addTarget(it) }
+            applyControls(still, still = true, armFlash = flash != FlashMode.Off && lens?.hasFlash == true)
+            if (!exposure.manual && supports(CaptureRequest.CONTROL_AE_LOCK)) {
+                still.set(CaptureRequest.CONTROL_AE_LOCK, true)
+            }
+            session.capture(still.build(), object : CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureCompleted(s: CameraCaptureSession, req: CaptureRequest, result: TotalCaptureResult) {
+                    resultDeferred.complete(result)
+                }
+                override fun onCaptureFailed(s: CameraCaptureSession, req: CaptureRequest, failure: CaptureFailure) {
+                    resultDeferred.completeExceptionally(IllegalStateException("capture failed (${failure.reason})"))
+                }
+            }, handler)
+            val logicalResult = withTimeoutOrNull(6000) { resultDeferred.await() } ?: error("no capture result")
+            val image = withTimeoutOrNull(6000) { imageDeferred.await() } ?: error("no RAW frame")
+            return logicalResult to image
+        } catch (e: Throwable) {
+            if (imageDeferred.isCompleted) runCatching { imageDeferred.getCompleted().close() }
+            throw e
+        }
+    }
+
+    /**
      * Take one RAW frame. Locks focus (if AF is active) and runs AE
      * precapture when the exposure is automatic, then fires a still request.
      */
@@ -442,31 +516,17 @@ class CameraController(context: Context) {
                 }
             }
 
-            val imageDeferred = CompletableDeferred<Image>()
-            val resultDeferred = CompletableDeferred<TotalCaptureResult>()
-            reader.setOnImageAvailableListener({ r ->
-                val img = r.acquireNextImage()
-                if (img != null && !imageDeferred.complete(img)) img.close()
-            }, handler)
-
-            val still = dev.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
-            still.addTarget(reader.surface)
-            still.addTarget(previewSurface!!)
-            applyControls(still, still = true, armFlash = flash != FlashMode.Off && lens.hasFlash)
-            if (auto) still.set(CaptureRequest.CONTROL_AE_LOCK, true)
             val rotation = Orientation.rotationDegrees(lens.sensorOrientation, deviceRotation)
             val capturedAt = System.currentTimeMillis()
-            s.capture(still.build(), object : CameraCaptureSession.CaptureCallback() {
-                override fun onCaptureCompleted(s: CameraCaptureSession, req: CaptureRequest, result: TotalCaptureResult) {
-                    resultDeferred.complete(result)
-                }
-                override fun onCaptureFailed(s: CameraCaptureSession, req: CaptureRequest, failure: CaptureFailure) {
-                    resultDeferred.completeExceptionally(IllegalStateException("capture failed (${failure.reason})"))
-                }
-            }, handler)
-
-            val logicalResult = withTimeoutOrNull(6000) { resultDeferred.await() } ?: error("no capture result")
-            val image = withTimeoutOrNull(6000) { imageDeferred.await() } ?: error("no RAW frame")
+            // Some HALs reject a still that also targets the preview. The RAW
+            // reader alone is enough; the preview target is only a courtesy.
+            val (logicalResult, image) = try {
+                fireStill(s, dev, reader, includePreview = true)
+            } catch (e: IllegalStateException) {
+                if (e.message?.startsWith("capture failed") != true) throw e
+                Log.w(TAG, "still with preview target failed, retrying RAW only", e)
+                fireStill(s, dev, reader, includePreview = false)
+            }
             // Metadata of the sensor that produced the frame: the physical
             // result when routed, else the logical one.
             val result = lens.physicalId?.let { logicalResult.physicalCameraTotalResults[it] } ?: logicalResult

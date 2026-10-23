@@ -46,15 +46,26 @@ class RawCapture(
             val w = image.width
             val h = image.height
             val rowStride = plane.rowStride
+            val pixelStride = plane.pixelStride
             val rowBytes = w * 2
             val out = ByteArray(rowBytes * h)
-            if (rowStride == rowBytes) {
+            if (pixelStride == 2 && rowStride == rowBytes) {
                 buf.rewind()
                 buf.get(out, 0, minOf(out.size, buf.remaining()))
-            } else {
+            } else if (pixelStride == 2) {
                 for (y in 0 until h) {
                     buf.position(y * rowStride)
                     buf.get(out, y * rowBytes, rowBytes)
+                }
+            } else {
+                // RAW_SENSOR is 16-bit even when the HAL inserts padding per sample.
+                for (y in 0 until h) {
+                    for (x in 0 until w) {
+                        buf.position(y * rowStride + x * pixelStride)
+                        val o = y * rowBytes + x * 2
+                        out[o] = buf.get()
+                        out[o + 1] = buf.get()
+                    }
                 }
             }
             return out

@@ -22,6 +22,7 @@ class IspControls(c: CameraCharacteristics) {
     private val noiseOff: Boolean
     private val edgeOff: Boolean
     private val distortionOff: Boolean
+    private val stabilizationOff: Boolean
     val description: String
 
     init {
@@ -49,6 +50,8 @@ class IspControls(c: CameraCharacteristics) {
             ?.contains(CameraMetadata.EDGE_MODE_OFF) == true
         distortionOff = c.get(CameraCharacteristics.DISTORTION_CORRECTION_AVAILABLE_MODES)
             ?.contains(CameraMetadata.DISTORTION_CORRECTION_MODE_OFF) == true
+        stabilizationOff = c.get(CameraCharacteristics.CONTROL_AVAILABLE_VIDEO_STABILIZATION_MODES)
+            ?.contains(CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_OFF) == true
         description = listOf(
             "tonemap " + when (tonemapMode) {
                 CameraMetadata.TONEMAP_MODE_PRESET_CURVE -> "preset sRGB"
@@ -59,6 +62,7 @@ class IspControls(c: CameraCharacteristics) {
             "nr " + if (noiseOff) "off" else "on",
             "edge " + if (edgeOff) "off" else "on",
             "distortion " + if (distortionOff) "off" else "default",
+            "stab " + if (stabilizationOff) "off" else "default",
         ).joinToString(", ")
     }
 
@@ -77,7 +81,9 @@ class IspControls(c: CameraCharacteristics) {
         if (noiseOff) b.set(CaptureRequest.NOISE_REDUCTION_MODE, CameraMetadata.NOISE_REDUCTION_MODE_OFF)
         if (edgeOff) b.set(CaptureRequest.EDGE_MODE, CameraMetadata.EDGE_MODE_OFF)
         if (distortionOff) b.set(CaptureRequest.DISTORTION_CORRECTION_MODE, CameraMetadata.DISTORTION_CORRECTION_MODE_OFF)
-        b.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_OFF)
+        if (stabilizationOff) {
+            b.set(CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE, CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_OFF)
+        }
     }
 
     companion object {

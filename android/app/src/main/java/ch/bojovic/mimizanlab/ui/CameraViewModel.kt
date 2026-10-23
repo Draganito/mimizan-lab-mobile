@@ -19,6 +19,7 @@ import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.SeparationMode
 import ch.bojovic.mimizanlab.engine.mixWeights
 import ch.bojovic.mimizanlab.engine.paperLut
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -145,15 +146,30 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         val l = _lens.value ?: run { _message.value = "No RAW-capable camera"; return }
         startJob?.cancel()
         startJob = viewModelScope.launch {
-            try {
-                controller.start(l, st)
-                controller.setExposure(_exposure.value)
-            } catch (e: SecurityException) {
-                _message.value = "Camera permission missing"
-            } catch (t: Throwable) {
-                Log.e(TAG, "start", t)
-                _message.value = t.message ?: "Camera failed"
+            // The first lens a HAL lists is often a logical camera that
+            // advertises RAW and then rejects the session. Try the rest
+            // before giving up, and keep the one that actually opened.
+            val order = listOf(l) + lenses.filter { it.key != l.key }
+            var last: Throwable? = null
+            for (candidate in order) {
+                try {
+                    controller.start(candidate, st)
+                    controller.setExposure(_exposure.value)
+                    if (candidate.key != l.key) {
+                        _lens.value = candidate
+                        _message.value = "${l.label} has no RAW session, opened ${candidate.label}"
+                    }
+                    return@launch
+                } catch (e: SecurityException) {
+                    _message.value = "Camera permission missing"
+                    return@launch
+                } catch (t: Throwable) {
+                    if (t is CancellationException) throw t
+                    Log.e(TAG, "start ${candidate.key}", t)
+                    last = t
+                }
             }
+            _message.value = last?.message ?: "Camera failed"
         }
     }
 
