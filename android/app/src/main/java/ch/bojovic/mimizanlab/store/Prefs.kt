@@ -2,7 +2,6 @@ package ch.bojovic.mimizanlab.store
 
 import android.content.Context
 import androidx.core.content.edit
-import ch.bojovic.mimizanlab.camera.MeteringMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -63,8 +62,8 @@ class Prefs(context: Context) {
     private val _compensation = MutableStateFlow(sp.getInt(KEY_COMPENSATION, 0).coerceIn(-COMP_LIMIT_THIRDS, COMP_LIMIT_THIRDS))
     /**
      * Standing exposure compensation on A, in thirds of a stop (±3 EV),
-     * added under the phone's AE and under the app's meter alike. The EV
-     * slider on the viewfinder comes on top of it.
+     * added to the phone's AE compensation. The EV slider on the viewfinder
+     * comes on top of it.
      */
     val compensationThirds: StateFlow<Int> = _compensation.asStateFlow()
 
@@ -72,22 +71,6 @@ class Prefs(context: Context) {
         val v = thirds.coerceIn(-COMP_LIMIT_THIRDS, COMP_LIMIT_THIRDS)
         _compensation.value = v
         sp.edit { putInt(KEY_COMPENSATION, v) }
-    }
-
-    private val _metering = MutableStateFlow(
-        runCatching { MeteringMode.valueOf(sp.getString(KEY_METERING, null) ?: "") }.getOrDefault(MeteringMode.PHONE),
-    )
-    /**
-     * Who sets the exposure on A: the phone's AE, or the app on RAW probes.
-     * Defaults to [MeteringMode.PHONE]; the app's own modes are chosen on
-     * purpose, and a lens without manual sensor control falls back to the
-     * phone's AE in the controller anyway.
-     */
-    val metering: StateFlow<MeteringMode> = _metering.asStateFlow()
-
-    fun setMetering(mode: MeteringMode) {
-        _metering.value = mode
-        sp.edit { putString(KEY_METERING, mode.name) }
     }
 
     companion object {
@@ -103,7 +86,6 @@ class Prefs(context: Context) {
         private const val KEY_SHARPEN = "usm_amount"
         private const val KEY_DECONV = "deconvolution"
         private const val KEY_DECONV_N = "deconv_passes"
-        private const val KEY_METERING = "metering"
         private const val KEY_COMPENSATION = "compensation_thirds"
         /** ±3 EV in thirds. */
         const val COMP_LIMIT_THIRDS = 9

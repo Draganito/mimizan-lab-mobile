@@ -13,7 +13,6 @@ import ch.bojovic.mimizanlab.camera.FinderTone
 import ch.bojovic.mimizanlab.camera.FlashMode
 import ch.bojovic.mimizanlab.camera.IspColor
 import ch.bojovic.mimizanlab.camera.LensInfo
-import ch.bojovic.mimizanlab.camera.MeteringMode
 import ch.bojovic.mimizanlab.engine.Darkroom
 import ch.bojovic.mimizanlab.engine.DevelopSettings
 import ch.bojovic.mimizanlab.engine.Filter
@@ -28,9 +27,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -95,16 +91,11 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch { tone.collect { controller.tone = it } }
-        viewModelScope.launch { darkroom.prefs.metering.collect { controller.setMetering(it) } }
         viewModelScope.launch {
             darkroom.prefs.compensationThirds.collect { thirds ->
                 _exposure.update { it.copy(compensationStops = thirds / 3.0) }
                 push()
             }
-        }
-        // The meter says so once when it hands the exposure back to the phone.
-        viewModelScope.launch {
-            stream.map { it.meteringNote }.distinctUntilChanged().filterNotNull().collect { _message.value = it }
         }
     }
 
@@ -133,7 +124,6 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             lut = paperLut(soft, hard, 4096u).toFloatArray(),
             invGamma = 1f,
             zebra = if (zebra) 0.985f else 2f,
-            weights = weights,
         )
     }
 
@@ -211,17 +201,14 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         push()
     }
 
-    /** Switch to manual seeded with the exposure the automatics chose (the meter's still pair when it runs). */
+    /** Switch to manual seeded with the exposure the automatics chose. */
     fun enterManual() {
         val s = stream.value
         val l = _lens.value ?: return
-        val iso = (s.plannedIso ?: s.iso ?: 100).coerceIn(l.isoRange.lower, l.isoRange.upper)
-        val t = (s.plannedNs ?: s.exposureNs ?: 8_000_000L).coerceIn(l.exposureRangeNs.lower, l.exposureRangeNs.upper)
+        val iso = (s.iso ?: 100).coerceIn(l.isoRange.lower, l.isoRange.upper)
+        val t = (s.exposureNs ?: 8_000_000L).coerceIn(l.exposureRangeNs.lower, l.exposureRangeNs.upper)
         setManual(iso, t)
     }
-
-    fun setMetering(mode: MeteringMode) = darkroom.prefs.setMetering(mode)
-    fun setCompensationThirds(thirds: Int) = darkroom.prefs.setCompensationThirds(thirds)
 
     private fun push() {
         val e = _exposure.value
@@ -255,6 +242,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun setSharpen(amount: Double) = darkroom.prefs.setSharpen(amount)
     fun setDeconvolution(on: Boolean) = darkroom.prefs.setDeconvolution(on)
     fun setDeconvPasses(n: Int) = darkroom.prefs.setDeconvPasses(n)
+    fun setCompensationThirds(thirds: Int) = darkroom.prefs.setCompensationThirds(thirds)
     fun toggleZebra() = _viewfinder.update { it.copy(zebra = !it.zebra) }
     fun toggleGrid() = _viewfinder.update { it.copy(grid = !it.grid) }
     fun toggleHistogram() = _viewfinder.update { it.copy(showHistogram = !it.showHistogram) }

@@ -169,7 +169,23 @@ object RawFrameBridge {
         val ch = c.characteristics
         val r = c.result
         val cfa = ch.get(CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT) ?: 0
-        val (black, white) = levels(ch, r)
+
+        // Dynamic black level of this very frame when the HAL reports it,
+        // else the static pattern. Both are row-major over the 2x2 CFA tile.
+        val dyn = r.get(CaptureResult.SENSOR_DYNAMIC_BLACK_LEVEL)
+        val black = DoubleArray(4)
+        if (dyn != null && dyn.size == 4) {
+            for (i in 0 until 4) black[i] = dyn[i].toDouble()
+        } else {
+            val p = ch.get(CameraCharacteristics.SENSOR_BLACK_LEVEL_PATTERN)
+            if (p != null) {
+                val tmp = IntArray(4)
+                p.copyTo(tmp, 0)
+                for (i in 0 until 4) black[i] = tmp[i].toDouble()
+            }
+        }
+        val white = (r.get(CaptureResult.SENSOR_DYNAMIC_WHITE_LEVEL)
+            ?: ch.get(CameraCharacteristics.SENSOR_INFO_WHITE_LEVEL) ?: 1023).toDouble()
 
         val pre = ch.get(CameraCharacteristics.SENSOR_INFO_PRE_CORRECTION_ACTIVE_ARRAY_SIZE)
         val active = ch.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
@@ -203,29 +219,6 @@ object RawFrameBridge {
             cameraId = c.cameraId,
             capturedAtEpochMs = c.capturedAtEpochMs,
         )
-    }
-
-    /**
-     * Black tile and white level of a frame: the dynamic values of its
-     * result when the HAL reports them, else the static ones. The tile is
-     * row-major over the 2x2 CFA tile.
-     */
-    fun levels(ch: CameraCharacteristics, r: CaptureResult): Pair<DoubleArray, Double> {
-        val dyn = r.get(CaptureResult.SENSOR_DYNAMIC_BLACK_LEVEL)
-        val black = DoubleArray(4)
-        if (dyn != null && dyn.size == 4) {
-            for (i in 0 until 4) black[i] = dyn[i].toDouble()
-        } else {
-            val p = ch.get(CameraCharacteristics.SENSOR_BLACK_LEVEL_PATTERN)
-            if (p != null) {
-                val tmp = IntArray(4)
-                p.copyTo(tmp, 0)
-                for (i in 0 until 4) black[i] = tmp[i].toDouble()
-            }
-        }
-        val white = (r.get(CaptureResult.SENSOR_DYNAMIC_WHITE_LEVEL)
-            ?: ch.get(CameraCharacteristics.SENSOR_INFO_WHITE_LEVEL) ?: 1023).toDouble()
-        return black to white
     }
 
     /** Active array relative to the buffer; null when it is the whole buffer. */

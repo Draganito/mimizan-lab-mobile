@@ -5,7 +5,7 @@
 ```
 ┌──────────────────────────── Android app (Kotlin / Compose) ────────────────────────────┐
 │ ui/        CameraScreen · MonoViewfinder (AGSL) · ReviewScreen (zoom, remix) · RollScreen │
-│ camera/    Lenses · CameraController (Camera2 session) · ExposureMeter · RawSubsample      │
+│ camera/    Lenses (RAW-capable back cameras) · CameraController (Camera2 session)          │
 │ raw/       RawFrameBridge (Characteristics + CaptureResult -> RawInput) · Orientation     │
 │ engine/    Darkroom (roll state, queue, exports) · DevelopService (foreground)              │
 │ store/     RawCache (app cache: .raw + .json) · MediaStoreWriter (Pictures/Mimizan Lab)     │
@@ -14,8 +14,7 @@
                                         │ JNA / UniFFI (libmimizan_mobile.so)
 ┌───────────────────────────────────────▼─────────────────────────────────────────────────┐
 │ rust/mimizan-mobile   types.rs (FFI records/enums) · frame.rs (RawInput -> RawFrame,      │
-│                       2x CFA binning) · meter.rs (RAW probe statistics) · session.rs        │
-│                       (Developed: remix/preview/detail/export)                              │
+│                       2x CFA binning) · session.rs (Developed: remix/preview/detail/export) │
 │ mimizan-core          ingest -> separation (Dubois/adaptive/off) -> mix -> print path       │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -30,15 +29,16 @@ in the algorithm is duplicated in the mobile crate.
 1. `CameraController.start` opens the chosen lens with three streams:
    preview `SurfaceTexture` (largest 4:3 size <= 1600 px), a small
    `YUV_420_888` stream for the histogram, and a `RAW_SENSOR` `ImageReader`
-   at the sensor size (the still's, and the meter's probes', see
-   *Metering*). `Lenses.enumerate` lists the logical back cameras
+   at the sensor size. `Lenses.enumerate` lists the logical back cameras
    and the physical cameras behind them with another focal length; for a
    physical lens every `OutputConfiguration` gets `setPhysicalCameraId`,
    the characteristics and the capture result used for metadata are the
    physical ones (`physicalCameraTotalResults`).
 2. The repeating request carries the user's controls: `CONTROL_AE_MODE_ON`
-   + EV compensation, or `CONTROL_AE_MODE_OFF` with `SENSOR_SENSITIVITY` /
-   `SENSOR_EXPOSURE_TIME` (manual, or the app's meter); AF continuous-picture, or AUTO plus a trigger
+   + EV compensation (the viewfinder's EV slider plus the standing
+   compensation from the settings, `Prefs.compensationThirds`, summed in
+   the HAL's steps by `aeCompensationSteps`), or `CONTROL_AE_MODE_OFF` with `SENSOR_SENSITIVITY` /
+   `SENSOR_EXPOSURE_TIME`; AF continuous-picture, or AUTO plus a trigger
    after a tap (regions set for AF and AE); AWB auto. Flash stays off on
    this request, so the viewfinder never lights the LED.
 3. `capture()` locks AF (continuous mode only) and, when exposure is
@@ -74,66 +74,6 @@ in the algorithm is duplicated in the mobile crate.
    written (0.1.0 did; dropped so that nothing but monochrome reaches the
    gallery). `Darkroom.delete` / `deleteAll` remove frames from the cache,
    the list and, if it is the one in memory, close the `Developed`.
-
-## Metering
-
-`MeteringMode.PHONE` (the default in `Prefs`) leaves the exposure to the
-HAL (`CONTROL_AE_MODE_ON` plus EV compensation, precapture before the
-still). `HIGHLIGHTS` and `GREY` put the camera in `CONTROL_AE_MODE_OFF` and the app drives
-`SENSOR_SENSITIVITY` / `SENSOR_EXPOSURE_TIME` itself, with
-`CONTROL_POST_RAW_SENSITIVITY_BOOST = 100` so the preview is the sensor's
-exposure and not a boosted copy of it.
-
-* Probes: `CameraController.probe` submits one `TEMPLATE_PREVIEW` request
-  every 200 ms with the RAW reader as an extra target beside the preview
-  (and YUV) surfaces, the same controls as the repeating request. The RAW
-  stream is in the session anyway, so the request has the preview's frame
-  duration; Camera2's model promises no frame-rate loss for an interleaved
-  request whose previous RAW buffer has been delivered. The RAW reader is
-  shared with the still through a FIFO of waiters (`rawWaiters`): the HAL
-  returns RAW buffers in request order.
-* Sample: `RawSubsample.of` copies two rows per tile row out of the
-  `Image` in bulk and keeps one 2x2 tile every 16 px of the active area
-  (255 x 192 tiles at 4080 x 3072, 392 kB), origin even so the frame's
-  phase and black tile apply. The `Image` is closed before the Rust call.
-* Statistics: `meter_raw` (`meter.rs`) computes, per tile, the maximum
-  over the raw channels (above black, over the range to white, before any
-  balance) and the balanced mix luma with the viewfinder's weights
-  (`FinderTone.weights`, the development's `mix_weights`) and the frame's
-  `COLOR_CORRECTION_GAINS`. It returns the 99th percentile of the tile
-  maxima (`highlight`; the percent above it is the clip budget for lamps,
-  speculars and the sun), the clipped fraction, the geometric mean luma over
-  the frame and over the tapped spot, and a 1024-bin luma histogram (used
-  for the corner histogram when a HAL refused the YUV stream).
-* Control: `ExposureMeter` (pure Kotlin, unit-tested) keeps one number,
-  `H = ISO · s`. A probe at `H_p` whose statistic is `s` gives
-  `H = H_p · target / s` in one step (the sensor is linear). Targets:
-  `0.7071` for the highlight (half a stop under the clip = Zone VIII on
-  the paper), `0.18` for the grey (Zone V), times `2^EV`, where EV is the
-  viewfinder slider plus the standing compensation from the settings
-  (`Prefs.compensationThirds`; under the phone's AE the same sum goes into
-  `CONTROL_AE_EXPOSURE_COMPENSATION`, `aeCompensationSteps`). A clipped
-  highlight steps down one stop per probe until it shows; a step down
-  stops where it would push the scene's grey under Zone III (two stops
-  under the card, also times `2^EV`): when the scene's range exceeds the
-  paper's, the shadows are placed and the lights above the budget go
-  white (expose for the shadows). Dead band 1/6 stop; a probe whose exposure is
-  not the commanded one yet (pipeline depth) is skipped up to three
-  times. `H` is split twice into the lowest ISO whose time stays within a
-  cap: 1/30 s for the viewfinder (the stream keeps its rate; the frame
-  duration is left to the template), `min(1/8 s, 2/f_equiv)` for the
-  still. With `STATISTICS_SCENE_FLICKER` at 50/60 Hz, times at or above
-  the half-period are whole multiples of it. `flashRequired` is set when
-  the still's limits fall half a stop short; `Auto` flash then fires
-  `FLASH_MODE_SINGLE` on the still.
-* Guard: `noteFrameInterval` keeps a running mean of the `SENSOR_TIMESTAMP`
-  deltas and counts gaps above 2.5x. Six gaps within twelve probes, or
-  five failed probes in a row, stand the meter down for the session
-  (`meteringNote`, shown once) and the phone's AE takes over. Choosing a
-  mode again in the settings gives it a fresh try.
-
-The still under the app's meter takes no precapture: it is fired with the
-plan's still pair as soon as the focus lock (continuous AF only) is seen.
 
 ## Development
 

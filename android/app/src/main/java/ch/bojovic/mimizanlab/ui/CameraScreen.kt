@@ -71,7 +71,6 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.bojovic.mimizanlab.camera.FlashMode
-import ch.bojovic.mimizanlab.camera.MeteringMode
 import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.SeparationMode
 import ch.bojovic.mimizanlab.engine.ShotStatus
@@ -96,7 +95,6 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val sharpen by vm.darkroom.prefs.sharpen.collectAsStateWithLifecycle()
     val deconvolution by vm.darkroom.prefs.deconvolution.collectAsStateWithLifecycle()
     val deconvPasses by vm.darkroom.prefs.deconvPasses.collectAsStateWithLifecycle()
-    val metering by vm.darkroom.prefs.metering.collectAsStateWithLifecycle()
     val compensation by vm.darkroom.prefs.compensationThirds.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
@@ -221,12 +219,8 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
         // Exposure readout and controls, at their own height.
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                // Under the app's meter the readout is the still's pair; the
-                // viewfinder may run a shorter time at a higher ISO.
-                val ownMeter = !exposure.manual && stream.metering != MeteringMode.PHONE
                 Text(
-                    "${Format.iso(if (ownMeter) stream.plannedIso else stream.iso)}   " +
-                        Format.shutter(if (ownMeter) stream.plannedNs else stream.exposureNs),
+                    "${Format.iso(stream.iso)}   ${Format.shutter(stream.exposureNs)}",
                     fontFamily = FontFamily.Monospace,
                     style = MaterialTheme.typography.titleMedium,
                 )
@@ -240,23 +234,11 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                                     FlashMode.On -> Icons.Filled.FlashOn
                                 },
                                 contentDescription = "Flash",
-                                tint = when {
-                                    stream.flash == FlashMode.Off -> Color.Gray
-                                    stream.flash == FlashMode.Auto && stream.flashRequired -> Color(0xFFFFD54F)
-                                    else -> Color.White
-                                },
+                                tint = if (stream.flash == FlashMode.Off) Color.Gray else Color.White,
                             )
                         }
                     }
-                    Text(
-                        when {
-                            exposure.manual -> "M"
-                            stream.metering == MeteringMode.HIGHLIGHTS -> "A·ETTR"
-                            stream.metering == MeteringMode.GREY -> if (stream.focusPoint != null) "A·spot" else "A·grey"
-                            else -> "A"
-                        },
-                        fontWeight = FontWeight.Bold,
-                    )
+                    Text(if (exposure.manual) "M" else "A", fontWeight = FontWeight.Bold)
                     Spacer(Modifier.width(8.dp))
                     Switch(
                         checked = exposure.manual,
@@ -381,43 +363,6 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 Spacer(Modifier.height(16.dp))
                 Text("Exposure", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
-                Text("Metering on A", style = MaterialTheme.typography.labelLarge)
-                val canMeter = lens?.hasManualSensor == true
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (m in MeteringMode.entries) {
-                        FilterChip(
-                            selected = metering == m,
-                            onClick = { vm.setMetering(m) },
-                            enabled = m == MeteringMode.PHONE || canMeter,
-                            label = {
-                                Text(
-                                    when (m) {
-                                        MeteringMode.PHONE -> "Phone"
-                                        MeteringMode.HIGHLIGHTS -> "Highlights"
-                                        MeteringMode.GREY -> "Grey"
-                                    },
-                                )
-                            },
-                        )
-                    }
-                }
-                Text(
-                    when (metering) {
-                        MeteringMode.PHONE -> "The phone's auto-exposure, with its EV compensation."
-                        MeteringMode.HIGHLIGHTS ->
-                            "The app meters on RAW probes between the viewfinder frames and sets ISO and time itself. " +
-                                "The brightest raw channel of the scene is placed half a stop under the clip (ETTR): " +
-                                "on the paper that is just below Zone VIII. One percent of the picture may clip (lamps, speculars), " +
-                                "and the scene's grey is never pushed under Zone III: lights go white before the picture goes dark. " +
-                                "EV moves both."
-                        MeteringMode.GREY ->
-                            "The app meters on RAW probes between the viewfinder frames and sets ISO and time itself. " +
-                                "The negative's grey with the chosen filter is placed on the grey card, Zone V at the base print; " +
-                                "a tap meters that spot alone. EV moves that target."
-                    } + if (!canMeter) " This camera has no manual sensor control, so only the phone can meter." else "",
-                    style = MaterialTheme.typography.bodySmall, color = Color.Gray,
-                )
-                Spacer(Modifier.height(8.dp))
                 val compLimit = Prefs.COMP_LIMIT_THIRDS
                 LabeledSlider(
                     label = "comp ${Format.ev(compensation, 1.0 / 3)}",
@@ -426,8 +371,8 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                     steps = 2 * compLimit - 1,
                 )
                 Text(
-                    "Standing compensation on A, in thirds of a stop: added to every automatic exposure, " +
-                        "with the phone's AE and with the app's meter. The EV slider on the viewfinder comes on top.",
+                    "Standing compensation on A, in thirds of a stop, added to the phone's auto-exposure " +
+                        "within the range the camera allows. The EV slider on the viewfinder comes on top of it.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 Spacer(Modifier.height(16.dp))

@@ -9,11 +9,9 @@
 uniffi::setup_scaffolding!();
 
 pub mod frame;
-pub mod meter;
 pub mod session;
 pub mod types;
 
-pub use meter::{MeterInput, MeterStats};
 pub use session::Developed;
 pub use types::*;
 
