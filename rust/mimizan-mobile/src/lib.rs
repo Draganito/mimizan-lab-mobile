@@ -26,7 +26,7 @@ pub fn version() -> String {
 /// Version of the `mimizan-core` the library was built with.
 #[uniffi::export]
 pub fn core_version() -> String {
-    mimizan_core::VERSION.to_string()
+    env!("MIMIZAN_CORE_VERSION").to_string()
 }
 
 /// Route `tracing` output to logcat (tag `mimizan`). No-op off Android.

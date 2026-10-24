@@ -10,10 +10,10 @@ use mimizan_core::icc::GrayTrc;
 use mimizan_core::mix::{mix, Weights as CoreWeights};
 use mimizan_core::pipeline::{negative_from_frame, NegativeInfo, NegativeParams};
 use mimizan_core::plane::Plane;
-use mimizan_core::print::{self as pr, orient, rotate_gray8_cw, rotated, PrintParams, PrintSource};
+use mimizan_core::print::{self as pr, orient, rotated, PrintParams, PrintSource};
 use mimizan_core::recipe::{Recipe, Sharpen};
-use mimizan_core::tone::{Tone, ToneMap};
 use mimizan_core::resize::{fit_dims, resize};
+use mimizan_core::tone::{render, Tone, ToneMap};
 
 /// The sharpening mode of an export from the bridge's flat arguments:
 /// Richardson–Lucy with an optional USM, then USM alone, else off.
@@ -265,6 +265,29 @@ fn source_rect(
     (x0, y0, x1 - x0 + 1, y1 - y0 + 1)
 }
 
+/// Rotate an 8-bit image 90° clockwise `quarter_turns` times; returns the
+/// new (width, height, pixels). The core keeps its copy for its own tests.
+fn rotate_gray8_cw(w: usize, h: usize, g: &[u8], quarter_turns: u8) -> (usize, usize, Vec<u8>) {
+    debug_assert_eq!(g.len(), w * h);
+    let k = quarter_turns % 4;
+    if k == 0 {
+        return (w, h, g.to_vec());
+    }
+    let (ow, oh) = if k % 2 == 1 { (h, w) } else { (w, h) };
+    let mut out = vec![0u8; ow * oh];
+    for (oy, row) in out.chunks_mut(ow.max(1)).enumerate() {
+        for (ox, o) in row.iter_mut().enumerate() {
+            let (sx, sy) = match k {
+                1 => (oy, h - 1 - ox),
+                2 => (w - 1 - ox, h - 1 - oy),
+                _ => (w - 1 - oy, ox),
+            };
+            *o = g[sy * w + sx];
+        }
+    }
+    (ow, oh, out)
+}
+
 fn crop(p: &Plane, x: usize, y: usize, w: usize, h: usize) -> Plane {
     let mut out = Plane::zeros(w, h);
     for r in 0..h {
@@ -443,7 +466,7 @@ impl Developed {
                 },
                 ..Default::default()
             };
-            pr::geometry(sw, sh, o, &params).3
+            pr::layout(sw, sh, o, &params).usm_radius_px
         } else {
             0.0
         };
@@ -463,12 +486,13 @@ impl Developed {
             let c2 = crop(&g.sep.c2, cx, cy, cw, ch);
             mix_planes(&lum, &c1, &c2, &g.weights)
         };
-        let up = orient(&mixed, o);
+        let mut up = orient(&mixed, o);
+        render(&mut up, 0.0, &map);
         let encoded = if usm > 0.0 {
             let mask = orient(&g.mask_crop(cx, cy, cw, ch), o);
-            unsharp(&map.apply(&up), r_px, usm, Some(&mask))
+            unsharp(&up, r_px, usm, Some(&mask))
         } else {
-            map.apply(&up)
+            up
         };
         // Cut the margin away again.
         let window = crop(&encoded, x0 - mx0, y0 - my0, rw, rh);

@@ -39,6 +39,7 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
     workingDir = rustDir
     inputs.dir(rustDir.resolve("src"))
     inputs.file(rustDir.resolve("Cargo.toml"))
+    inputs.file(rustDir.resolve("build.rs"))
     inputs.file(rustDir.resolve("uniffi.toml"))
     inputs.dir(mimizanCoreDir.resolve("src"))
     inputs.file(mimizanCoreDir.resolve("Cargo.toml"))
