@@ -30,6 +30,7 @@ import android.view.Surface
 import androidx.annotation.RequiresPermission
 import ch.bojovic.mimizanlab.raw.Orientation
 import ch.bojovic.mimizanlab.raw.RawCapture
+import java.nio.ByteBuffer
 import java.util.concurrent.Executor
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -61,6 +62,9 @@ data class ExposureSettings(
 ) {
     val manual: Boolean get() = iso != null && exposureNs != null
 }
+
+/** The HAL refused a still request (`CaptureFailure.reason`), as opposed to a timeout or a closed device. */
+class CaptureFailedException(reason: Int) : IllegalStateException("capture failed ($reason)")
 
 /** What the viewfinder shows about the running stream. */
 data class StreamState(
@@ -195,13 +199,16 @@ class CameraController(context: Context) {
             ImageReader.newInstance(size.width, size.height, ImageFormat.YUV_420_888, 2).apply {
                 setOnImageAvailableListener({ reader ->
                     val img = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
-                    img.use {
-                        val now = SystemClock.elapsedRealtime()
-                        if (now - lastAnalysisMs >= ANALYSIS_PERIOD_MS) {
-                            lastAnalysisMs = now
-                            analyse(it)
+                    // A HAL quirk in the plane layout must cost one histogram, not the app.
+                    runCatching {
+                        img.use {
+                            val now = SystemClock.elapsedRealtime()
+                            if (now - lastAnalysisMs >= ANALYSIS_PERIOD_MS) {
+                                lastAnalysisMs = now
+                                analyse(it)
+                            }
                         }
-                    }
+                    }.onFailure { Log.w(TAG, "analysis frame", it) }
                 }, analysisHandler)
             }
         }
@@ -460,7 +467,7 @@ class CameraController(context: Context) {
                     resultDeferred.complete(result)
                 }
                 override fun onCaptureFailed(s: CameraCaptureSession, req: CaptureRequest, failure: CaptureFailure) {
-                    resultDeferred.completeExceptionally(IllegalStateException("capture failed (${failure.reason})"))
+                    resultDeferred.completeExceptionally(CaptureFailedException(failure.reason))
                 }
             }, handler)
             val logicalResult = withTimeoutOrNull(6000) { resultDeferred.await() } ?: error("no capture result")
@@ -526,8 +533,7 @@ class CameraController(context: Context) {
             // reader alone is enough; the preview target is only a courtesy.
             val (logicalResult, image) = try {
                 fireStill(s, dev, reader, includePreview = true)
-            } catch (e: IllegalStateException) {
-                if (e.message?.startsWith("capture failed") != true) throw e
+            } catch (e: CaptureFailedException) {
                 Log.w(TAG, "still with preview target failed, retrying RAW only", e)
                 fireStill(s, dev, reader, includePreview = false)
             }
@@ -550,7 +556,6 @@ class CameraController(context: Context) {
             } finally {
                 image.close()
             }
-            reader.setOnImageAvailableListener(null, null)
             // Release the AF lock and go back to the continuous preview.
             if (lockAf) {
                 val cancel = dev.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
@@ -565,6 +570,7 @@ class CameraController(context: Context) {
             Log.e(TAG, "capture", e)
             throw IllegalStateException(e.message, e)
         } finally {
+            reader.setOnImageAvailableListener(null, null)
             _state.update { it.copy(capturing = false) }
         }
     }
@@ -621,6 +627,7 @@ class CameraController(context: Context) {
             val vP = image.planes[2]
             uBytes = copyPlane(uP.buffer, uBytes)
             vBytes = copyPlane(vP.buffer, vBytes)
+            // YUV_420_888 guarantees both chroma planes share stride and pixel stride.
             val cRs = uP.rowStride
             val cPs = uP.pixelStride
             val lin = SRGB_LINEAR
@@ -654,7 +661,7 @@ class CameraController(context: Context) {
         _histogram.value = FloatArray(64) { bins[it] / max }
     }
 
-    private fun copyPlane(buf: java.nio.ByteBuffer, into: ByteArray): ByteArray {
+    private fun copyPlane(buf: ByteBuffer, into: ByteArray): ByteArray {
         val src = buf.duplicate()
         src.rewind()
         val n = src.remaining()

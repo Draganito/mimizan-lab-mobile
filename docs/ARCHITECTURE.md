@@ -70,10 +70,13 @@ in the algorithm is duplicated in the mobile crate.
    `make`/`model` are `Build.MANUFACTURER` / `Build.MODEL` and select the
    camera file in `assets/cameras` (only if its `bayer_phase` matches).
 6. `Darkroom.submit` writes the frame into the `RawCache` (`<name>.raw` +
-   `<name>.json`, app-private) and queues the development. No DNG is
-   written (0.1.0 did; dropped so that nothing but monochrome reaches the
-   gallery). `Darkroom.delete` / `deleteAll` remove frames from the cache,
-   the list and, if it is the one in memory, close the `Developed`.
+   `<name>.json`, app-private; the metadata lands through a rename, so a
+   frame exists only once both files are complete and an interrupted write
+   leaves an orphan `.raw` that the next trim removes) and queues the
+   development. No DNG is written (0.1.0 did; dropped so that nothing but
+   monochrome reaches the gallery). `Darkroom.delete` / `deleteAll` remove
+   frames from the cache, the list and, if it is the one in memory, close
+   the `Developed`.
 
 ## Development
 

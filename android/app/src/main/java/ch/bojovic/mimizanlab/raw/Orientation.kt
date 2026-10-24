@@ -30,5 +30,4 @@ object Orientation {
         270 -> 8
         else -> 1
     }
-
 }

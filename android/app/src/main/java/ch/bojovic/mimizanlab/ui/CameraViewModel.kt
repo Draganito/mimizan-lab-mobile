@@ -255,19 +255,19 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 val frame = controller.capture(l.label)
                 darkroom.submit(frame, _develop.value)
             } catch (t: Throwable) {
-                Log.e("CameraViewModel", "capture", t)
+                Log.e(TAG, "capture", t)
                 _message.value = t.message ?: "Capture failed"
             }
         }
-    }
-
-    private companion object {
-        const val TAG = "CameraViewModel"
     }
 
     fun clearMessage() { _message.value = null }
 
     override fun onCleared() {
         controller.release()
+    }
+
+    private companion object {
+        const val TAG = "CameraViewModel"
     }
 }

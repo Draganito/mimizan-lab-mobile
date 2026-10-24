@@ -2,6 +2,8 @@ package ch.bojovic.mimizanlab.ui
 
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Paint
+import android.graphics.RectF
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -58,22 +60,27 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import ch.bojovic.mimizanlab.engine.Darkroom
+import ch.bojovic.mimizanlab.engine.DevelopSettings
+import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.SeparationMode
 import ch.bojovic.mimizanlab.engine.ShotStatus
-import kotlinx.coroutines.delay
 import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
+import org.json.JSONObject
 
 @Composable
 fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
     LaunchedEffect(name) { vm.open(name) }
     val s by vm.state.collectAsStateWithLifecycle()
-    val darkroom = ch.bojovic.mimizanlab.engine.Darkroom.get(LocalContext.current)
+    val darkroom = Darkroom.get(LocalContext.current)
     val shots by darkroom.shots.collectAsStateWithLifecycle()
     val shot = shots.firstOrNull { it.name == name }
     val sharpen by darkroom.prefs.sharpen.collectAsStateWithLifecycle()
@@ -117,7 +124,7 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                     onZoomedOut = vm::clearDetail,
                     modifier = Modifier.fillMaxSize(),
                 )
-                s.needsDevelop -> DevelopPrompt(shot?.status, onDevelop = { vm.develop(vm.shotSettings() ?: ch.bojovic.mimizanlab.engine.DevelopSettings()) })
+                s.needsDevelop -> DevelopPrompt(shot?.status, onDevelop = { vm.develop(vm.shotSettings() ?: DevelopSettings()) })
                 else -> CircularProgressIndicator()
             }
             if (s.busy || s.exporting != null) {
@@ -149,7 +156,7 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                     val e = s.effective
                     Text(
                         String.format(Locale.US, "G %.2f", w.g) +
-                            if (s.filter != ch.bojovic.mimizanlab.engine.Filter.NONE) String.format(Locale.US, "  →  %.2f/%.2f/%.2f", e.r, e.g, e.b) else "",
+                            if (s.filter != Filter.NONE) String.format(Locale.US, "  →  %.2f/%.2f/%.2f", e.r, e.g, e.b) else "",
                         fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
                     )
                     Spacer(Modifier.width(12.dp))
@@ -185,10 +192,11 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
         }
     }
 
-    if (showInfo && s.info != null) {
+    val info = s.info
+    if (showInfo && info != null) {
         ModalBottomSheet(onDismissRequest = { showInfo = false }) {
             Text(
-                prettyJson(s.info!!.json),
+                prettyJson(info.json),
                 fontFamily = FontFamily.Monospace,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(16.dp).verticalScroll(rememberScrollState()),
@@ -245,6 +253,7 @@ fun ZoomableNegative(
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     val img = remember(preview) { preview.asImageBitmap() }
+    val detailPaint = remember { Paint(Paint.FILTER_BITMAP_FLAG) }
 
     // Fit the full picture into the view at scale 1.
     val fit = if (viewSize.width == 0) 1f else min(viewSize.width.toFloat() / fullWidth, viewSize.height.toFloat() / fullHeight)
@@ -316,7 +325,7 @@ fun ZoomableNegative(
             scale(scale, pivot = Offset.Zero) {
                 drawImage(
                     img,
-                    dstOffset = androidx.compose.ui.unit.IntOffset(base.x.roundToInt(), base.y.roundToInt()),
+                    dstOffset = IntOffset(base.x.roundToInt(), base.y.roundToInt()),
                     dstSize = IntSize(fitW.roundToInt(), fitH.roundToInt()),
                     filterQuality = FilterQuality.High,
                 )
@@ -325,11 +334,10 @@ fun ZoomableNegative(
                     val dx = base.x + d.x * fit
                     val dy = base.y + d.y * fit
                     drawIntoCanvas { c ->
-                        val paint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
                         c.nativeCanvas.drawBitmap(
                             d.bitmap, null,
-                            android.graphics.RectF(dx, dy, dx + d.bitmap.width * fit, dy + d.bitmap.height * fit),
-                            paint,
+                            RectF(dx, dy, dx + d.bitmap.width * fit, dy + d.bitmap.height * fit),
+                            detailPaint,
                         )
                     }
                 }
@@ -338,4 +346,4 @@ fun ZoomableNegative(
     }
 }
 
-private fun prettyJson(s: String): String = runCatching { org.json.JSONObject(s).toString(2) }.getOrDefault(s)
+private fun prettyJson(s: String): String = runCatching { JSONObject(s).toString(2) }.getOrDefault(s)

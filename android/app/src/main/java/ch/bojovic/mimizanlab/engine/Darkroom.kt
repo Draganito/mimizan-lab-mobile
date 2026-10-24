@@ -1,7 +1,6 @@
 package ch.bojovic.mimizanlab.engine
 
 import android.content.Context
-import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Log
@@ -26,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 /** How a frame is developed; chosen in the viewfinder, changeable in review. */
 data class DevelopSettings(
@@ -94,10 +94,7 @@ class Darkroom private constructor(private val context: Context) {
         // they can be developed again.
         scope.launch {
             val restored = cache.names().mapNotNull { name ->
-                runCatching {
-                    val meta = RawMeta.fromJson(org.json.JSONObject(cache.metaFile(name).readText()))
-                    Shot(name, meta, DevelopSettings(), ShotStatus.Cached)
-                }.getOrNull()
+                cache.loadMeta(name)?.let { Shot(name, it, DevelopSettings(), ShotStatus.Cached) }
             }
             if (restored.isNotEmpty()) _shots.update { restored + it }
             refreshCacheSize()
@@ -248,9 +245,8 @@ class Darkroom private constructor(private val context: Context) {
     }
 
     /**
-     * Export through a scratch file (Rust writes paths) into the album:
-     * the full-size JPEG, `usm` (0..1.5) sharpened, or deconvolved first
-     * when `deconvolution` is set.
+     * The full-size JPEG into the album, `usm` (0..[Prefs.SHARPEN_LIMIT])
+     * sharpened, or deconvolved first when `deconvolution` is set.
      */
     fun exportJpeg(
         d: Developed,
@@ -261,18 +257,11 @@ class Darkroom private constructor(private val context: Context) {
         usm: Double = 0.0,
         deconvolution: Boolean = false,
         deconvPasses: Int = 2,
-    ): Uri {
-        val suffix = suffixFor(filter)
-        val tmp = File(context.cacheDir, "$name$suffix.jpg")
-        val passes = if (deconvolution) deconvPasses.coerceIn(1, 10).toUInt() else 0u
-        try {
-            d.exportJpeg(tmp.absolutePath, soft, hard, 0u, usm, deconvolution, passes)
-            return media.importFile(tmp, "$name$suffix.jpg", MediaStoreWriter.MIME_JPEG)
-        } finally {
-            tmp.delete()
-        }
+    ): Uri = exportPrint(name, filter, "jpg", MediaStoreWriter.MIME_JPEG) { path ->
+        d.exportJpeg(path, soft, hard, 0u, usm, deconvolution, passesFor(deconvolution, deconvPasses))
     }
 
+    /** The same picture as a 16-bit TIFF. */
     fun exportTiff(
         d: Developed,
         name: String,
@@ -282,16 +271,24 @@ class Darkroom private constructor(private val context: Context) {
         usm: Double = 0.0,
         deconvolution: Boolean = false,
         deconvPasses: Int = 2,
-    ): Uri {
-        val tmp = File(context.cacheDir, "$name${suffixFor(filter)}.tif")
-        val passes = if (deconvolution) deconvPasses.coerceIn(1, 10).toUInt() else 0u
+    ): Uri = exportPrint(name, filter, "tif", MediaStoreWriter.MIME_TIFF) { path ->
+        d.exportTiff16(path, soft, hard, 0u, usm, deconvolution, passesFor(deconvolution, deconvPasses))
+    }
+
+    /** Rust writes to a path: a scratch file in the app cache, then the copy into the album. */
+    private fun exportPrint(name: String, filter: Filter, ext: String, mime: String, write: (String) -> Unit): Uri {
+        val fileName = "$name${suffixFor(filter)}.$ext"
+        val tmp = File(context.cacheDir, fileName)
         try {
-            d.exportTiff16(tmp.absolutePath, soft, hard, 0u, usm, deconvolution, passes)
-            return media.importFile(tmp, "$name${suffixFor(filter)}.tif", MediaStoreWriter.MIME_TIFF)
+            write(tmp.absolutePath)
+            return media.importFile(tmp, fileName, mime)
         } finally {
             tmp.delete()
         }
     }
+
+    private fun passesFor(deconvolution: Boolean, passes: Int): UInt =
+        if (deconvolution) passes.coerceIn(1, Prefs.DECONV_PASSES_MAX).toUInt() else 0u
 
     /** Linear negative + saturation mask, the desktop interchange format. */
     fun exportNegative(d: Developed, name: String): List<Uri> {
@@ -334,12 +331,12 @@ class Darkroom private constructor(private val context: Context) {
 
 /** Camera files shipped in `assets/cameras`, matched on make + model. */
 class CameraFiles(private val context: Context) {
-    private val files: List<Pair<org.json.JSONObject, String>> by lazy {
+    private val files: List<Pair<JSONObject, String>> by lazy {
         val am = context.assets
         (am.list("cameras") ?: emptyArray()).filter { it.endsWith(".json") }.mapNotNull { f ->
             runCatching {
                 val text = am.open("cameras/$f").bufferedReader().readText()
-                org.json.JSONObject(text) to text
+                JSONObject(text) to text
             }.getOrNull()
         }
     }

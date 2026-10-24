@@ -20,13 +20,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.FlashAuto
@@ -49,9 +49,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,15 +64,24 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.bojovic.mimizanlab.camera.FlashMode
 import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.SeparationMode
 import ch.bojovic.mimizanlab.engine.ShotStatus
+import ch.bojovic.mimizanlab.engine.coreVersion
 import ch.bojovic.mimizanlab.engine.paperGrade
+import ch.bojovic.mimizanlab.engine.version
+import ch.bojovic.mimizanlab.engine.workerThreads
 import ch.bojovic.mimizanlab.store.Prefs
+import java.util.Locale
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
@@ -189,7 +195,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                         stream.afState == CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED
                     Box(
                         Modifier
-                            .offset { androidx.compose.ui.unit.IntOffset((fx * viewSize.width - px / 2).toInt(), (fy * viewSize.height - px / 2).toInt()) }
+                            .offset { IntOffset((fx * viewSize.width - px / 2).toInt(), (fy * viewSize.height - px / 2).toInt()) }
                             .size(size)
                             .border(1.5.dp, if (locked) Color(0xFFBBFF66) else Color.White, RoundedCornerShape(4.dp)),
                     )
@@ -267,7 +273,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                     LabeledSlider(
                         label = "EV ${Format.ev(exposure.evSteps, step)}",
                         value = (exposure.evSteps - l.evRange.lower).toFloat() / (l.evRange.upper - l.evRange.lower),
-                        onChange = { vm.setEv((l.evRange.lower + it * (l.evRange.upper - l.evRange.lower)).toInt()) },
+                        onChange = { vm.setEv((l.evRange.lower + it * (l.evRange.upper - l.evRange.lower)).roundToInt()) },
                         steps = l.evRange.upper - l.evRange.lower - 1,
                     )
                 }
@@ -303,7 +309,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
 
             ShutterButton(enabled = !stream.capturing && lens != null, onClick = vm::capture)
 
-            TextButton(onClick = onOpenRoll) { Text("${shots.size}\nroll", textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
+            TextButton(onClick = onOpenRoll) { Text("${shots.size}\nroll", textAlign = TextAlign.Center) }
         }
     }
 
@@ -332,19 +338,19 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 LabeledSlider(
-                    label = if (sharpen > 0.0) String.format(java.util.Locale.US, "USM %.2f", sharpen) else "USM off",
+                    label = if (sharpen > 0.0) String.format(Locale.US, "USM %.2f", sharpen) else "USM off",
                     value = sharpen.toFloat(),
                     onChange = { vm.setSharpen(it.toDouble()) },
-                    range = 0f..1.5f,
+                    range = 0f..Prefs.SHARPEN_LIMIT.toFloat(),
                 )
                 SettingRow("Deconvolution", deconvolution) { vm.setDeconvolution(it) }
                 if (deconvolution) {
                     LabeledSlider(
                         label = "Passes $deconvPasses",
                         value = deconvPasses.toFloat(),
-                        onChange = { vm.setDeconvPasses((it + 0.5f).toInt()) },
-                        range = 1f..10f,
-                        steps = 8,
+                        onChange = { vm.setDeconvPasses(it.roundToInt()) },
+                        range = 1f..Prefs.DECONV_PASSES_MAX.toFloat(),
+                        steps = Prefs.DECONV_PASSES_MAX - 2,
                     )
                 }
                 Text(
@@ -391,7 +397,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 }
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    "engine ${ch.bojovic.mimizanlab.engine.version()} · core ${ch.bojovic.mimizanlab.engine.coreVersion()} · ${ch.bojovic.mimizanlab.engine.workerThreads()} threads",
+                    "engine ${version()} · core ${coreVersion()} · ${workerThreads()} threads",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 Text(
@@ -454,21 +460,21 @@ fun PaperSliders(soft: Double, hard: Double, onSoft: (Double) -> Unit, onHard: (
     val grade = remember(soft, hard) { runCatching { paperGrade(soft, hard) }.getOrNull() }
     if (grade != null) {
         Text(
-            String.format(java.util.Locale.US, "≈ grade %s · %.1f stops of scene", grade.label, grade.sceneStops),
+            String.format(Locale.US, "≈ grade %s · %.1f stops of scene", grade.label, grade.sceneStops),
             fontFamily = FontFamily.Monospace,
             style = MaterialTheme.typography.bodySmall,
         )
     }
     val range = -Prefs.STOP_LIMIT.toFloat()..Prefs.STOP_LIMIT.toFloat()
     LabeledSlider(
-        label = String.format(java.util.Locale.US, "soft %+.2f", soft),
+        label = String.format(Locale.US, "soft %+.2f", soft),
         value = soft.toFloat(),
         onChange = { onSoft(it.toDouble()) },
         range = range,
     )
     Text("filter 00", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
     LabeledSlider(
-        label = String.format(java.util.Locale.US, "hard %+.2f", hard),
+        label = String.format(Locale.US, "hard %+.2f", hard),
         value = hard.toFloat(),
         onChange = { onHard(it.toDouble()) },
         range = range,

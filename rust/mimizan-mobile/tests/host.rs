@@ -97,15 +97,13 @@ fn synthetic_develop_preview_remix_export() {
 
     // Exports.
     let dir = tmp_dir("synth");
-    let jpg =
-        dev.export_jpeg(dir.join("p.jpg").display().to_string(), 0.0, 0.0, 0, 0.0, false, 0).unwrap();
+    let jpg = dev.export_jpeg(dir.join("p.jpg").display().to_string(), 0.0, 0.0, 0, 0.0, false, 0).unwrap();
     assert_eq!((jpg.width, jpg.height), (240, 320), "full size, upright");
     let jpg_usm =
         dev.export_jpeg(dir.join("u.jpg").display().to_string(), 0.0, 0.0, 0, 0.8, false, 0).unwrap();
     assert_eq!((jpg_usm.width, jpg_usm.height), (240, 320));
     dev.export_jpeg(dir.join("deconv.jpg").display().to_string(), 0.0, 0.0, 0, 0.0, true, 3).unwrap();
-    let tif =
-        dev.export_tiff16(dir.join("p.tif").display().to_string(), 0.0, 0.0, 1, 0.0, false, 0).unwrap();
+    let tif = dev.export_tiff16(dir.join("p.tif").display().to_string(), 0.0, 0.0, 1, 0.0, false, 0).unwrap();
     assert_eq!(
         (tif.width, tif.height),
         (320, 240),
@@ -114,9 +112,7 @@ fn synthetic_develop_preview_remix_export() {
     let neg = dev.export_negative(dir.join("neg.tif").display().to_string()).unwrap();
     assert_eq!((neg.width, neg.height), (w as u32, h as u32));
     assert!(dir.join("neg.mask.tif").exists());
-    assert!(dev
-        .export_jpeg(dir.join("x.tif").display().to_string(), 0.0, 0.0, 0, 0.0, false, 0)
-        .is_err());
+    assert!(dev.export_jpeg(dir.join("x.tif").display().to_string(), 0.0, 0.0, 0, 0.0, false, 0).is_err());
     std::fs::remove_dir_all(&dir).unwrap();
 
     dev.release_preview();
@@ -216,7 +212,6 @@ fn invalid_input_is_an_error_not_a_panic() {
     assert!(normalise_weights(Weights { r: -1.0, g: 1.0, b: 1.0 }).is_err());
     let n = normalise_weights(Weights { r: 1.0, g: 1.0, b: 2.0 }).unwrap();
     assert!((n.b - 0.5).abs() < 1e-12);
-    assert_eq!(filters().len(), 7);
 }
 
 /// The proof the port rests on: a RAW decoded by `rawler` on the desktop,

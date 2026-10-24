@@ -146,7 +146,8 @@ data class RawMeta(
             cfa = o.getInt("cfa"),
             blackTile = o.getJSONArray("black_tile").toDoubles(),
             whiteLevel = o.getDouble("white_level"),
-            crop = o.optJSONArray("crop")?.let { a -> IntArray(a.length()) { a.getInt(it) } },
+            // x, y, w, h; anything else in a damaged file means "whole buffer".
+            crop = o.optJSONArray("crop")?.takeIf { it.length() == 4 }?.let { a -> IntArray(4) { a.getInt(it) } },
             tiffOrientation = o.optInt("orientation", 1),
             wbGains = o.optJSONArray("wb_gains")?.toDoubles(),
             xyzToCam = o.optJSONArray("xyz_to_cam")?.toDoubles(),
@@ -229,8 +230,8 @@ object RawFrameBridge {
         if (pre.width() != bufW || pre.height() != bufH) return null
         val x = (active.left - pre.left).coerceIn(0, bufW)
         val y = (active.top - pre.top).coerceIn(0, bufH)
-        val w = active.width().coerceIn(1, bufW - x)
-        val h = active.height().coerceIn(1, bufH - y)
+        val w = active.width().coerceIn(1, (bufW - x).coerceAtLeast(1))
+        val h = active.height().coerceIn(1, (bufH - y).coerceAtLeast(1))
         if (x == 0 && y == 0 && w == bufW && h == bufH) return null
         return intArrayOf(x, y, w, h)
     }

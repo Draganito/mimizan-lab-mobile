@@ -13,12 +13,21 @@ use mimizan_core::plane::Plane;
 use mimizan_core::print::{self as pr, orient, rotated, PrintParams, PrintSource};
 use mimizan_core::recipe::{Recipe, Sharpen};
 use mimizan_core::resize::{fit_dims, resize};
+use mimizan_core::separate::Separation;
+use mimizan_core::tiffout::{write_gray16, write_gray8, TiffMeta};
 use mimizan_core::tone::{render, Tone, ToneMap};
+use mimizan_core::usm::unsharp;
+use rayon::prelude::*;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::Instant;
+use tracing::info;
 
 /// The sharpening mode of an export from the bridge's flat arguments:
-/// Richardson–Lucy with an optional USM, then USM alone, else off.
+/// Richardson–Lucy with an optional USM, then USM alone, else off. A
+/// non-finite amount counts as zero.
 fn sharpen_mode(usm_amount: f64, deconvolution: bool, deconv_iterations: u32) -> Sharpen {
-    let usm = usm_amount.clamp(0.0, 1.5);
+    let usm = if usm_amount.is_finite() { usm_amount.clamp(0.0, 1.5) } else { 0.0 };
     if deconvolution {
         Sharpen::Deconv { passes: deconv_iterations.clamp(1, 10), usm_amount: usm }
     } else if usm > 0.0 {
@@ -27,14 +36,6 @@ fn sharpen_mode(usm_amount: f64, deconvolution: bool, deconv_iterations: u32) ->
         Sharpen::Off
     }
 }
-use mimizan_core::separate::Separation;
-use mimizan_core::tiffout::{write_gray16, write_gray8, TiffMeta};
-use mimizan_core::usm::unsharp;
-use rayon::prelude::*;
-use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::time::Instant;
-use tracing::info;
 
 /// Upright, downscaled separation for the preview (never sharpened).
 struct PreviewPlanes {
@@ -451,12 +452,12 @@ impl Developed {
         let (dw, dh) = if matches!(o, 5..=8) { (sh, sw) } else { (sw, sh) };
         let x0 = (x as usize).min(dw.saturating_sub(1));
         let y0 = (y as usize).min(dh.saturating_sub(1));
-        let rw = (width as usize).clamp(1, dw - x0);
-        let rh = (height as usize).clamp(1, dh - y0);
+        let rw = (width as usize).clamp(1, (dw - x0).max(1));
+        let rh = (height as usize).clamp(1, (dh - y0).max(1));
 
         // Radius the export would use, from the same geometry.
         let map = paper(soft, hard)?;
-        let usm = usm_amount.clamp(0.0, 1.5);
+        let usm = if usm_amount.is_finite() { usm_amount.clamp(0.0, 1.5) } else { 0.0 };
         let r_px = if usm > 0.0 {
             let params = PrintParams {
                 recipe: Recipe {
@@ -512,7 +513,9 @@ impl Developed {
         let plane = mix_planes(&pv.lum, &pv.c1, &pv.c2, &g.weights);
         let mut bins = vec![0u64; 256];
         for &v in &plane.data {
-            bins[(map.eval(v) * 255.0).round() as usize] += 1;
+            // `as usize` saturates and maps NaN to 0; the `min` keeps a
+            // display value a hair above 1 inside the table.
+            bins[((map.eval(v) * 255.0).round() as usize).min(255)] += 1;
         }
         Ok(bins)
     }

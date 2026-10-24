@@ -54,8 +54,9 @@ half4 main(float2 xy) {
 """
 
 /**
- * Portrait 3:4 viewfinder. [onSurface] fires with the texture once it is
- * ready (and with null when it is destroyed).
+ * The preview texture at the sensor's [aspect] (height / width, portrait).
+ * [onSurface] fires with the texture once it is ready (and with null when
+ * it is destroyed).
  */
 @Composable
 fun MonoViewfinder(

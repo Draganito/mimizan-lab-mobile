@@ -216,43 +216,6 @@ impl Filter {
             Self::Blue47 => ColorFilter::Blue47,
         }
     }
-    pub const ALL: [Filter; 7] = [
-        Filter::None,
-        Filter::Yellow8,
-        Filter::YellowGreen11,
-        Filter::Orange16,
-        Filter::Red25,
-        Filter::Green58,
-        Filter::Blue47,
-    ];
-}
-
-#[derive(Clone, Debug, PartialEq, uniffi::Record)]
-pub struct FilterInfo {
-    pub filter: Filter,
-    /// `yellow-8`, `red-25`, ...
-    pub name: String,
-    pub wratten: Option<u8>,
-    pub effect: String,
-    /// Transmission of the balanced R, G, B channels.
-    pub transmission: Vec<f64>,
-}
-
-#[uniffi::export]
-pub fn filters() -> Vec<FilterInfo> {
-    Filter::ALL
-        .iter()
-        .map(|&f| {
-            let c = f.core();
-            FilterInfo {
-                filter: f,
-                name: c.name().to_string(),
-                wratten: c.wratten(),
-                effect: c.effect().to_string(),
-                transmission: c.transmission().to_vec(),
-            }
-        })
-        .collect()
 }
 
 /// Which channels a weight triple refers to (`mix.rs`).
@@ -296,8 +259,8 @@ impl Weights {
 /// Weights with the sum normalised to 1 (sliders need not be exact).
 #[uniffi::export]
 pub fn normalise_weights(w: Weights) -> Result<Weights> {
-    if w.r < 0.0 || w.g < 0.0 || w.b < 0.0 {
-        return Err(MimizanError::Invalid { msg: "weights must be non-negative".into() });
+    if !(w.r >= 0.0 && w.g >= 0.0 && w.b >= 0.0) {
+        return Err(MimizanError::Invalid { msg: "weights must be finite and non-negative".into() });
     }
     let s = w.r + w.g + w.b;
     if s <= 0.0 {
@@ -406,7 +369,10 @@ pub struct PaperGrade {
 #[uniffi::export]
 pub fn paper_grade(soft: f64, hard: f64) -> Result<PaperGrade> {
     let curve = split_grade(soft, hard)?.curve();
-    Ok(PaperGrade { label: mimizan_core::paper::grade_label(curve.grade()), scene_stops: curve.scene_range_stops() })
+    Ok(PaperGrade {
+        label: mimizan_core::paper::grade_label(curve.grade()),
+        scene_stops: curve.scene_range_stops(),
+    })
 }
 
 /// 8-bit grey image, row-major, upright.

@@ -9,6 +9,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import ch.bojovic.mimizanlab.MainActivity
 import ch.bojovic.mimizanlab.MimizanApp
@@ -45,14 +46,7 @@ class DevelopService : Service() {
         val pm = getSystemService(PowerManager::class.java)
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "mimizan:develop").apply { acquire(10 * 60_000L) }
         try {
-            var done = 0
-            while (darkroom.runNext { name ->
-                    notify(getString(R.string.developing), name)
-                }
-            ) {
-                done++
-            }
-            notify(getString(R.string.developed), null)
+            while (darkroom.runNext { name -> notify(getString(R.string.developing), name) }) Unit
         } finally {
             wakeLock?.takeIf { it.isHeld }?.release()
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -88,11 +82,17 @@ class DevelopService : Service() {
     }
 
     companion object {
+        private const val TAG = "DevelopService"
         private const val NOTIFICATION_ID = 1
 
+        /**
+         * Ask the service to drain the queue. Android refuses a foreground
+         * start from a backgrounded app; the frame stays queued and the
+         * next start (the next shot, or the next visit to the roll) takes it.
+         */
         fun start(context: Context) {
-            val intent = Intent(context, DevelopService::class.java)
-            context.startForegroundService(intent)
+            runCatching { context.startForegroundService(Intent(context, DevelopService::class.java)) }
+                .onFailure { Log.w(TAG, "development start refused", it) }
         }
     }
 
