@@ -102,8 +102,8 @@ cargo ndk -t arm64-v8a --platform 34 build --release --lib
    fires once.
 
    *Metering on A* (settings sheet, under *Exposure*) says who sets the
-   automatic exposure. *Phone* is the camera's own AE. *Highlights* and
-   *Grey* turn that AE off: the app takes `RAW_SENSOR` probes between the
+   automatic exposure. *Phone* is the camera's own AE. *Highlights* (the
+   default) and *Grey* turn that AE off: the app takes `RAW_SENSOR` probes between the
    viewfinder frames, five a second, measures them in Rust on the same
    numbers the negative is developed from, and sets ISO and time itself.
    *Highlights* places the 99.9th percentile of the brightest raw channel

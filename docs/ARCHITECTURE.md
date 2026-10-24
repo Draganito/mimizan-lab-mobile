@@ -78,8 +78,8 @@ in the algorithm is duplicated in the mobile crate.
 ## Metering
 
 `MeteringMode.PHONE` leaves the exposure to the HAL (`CONTROL_AE_MODE_ON`
-plus EV compensation, precapture before the still). `HIGHLIGHTS` and
-`GREY` put the camera in `CONTROL_AE_MODE_OFF` and the app drives
+plus EV compensation, precapture before the still). `HIGHLIGHTS` (the
+default in `Prefs`) and `GREY` put the camera in `CONTROL_AE_MODE_OFF` and the app drives
 `SENSOR_SENSITIVITY` / `SENSOR_EXPOSURE_TIME` itself, with
 `CONTROL_POST_RAW_SENSITIVITY_BOOST = 100` so the preview is the sensor's
 exposure and not a boosted copy of it.

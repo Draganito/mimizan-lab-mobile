@@ -61,9 +61,13 @@ class Prefs(context: Context) {
     }
 
     private val _metering = MutableStateFlow(
-        runCatching { MeteringMode.valueOf(sp.getString(KEY_METERING, null) ?: "") }.getOrDefault(MeteringMode.PHONE),
+        runCatching { MeteringMode.valueOf(sp.getString(KEY_METERING, null) ?: "") }.getOrDefault(MeteringMode.HIGHLIGHTS),
     )
-    /** Who sets the exposure on A: the phone's AE, or the app on RAW probes. */
+    /**
+     * Who sets the exposure on A: the phone's AE, or the app on RAW probes.
+     * Defaults to [MeteringMode.HIGHLIGHTS]; a lens without manual sensor
+     * control falls back to the phone's AE in the controller.
+     */
     val metering: StateFlow<MeteringMode> = _metering.asStateFlow()
 
     fun setMetering(mode: MeteringMode) {
