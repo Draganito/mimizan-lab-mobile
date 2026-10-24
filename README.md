@@ -106,10 +106,14 @@ cargo ndk -t arm64-v8a --platform 34 build --release --lib
    default) and *Grey* turn that AE off: the app takes `RAW_SENSOR` probes between the
    viewfinder frames, five a second, measures them in Rust on the same
    numbers the negative is developed from, and sets ISO and time itself.
-   *Highlights* places the 99.9th percentile of the brightest raw channel
+   *Highlights* places the 99th percentile of the brightest raw channel
    half a stop under the sensor's clip (expose to the right); on the paper
    the clip is Zone VIII, so the brightest textured tone of the scene lands
-   just below it at the base print. *Grey* places the geometric mean of the
+   just below it at the base print. One percent of the picture may clip:
+   lamps, speculars and the sun carry no texture to keep. When the scene's
+   range exceeds the paper's, the step down stops where the scene's grey
+   reaches Zone III and the lights go white instead of the picture going
+   black. *Grey* places the geometric mean of the
    negative's grey, with the chosen filter, on the grey card: Zone V at the
    base print. A tap meters that spot alone in *Grey* (the readout says
    `A·spot`). The EV slider moves the target in both. The viewfinder keeps

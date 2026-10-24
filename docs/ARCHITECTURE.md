@@ -100,8 +100,9 @@ exposure and not a boosted copy of it.
   over the raw channels (above black, over the range to white, before any
   balance) and the balanced mix luma with the viewfinder's weights
   (`FinderTone.weights`, the development's `mix_weights`) and the frame's
-  `COLOR_CORRECTION_GAINS`. It returns the 99.9th percentile of the tile
-  maxima (`highlight`), the clipped fraction, the geometric mean luma over
+  `COLOR_CORRECTION_GAINS`. It returns the 99th percentile of the tile
+  maxima (`highlight`; the percent above it is the clip budget for lamps,
+  speculars and the sun), the clipped fraction, the geometric mean luma over
   the frame and over the tapped spot, and a 1024-bin luma histogram (used
   for the corner histogram when a HAL refused the YUV stream).
 * Control: `ExposureMeter` (pure Kotlin, unit-tested) keeps one number,
@@ -109,9 +110,11 @@ exposure and not a boosted copy of it.
   `H = H_p · target / s` in one step (the sensor is linear). Targets:
   `0.7071` for the highlight (half a stop under the clip = Zone VIII on
   the paper), `0.18` for the grey (Zone V), times `2^EV`. A clipped
-  highlight steps down one stop per probe until it shows; a step down is
-  refused once it would push the scene's grey five stops under the card
-  (a lamp in a dark room). Dead band 1/6 stop; a probe whose exposure is
+  highlight steps down one stop per probe until it shows; a step down
+  stops where it would push the scene's grey under Zone III (two stops
+  under the card, also times `2^EV`): when the scene's range exceeds the
+  paper's, the shadows are placed and the lights above the budget go
+  white (expose for the shadows). Dead band 1/6 stop; a probe whose exposure is
   not the commanded one yet (pipeline depth) is skipped up to three
   times. `H` is split twice into the lowest ISO whose time stays within a
   cap: 1/30 s for the viewfinder (the stream keeps its rate; the frame

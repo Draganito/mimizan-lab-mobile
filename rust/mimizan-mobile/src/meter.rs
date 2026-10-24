@@ -9,12 +9,14 @@
 //!
 //! Two numbers drive the exposure:
 //!
-//! * `highlight`: the 99.9th percentile of the brightest *raw* channel of
+//! * `highlight`: the 99th percentile of the brightest *raw* channel of
 //!   each tile, as a fraction of the sensor's range above black. Raw, not
 //!   balanced: the sensor clips each channel at its white level regardless of
 //!   the white balance. Placing this near the clip is ETTR; on the paper the
 //!   clip is Zone VIII, so the brightest textured tone of the scene lands
-//!   just below it at the base print.
+//!   just below it at the base print. The percentile is a budget of picture
+//!   area that may clip: one percent covers lamps, speculars and the sun,
+//!   which carry no texture to keep, while a window or a wall is held.
 //! * `grey`: the geometric mean of the balanced mix (the negative's own grey,
 //!   with the current filter), over the frame or over a spot. Placing it at
 //!   the grey card (0.18) is the classical average meter; the paper's base
@@ -25,8 +27,9 @@ use crate::types::{BayerPattern, MimizanError, RawRect, Result, Weights};
 
 /// Bins of the luma histogram over linear [0, 1]; the clip goes in the last.
 pub const LUMA_BINS: usize = 1024;
-/// Percentile of the tile maxima that `highlight` reports.
-pub const HIGHLIGHT_PERCENTILE: f64 = 0.999;
+/// Percentile of the tile maxima that `highlight` reports: the picture area
+/// above it (one percent) is the clip budget for light sources.
+pub const HIGHLIGHT_PERCENTILE: f64 = 0.99;
 /// A tile is counted as clipped when a channel is at or above this fraction
 /// of the range: the top of a 10-bit sensor rounds here.
 const CLIP_FRACTION: f64 = 0.99;
@@ -281,26 +284,15 @@ mod tests {
     }
 
     #[test]
-    fn a_few_speculars_do_not_move_the_percentile() {
-        // 0.05 % of the tiles clipped: the 99.9th percentile ignores them.
-        let s = sample(100, 100, BayerPattern::Rggb, |tx, ty| {
-            if tx % 50 == 0 && ty % 40 == 0 {
-                [WHITE; 4]
-            } else {
-                [dn(0.4); 4]
-            }
-        });
+    fn light_sources_within_the_budget_do_not_move_the_percentile() {
+        // Lamps on 0.8 % of the frame (two rows of tiles out of 250): the
+        // percentile stays with the scene, `clipped` still reports them.
+        let s = sample(100, 250, BayerPattern::Rggb, |_, ty| if ty < 2 { [WHITE; 4] } else { [dn(0.4); 4] });
         let m = meter_impl(&s).unwrap();
         assert!((m.highlight - 0.4).abs() < 2e-3, "{}", m.highlight);
-        assert!(m.clipped > 0.0 && m.clipped < 0.001, "{}", m.clipped);
-        // 0.2 % clipped: the percentile reaches them.
-        let s = sample(100, 100, BayerPattern::Rggb, |tx, ty| {
-            if tx % 25 == 0 && ty % 20 == 0 {
-                [WHITE; 4]
-            } else {
-                [dn(0.4); 4]
-            }
-        });
+        assert!((m.clipped - 0.008).abs() < 1e-9, "{}", m.clipped);
+        // A window on 2 % of the frame: the percentile reaches it.
+        let s = sample(100, 250, BayerPattern::Rggb, |_, ty| if ty < 5 { [WHITE; 4] } else { [dn(0.4); 4] });
         let m = meter_impl(&s).unwrap();
         assert!(m.highlight >= 0.99, "{}", m.highlight);
     }

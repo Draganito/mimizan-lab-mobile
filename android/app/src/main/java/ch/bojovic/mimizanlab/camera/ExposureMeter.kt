@@ -121,8 +121,10 @@ class ExposureMeter(
                     r.highlight <= 1e-6 -> MAX_UP
                     else -> log2(HIGHLIGHT_TARGET * bias / r.highlight)
                 }
-                // A light source that will clip anyway must not drive the picture black.
-                if (s < 0 && r.grey > 0) s = max(s, min(0.0, log2(GREY_FLOOR / r.grey)))
+                // Expose for the shadows: when the scene's range exceeds the
+                // paper's, the step down stops where the scene's grey reaches
+                // Zone III and the lights above the budget go white.
+                if (s < 0 && r.grey > 0) s = max(s, min(0.0, log2(GREY_FLOOR * bias / r.grey)))
                 s
             }
             MeteringMode.GREY -> {
@@ -159,12 +161,16 @@ class ExposureMeter(
     }
 
     companion object {
-        /** Where the 99.9th percentile of the raw channels goes: half a stop under the clip. */
+        /** Where the 99th percentile of the raw channels goes: half a stop under the clip. */
         const val HIGHLIGHT_TARGET = 0.7071
         /** The grey card (`zone::GRAY_CARD`), Zone V at the paper's base exposure. */
         const val GREY_TARGET = 0.18
-        /** Highlights mode never pushes the scene's grey below this (five stops under the card). */
-        const val GREY_FLOOR = 0.18 / 32
+        /**
+         * Highlights mode never pushes the scene's grey below Zone III, two
+         * stops under the card: the lowest placement that still prints
+         * shadow texture. Lights that would need more go white instead.
+         */
+        const val GREY_FLOOR = 0.18 / 4
         /** A percentile this high is at the clip for a 10-bit sensor. */
         const val CLIP = 0.98
         const val DEAD_BAND = 1.0 / 6

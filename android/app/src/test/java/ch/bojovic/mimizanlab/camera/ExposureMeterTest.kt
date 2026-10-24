@@ -66,13 +66,34 @@ class ExposureMeterTest {
     }
 
     @Test
-    fun aLampInADarkRoomDoesNotBlackOutThePicture() {
+    fun lampsAboveTheBudgetStopTheStepDownAtZoneIII() {
         val m = meter(MeteringMode.HIGHLIGHTS)
-        // The grey is already under the floor: a clipped highlight is left alone.
+        // A shop with its lamps clipped and the scene's grey on the card:
+        // down a stop per probe while the grey stays above Zone III ...
+        assertStops(-1.0, m.correction(reading(1.0, grey = 0.18)))
+        assertStops(-1.0, m.correction(reading(1.0, grey = 0.09)))
+        // ... and the grey already under the floor leaves a clipped highlight alone.
         assertStops(0.0, m.correction(reading(1.0, grey = ExposureMeter.GREY_FLOOR / 4)))
         // Just above the floor: the step down stops at the floor.
         val g = ExposureMeter.GREY_FLOOR * 1.5
         assertStops(ExposureMeter.log2(ExposureMeter.GREY_FLOOR / g), m.correction(reading(1.0, grey = g)))
+        // An unclipped highlight that asks for less than the floor allows is not touched.
+        assertStops(ExposureMeter.log2(1 / 1.3), m.correction(reading(ExposureMeter.HIGHLIGHT_TARGET * 1.3, grey = 0.18)))
+    }
+
+    @Test
+    fun theFloorMovesWithTheBias() {
+        val m = meter(MeteringMode.HIGHLIGHTS)
+        // Grey a third of a stop over Zone III, lights clipped.
+        val g = ExposureMeter.GREY_FLOOR * 1.26
+        m.biasStops = -1.0
+        // EV -1: the floor is at Zone II, the full stop down is allowed.
+        assertStops(-1.0, m.correction(reading(1.0, grey = g)))
+        m.biasStops = 0.0
+        assertStops(ExposureMeter.log2(ExposureMeter.GREY_FLOOR / g), m.correction(reading(1.0, grey = g)))
+        m.biasStops = 1.0
+        // EV +1: the floor is at Zone IV, above this grey; nothing moves.
+        assertStops(0.0, m.correction(reading(1.0, grey = g)))
     }
 
     @Test

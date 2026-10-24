@@ -405,7 +405,9 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                         MeteringMode.HIGHLIGHTS ->
                             "The app meters on RAW probes between the viewfinder frames and sets ISO and time itself. " +
                                 "The brightest raw channel of the scene is placed half a stop under the clip (ETTR): " +
-                                "on the paper that is just below Zone VIII. EV moves that target."
+                                "on the paper that is just below Zone VIII. One percent of the picture may clip (lamps, speculars), " +
+                                "and the scene's grey is never pushed under Zone III: lights go white before the picture goes dark. " +
+                                "EV moves both."
                         MeteringMode.GREY ->
                             "The app meters on RAW probes between the viewfinder frames and sets ISO and time itself. " +
                                 "The negative's grey with the chosen filter is placed on the grey card, Zone V at the base print; " +
