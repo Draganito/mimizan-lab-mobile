@@ -33,13 +33,16 @@ class IspColor(val transform: FloatArray, val gains: FloatArray) {
  *                                      linear grey; invGamma is 1, because
  *                                      the paper already encodes the print
  *
- * [zebra] marks display values at or above it; > 1 means off.
+ * [zebra] marks display values at or above it; > 1 means off. [weights]
+ * are the balanced mix weights [v] was pulled back from; the meter reads
+ * the RAW probes with them, so its grey is the negative's grey.
  */
 class FinderTone(
     val v: FloatArray,
     val lut: FloatArray,
     val invGamma: Float,
     val zebra: Float,
+    val weights: FloatArray = floatArrayOf(0.25f, 0.5f, 0.25f),
 ) {
     /** 256 x 1 grey ramp of [lut] for the shader (`lut.eval(x)`). */
     val lutBitmap: Bitmap by lazy {

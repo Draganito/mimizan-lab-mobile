@@ -2,6 +2,7 @@ package ch.bojovic.mimizanlab.store
 
 import android.content.Context
 import androidx.core.content.edit
+import ch.bojovic.mimizanlab.camera.MeteringMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -59,6 +60,17 @@ class Prefs(context: Context) {
         sp.edit { putInt(KEY_DECONV_N, v) }
     }
 
+    private val _metering = MutableStateFlow(
+        runCatching { MeteringMode.valueOf(sp.getString(KEY_METERING, null) ?: "") }.getOrDefault(MeteringMode.PHONE),
+    )
+    /** Who sets the exposure on A: the phone's AE, or the app on RAW probes. */
+    val metering: StateFlow<MeteringMode> = _metering.asStateFlow()
+
+    fun setMetering(mode: MeteringMode) {
+        _metering.value = mode
+        sp.edit { putString(KEY_METERING, mode.name) }
+    }
+
     companion object {
         /** Same limit as the desktop enlarger (`paper::STOP_LIMIT`). */
         const val STOP_LIMIT = 3.0
@@ -72,5 +84,6 @@ class Prefs(context: Context) {
         private const val KEY_SHARPEN = "usm_amount"
         private const val KEY_DECONV = "deconvolution"
         private const val KEY_DECONV_N = "deconv_passes"
+        private const val KEY_METERING = "metering"
     }
 }

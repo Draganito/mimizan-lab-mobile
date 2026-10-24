@@ -100,6 +100,28 @@ cargo ndk -t arm64-v8a --platform 34 build --release --lib
    still. The switch changes between automatic (with EV compensation) and
    manual ISO / shutter. With manual exposure, Auto does not fire and On
    fires once.
+
+   *Metering on A* (settings sheet, under *Exposure*) says who sets the
+   automatic exposure. *Phone* is the camera's own AE. *Highlights* and
+   *Grey* turn that AE off: the app takes `RAW_SENSOR` probes between the
+   viewfinder frames, five a second, measures them in Rust on the same
+   numbers the negative is developed from, and sets ISO and time itself.
+   *Highlights* places the 99.9th percentile of the brightest raw channel
+   half a stop under the sensor's clip (expose to the right); on the paper
+   the clip is Zone VIII, so the brightest textured tone of the scene lands
+   just below it at the base print. *Grey* places the geometric mean of the
+   negative's grey, with the chosen filter, on the grey card: Zone V at the
+   base print. A tap meters that spot alone in *Grey* (the readout says
+   `A·spot`). The EV slider moves the target in both. The viewfinder keeps
+   its time at or under 1/30 s so the stream keeps its rate, the still may
+   go to 1/8 s (shorter for a longer lens) at a lower ISO: the readout shows
+   the still's pair. When the still cannot reach the exposure within those
+   limits the flash icon turns amber and *Auto* fires. Under a flickering
+   lamp the time snaps to whole mains half-periods once the HAL reports the
+   frequency. Both modes need a camera with manual sensor control. A guard
+   watches the preview's frame timestamps while the app probes; if a HAL
+   stalls the stream on RAW requests, the app says so once and hands the
+   exposure back to the phone for that session.
 2. The filter row (Pan, Y8, YG11, O16, R25, G58, B47) is the "film" for
    the shot; it can be changed afterwards in review without developing
    again (`remix`).
