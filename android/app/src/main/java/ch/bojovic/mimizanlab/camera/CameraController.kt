@@ -42,6 +42,7 @@ import kotlin.coroutines.coroutineContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -71,7 +72,10 @@ enum class FlashMode { Off, Auto, On }
 data class ExposureSettings(
     val iso: Int? = null,
     val exposureNs: Long? = null,
+    /** The EV slider on the viewfinder, in the HAL's compensation steps. */
     val evSteps: Int = 0,
+    /** Standing compensation from the settings, in stops; added to [evSteps] on A. */
+    val compensationStops: Double = 0.0,
 ) {
     val manual: Boolean get() = iso != null && exposureNs != null
 }
@@ -475,7 +479,7 @@ class CameraController(context: Context) {
                 else -> CameraMetadata.CONTROL_AE_MODE_ON
             }
             b.set(CaptureRequest.CONTROL_AE_MODE, ae)
-            b.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, exposure.evSteps.coerceIn(lens.evRange.lower, lens.evRange.upper))
+            b.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, aeCompensationSteps(exposure, lens))
             b.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_OFF)
         }
         b.set(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_AUTO)
@@ -512,8 +516,8 @@ class CameraController(context: Context) {
         if (session != null) startRepeatingLocked()
     }
 
-    /** The EV slider in stops: the HAL's step times the steps. */
-    private fun biasStops(e: ExposureSettings): Double = e.evSteps * (lens?.evStep?.toDouble() ?: 0.0)
+    /** Stops the app's meter adds to its target: the EV slider plus the standing compensation. */
+    private fun biasStops(e: ExposureSettings): Double = e.evSteps * (lens?.evStep?.toDouble() ?: 0.0) + e.compensationStops
 
     suspend fun setFlash(mode: FlashMode) = lock.withLock {
         flash = mode
@@ -1018,5 +1022,12 @@ class CameraController(context: Context) {
         /** ... and stands the meter down when this many of them saw a frame gap. */
         private const val GUARD_GAPS = 6
         private val SRGB_LINEAR = FloatArray(256) { IspControls.decode(it / 255f) }
+
+        /** The EV slider plus the standing compensation, in the phone's AE compensation steps, within its range. */
+        internal fun aeCompensationSteps(e: ExposureSettings, lens: LensInfo): Int {
+            val step = lens.evStep.toDouble()
+            val standing = if (step > 0) (e.compensationStops / step).roundToInt() else 0
+            return (e.evSteps + standing).coerceIn(lens.evRange.lower, lens.evRange.upper)
+        }
     }
 }

@@ -109,7 +109,10 @@ exposure and not a boosted copy of it.
   `H = ISO · s`. A probe at `H_p` whose statistic is `s` gives
   `H = H_p · target / s` in one step (the sensor is linear). Targets:
   `0.7071` for the highlight (half a stop under the clip = Zone VIII on
-  the paper), `0.18` for the grey (Zone V), times `2^EV`. A clipped
+  the paper), `0.18` for the grey (Zone V), times `2^EV`, where EV is the
+  viewfinder slider plus the standing compensation from the settings
+  (`Prefs.compensationThirds`; under the phone's AE the same sum goes into
+  `CONTROL_AE_EXPOSURE_COMPENSATION`, `aeCompensationSteps`). A clipped
   highlight steps down one stop per probe until it shows; a step down
   stops where it would push the scene's grey under Zone III (two stops
   under the card, also times `2^EV`): when the scene's range exceeds the

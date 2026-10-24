@@ -96,6 +96,12 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     init {
         viewModelScope.launch { tone.collect { controller.tone = it } }
         viewModelScope.launch { darkroom.prefs.metering.collect { controller.setMetering(it) } }
+        viewModelScope.launch {
+            darkroom.prefs.compensationThirds.collect { thirds ->
+                _exposure.update { it.copy(compensationStops = thirds / 3.0) }
+                push()
+            }
+        }
         // The meter says so once when it hands the exposure back to the phone.
         viewModelScope.launch {
             stream.map { it.meteringNote }.distinctUntilChanged().filterNotNull().collect { _message.value = it }
@@ -139,7 +145,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun selectLens(l: LensInfo) {
         if (_lens.value?.key == l.key) return
         _lens.value = l
-        _exposure.update { ExposureSettings(evSteps = it.evSteps) }
+        _exposure.update { ExposureSettings(evSteps = it.evSteps, compensationStops = it.compensationStops) }
         restart()
     }
 
@@ -215,6 +221,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setMetering(mode: MeteringMode) = darkroom.prefs.setMetering(mode)
+    fun setCompensationThirds(thirds: Int) = darkroom.prefs.setCompensationThirds(thirds)
 
     private fun push() {
         val e = _exposure.value

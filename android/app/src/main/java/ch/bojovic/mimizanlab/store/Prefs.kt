@@ -60,6 +60,20 @@ class Prefs(context: Context) {
         sp.edit { putInt(KEY_DECONV_N, v) }
     }
 
+    private val _compensation = MutableStateFlow(sp.getInt(KEY_COMPENSATION, 0).coerceIn(-COMP_LIMIT_THIRDS, COMP_LIMIT_THIRDS))
+    /**
+     * Standing exposure compensation on A, in thirds of a stop (±3 EV),
+     * added under the phone's AE and under the app's meter alike. The EV
+     * slider on the viewfinder comes on top of it.
+     */
+    val compensationThirds: StateFlow<Int> = _compensation.asStateFlow()
+
+    fun setCompensationThirds(thirds: Int) {
+        val v = thirds.coerceIn(-COMP_LIMIT_THIRDS, COMP_LIMIT_THIRDS)
+        _compensation.value = v
+        sp.edit { putInt(KEY_COMPENSATION, v) }
+    }
+
     private val _metering = MutableStateFlow(
         runCatching { MeteringMode.valueOf(sp.getString(KEY_METERING, null) ?: "") }.getOrDefault(MeteringMode.HIGHLIGHTS),
     )
@@ -89,5 +103,8 @@ class Prefs(context: Context) {
         private const val KEY_DECONV = "deconvolution"
         private const val KEY_DECONV_N = "deconv_passes"
         private const val KEY_METERING = "metering"
+        private const val KEY_COMPENSATION = "compensation_thirds"
+        /** ±3 EV in thirds. */
+        const val COMP_LIMIT_THIRDS = 9
     }
 }

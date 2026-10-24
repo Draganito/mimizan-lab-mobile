@@ -77,6 +77,7 @@ import ch.bojovic.mimizanlab.engine.SeparationMode
 import ch.bojovic.mimizanlab.engine.ShotStatus
 import ch.bojovic.mimizanlab.engine.paperGrade
 import ch.bojovic.mimizanlab.store.Prefs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 @Composable
@@ -96,6 +97,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val deconvolution by vm.darkroom.prefs.deconvolution.collectAsStateWithLifecycle()
     val deconvPasses by vm.darkroom.prefs.deconvPasses.collectAsStateWithLifecycle()
     val metering by vm.darkroom.prefs.metering.collectAsStateWithLifecycle()
+    val compensation by vm.darkroom.prefs.compensationThirds.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
     var confirmDeleteAll by remember { mutableStateOf(false) }
@@ -413,6 +415,19 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                                 "The negative's grey with the chosen filter is placed on the grey card, Zone V at the base print; " +
                                 "a tap meters that spot alone. EV moves that target."
                     } + if (!canMeter) " This camera has no manual sensor control, so only the phone can meter." else "",
+                    style = MaterialTheme.typography.bodySmall, color = Color.Gray,
+                )
+                Spacer(Modifier.height(8.dp))
+                val compLimit = Prefs.COMP_LIMIT_THIRDS
+                LabeledSlider(
+                    label = "comp ${Format.ev(compensation, 1.0 / 3)}",
+                    value = (compensation + compLimit).toFloat() / (2 * compLimit),
+                    onChange = { vm.setCompensationThirds((it * 2 * compLimit).roundToInt() - compLimit) },
+                    steps = 2 * compLimit - 1,
+                )
+                Text(
+                    "Standing compensation on A, in thirds of a stop: added to every automatic exposure, " +
+                        "with the phone's AE and with the app's meter. The EV slider on the viewfinder comes on top.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 Spacer(Modifier.height(16.dp))

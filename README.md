@@ -116,7 +116,10 @@ cargo ndk -t arm64-v8a --platform 34 build --release --lib
    black. *Grey* places the geometric mean of the
    negative's grey, with the chosen filter, on the grey card: Zone V at the
    base print. A tap meters that spot alone in *Grey* (the readout says
-   `A·spot`). The EV slider moves the target in both. The viewfinder keeps
+   `A·spot`). The EV slider moves the target in both, and *comp* under the
+   chips is a standing compensation in thirds of a stop (±3 EV) that is
+   added to every automatic exposure, the phone's and the app's, with the
+   EV slider on top of it. The viewfinder keeps
    its time at or under 1/30 s so the stream keeps its rate, the still may
    go to 1/8 s (shorter for a longer lens) at a lower ISO: the readout shows
    the still's pair. When the still cannot reach the exposure within those
