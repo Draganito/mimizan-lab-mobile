@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -144,74 +145,79 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
 
         FilterRow(selected = develop.filter, onSelect = vm::setFilter)
 
-        // Viewfinder with focus tap and overlays.
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .onSizeChanged { viewSize = it }
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onTap = { p -> if (viewSize.width > 0) vm.focusAt(p.x / viewSize.width, p.y / viewSize.height) },
-                        onLongPress = { vm.clearFocus() },
+        // Viewfinder with focus tap and overlays. It takes the height the
+        // readout and the shutter row leave over: on a short screen it is
+        // narrower than the display rather than pushing the controls into
+        // each other.
+        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.TopCenter) {
+            Box(
+                Modifier
+                    .aspectRatio(aspect)
+                    .onSizeChanged { viewSize = it }
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = { p -> if (viewSize.width > 0) vm.focusAt(p.x / viewSize.width, p.y / viewSize.height) },
+                            onLongPress = { vm.clearFocus() },
+                        )
+                    },
+            ) {
+                MonoViewfinder(tone = tone, aspect = aspect, onSurface = vm::onSurface, modifier = Modifier.fillMaxSize())
+                if (stream.lens == null && stream.error == null) {
+                    CircularProgressIndicator(
+                        Modifier.align(Alignment.Center).size(28.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp,
                     )
-                },
-        ) {
-            MonoViewfinder(tone = tone, aspect = aspect, onSurface = vm::onSurface, modifier = Modifier.fillMaxWidth())
-            if (stream.lens == null && stream.error == null) {
-                CircularProgressIndicator(
-                    Modifier.align(Alignment.Center).size(28.dp),
-                    color = Color.White,
-                    strokeWidth = 2.dp,
-                )
-            }
-            if (vf.grid) {
-                Canvas(Modifier.matchParentSize()) {
-                    val ink = Color.White.copy(alpha = 0.45f)
-                    for (x in listOf(size.width / 3f, size.width * 2f / 3f)) {
-                        drawLine(ink, Offset(x, 0f), Offset(x, size.height), strokeWidth = 1.5f)
-                    }
-                    for (y in listOf(size.height / 3f, size.height * 2f / 3f)) {
-                        drawLine(ink, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.5f)
+                }
+                if (vf.grid) {
+                    Canvas(Modifier.matchParentSize()) {
+                        val ink = Color.White.copy(alpha = 0.45f)
+                        for (x in listOf(size.width / 3f, size.width * 2f / 3f)) {
+                            drawLine(ink, Offset(x, 0f), Offset(x, size.height), strokeWidth = 1.5f)
+                        }
+                        for (y in listOf(size.height / 3f, size.height * 2f / 3f)) {
+                            drawLine(ink, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.5f)
+                        }
                     }
                 }
-            }
 
-            stream.focusPoint?.let { (fx, fy) ->
-                val d = LocalDensity.current
-                val size = 72.dp
-                val px = with(d) { size.toPx() }
-                val locked = stream.afState == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED ||
-                    stream.afState == CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED
-                Box(
-                    Modifier
-                        .offset { androidx.compose.ui.unit.IntOffset((fx * viewSize.width - px / 2).toInt(), (fy * viewSize.height - px / 2).toInt()) }
-                        .size(size)
-                        .border(1.5.dp, if (locked) Color(0xFFBBFF66) else Color.White, RoundedCornerShape(4.dp)),
-                )
-            }
+                stream.focusPoint?.let { (fx, fy) ->
+                    val d = LocalDensity.current
+                    val size = 72.dp
+                    val px = with(d) { size.toPx() }
+                    val locked = stream.afState == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED ||
+                        stream.afState == CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED
+                    Box(
+                        Modifier
+                            .offset { androidx.compose.ui.unit.IntOffset((fx * viewSize.width - px / 2).toInt(), (fy * viewSize.height - px / 2).toInt()) }
+                            .size(size)
+                            .border(1.5.dp, if (locked) Color(0xFFBBFF66) else Color.White, RoundedCornerShape(4.dp)),
+                    )
+                }
 
-            if (vf.showHistogram) {
-                Histogram(
-                    bins = histogram,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .size(width = 120.dp, height = 56.dp)
-                        .clickable { vm.toggleHistogram() },
-                )
-            }
+                if (vf.showHistogram) {
+                    Histogram(
+                        bins = histogram,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .size(width = 120.dp, height = 56.dp)
+                            .clickable { vm.toggleHistogram() },
+                    )
+                }
 
-            if (stream.capturing) {
-                Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.5f)))
-            }
+                if (stream.capturing) {
+                    Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.5f)))
+                }
 
-            stream.error?.let {
-                Text(it, color = Color.Red, modifier = Modifier.align(Alignment.Center))
+                stream.error?.let {
+                    Text(it, color = Color.Red, modifier = Modifier.align(Alignment.Center))
+                }
             }
         }
 
-        // Exposure readout and controls.
-        Column(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 16.dp), verticalArrangement = Arrangement.Center) {
+        // Exposure readout and controls, at their own height.
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 // Under the app's meter the readout is the still's pair; the
                 // viewfinder may run a shorter time at a higher ISO.
