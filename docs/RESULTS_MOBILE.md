@@ -85,6 +85,14 @@ cores are (the host needs 1.9 s with 16 threads). JPEG q100 full size:
 
 Dubois 1923 ms (peak 1016 MB), mask off 1008 ms, Quick mode 457 ms.
 
+With core 0.12.0 (the baseband structure tensor in the directional
+estimator, `spike --repeat 3`, same host): Dubois 2155–2259 ms (separate
+1643–1707 ms, peak 1116–1164 MB), mask off 971–989 ms, Quick mode
+526–575 ms. The tensor costs about 15 % of the Dubois development and
+~130 MB of peak memory; mask off and the mix are unchanged. The phone
+numbers above were not re-measured; scaled the same way, expect roughly
+2.7–5 s per 12.5 MP frame on the Pixel 9.
+
 ## APK
 
 * Debug: 66 MB (unminified, icons-extended), Rust release profile.
