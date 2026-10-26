@@ -93,6 +93,14 @@ estimator, `spike --repeat 3`, same host): Dubois 2155–2259 ms (separate
 numbers above were not re-measured; scaled the same way, expect roughly
 2.7–5 s per 12.5 MP frame on the Pixel 9.
 
+With core 0.15.5 (`spike --repeat 3`, same host): Dubois 2257–2307 ms
+(separate 1749–1753 ms, peak 924–972 MB), mask off 930–956 ms, Quick mode
+489–501 ms. Slightly under 0.12.0 on both time and memory; the nonlinear
+last-octave step and the defect repair that 0.15.0 removed were never on
+in the app, so the negative is unchanged apart from the core's own
+revisions (the Camera2 path still matches the desktop decoder bit for
+bit on the Nikon Z f NEF).
+
 ## APK
 
 * Debug: 66 MB (unminified, icons-extended), Rust release profile.

@@ -142,7 +142,8 @@ DNG: the way to the desktop is Export > Negative (linear TIFF + mask).
 Runs on the Pixel 9 (Android 17): main and ultrawide lens (the ultrawide
 through its physical camera id), RAW capture, monochrome JPEG in the
 gallery, development in 2.3–4.5 s per 12.5 MP frame (measured before core
-0.12.0; its baseband tensor adds about 15 % on the host), review with remix,
+0.12.0; core 0.15.5, which 0.11.0 is built on, is level with that on the
+host), review with remix,
 the split-grade paper, sharpening and exports, roll with delete. The phone's negative
 matches the desktop CLI's development of a DNG of the same frame to
 0.015 % RMS (the rest is DNG metadata rounding; measured with 0.1.0, which

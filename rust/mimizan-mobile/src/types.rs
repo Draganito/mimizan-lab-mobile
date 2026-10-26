@@ -273,12 +273,6 @@ pub fn normalise_weights(w: Weights) -> Result<Weights> {
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
 pub struct DevelopParams {
     pub separation: SeparationMode,
-    /// Nonlinear reconstruction of the last octave: off by default, because a
-    /// pixel that passes through it is computed, not measured.
-    #[uniffi(default = false)]
-    pub reconstruct: bool,
-    #[uniffi(default = true)]
-    pub fix_defects: bool,
     pub white_balance: WhiteBalanceMode,
     /// 1 = full resolution; 2 = CFA-preserving 2x binning before ingest
     /// (each 4x4 block becomes one 2x2 RGGB cell: quarter of the pixels,
@@ -312,8 +306,6 @@ impl Default for DevelopParams {
     fn default() -> Self {
         Self {
             separation: SeparationMode::Dubois,
-            reconstruct: false,
-            fix_defects: true,
             white_balance: WhiteBalanceMode::AsShot,
             binning: 1,
             noise_a: None,
@@ -406,7 +398,6 @@ pub struct DevelopInfo {
     pub pattern: BayerPattern,
     pub binning: u32,
     pub separation: SeparationMode,
-    pub reconstruct: bool,
     /// Balance multipliers R,G,B applied before the separation (G = 1).
     pub wb: Vec<f64>,
     pub wb_source: String,

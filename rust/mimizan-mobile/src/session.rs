@@ -88,11 +88,8 @@ pub fn develop_impl(input: RawInput, params: DevelopParams) -> Result<Developed>
 
     let mut p = NegativeParams { keep_separation: true, ..NegativeParams::default() };
     p.ingest.wb = params.white_balance.core();
-    p.ingest.fix_defects = params.fix_defects;
+    // Defects are counted, not repaired (core 0.15: every pixel measured).
     p.separate.mask = params.separation.mask_mode();
-    if params.reconstruct {
-        p.separate.reconstruct = Some(Default::default());
-    }
     if let Some(json) = &params.camera_file_json {
         let cam: CameraFile = serde_json::from_str(json)
             .map_err(|e| MimizanError::Invalid { msg: format!("camera file: {e}") })?;
@@ -340,7 +337,6 @@ impl Inner {
             pattern: BayerPattern::from_phase(self.sep.phase),
             binning: self.binning,
             separation: self.separation_mode,
-            reconstruct: self.info.reconstruct,
             wb: self.info.wb.to_vec(),
             wb_source: self.info.report.wb_source.clone(),
             noise_a: self.info.noise.a,
