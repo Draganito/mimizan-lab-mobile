@@ -2,6 +2,10 @@ package ch.bojovic.mimizanlab.store
 
 import android.content.Context
 import androidx.core.content.edit
+import ch.bojovic.mimizanlab.engine.PlateFilters
+import ch.bojovic.mimizanlab.engine.PlateSpace
+import ch.bojovic.mimizanlab.engine.Process
+import ch.bojovic.mimizanlab.engine.lampLimit
 import ch.bojovic.mimizanlab.engine.paperStopLimit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -74,9 +78,66 @@ class Prefs(context: Context) {
         sp.edit { putInt(KEY_COMPENSATION, v) }
     }
 
+    private val _process = MutableStateFlow(enumOr(sp.getString(KEY_PROCESS, null), Process.MONO))
+    /** The darkroom's process: the monochrome negative, or the three-colour plate. The next shot opens in it. */
+    val process: StateFlow<Process> = _process.asStateFlow()
+
+    fun setProcess(p: Process) {
+        _process.value = p
+        sp.edit { putString(KEY_PROCESS, p.name) }
+    }
+
+    private val _plateFilters = MutableStateFlow(enumOr(sp.getString(KEY_PLATE_FILTERS, null), PlateFilters.CAMERA))
+    /** The plate's taking filters. */
+    val plateFilters: StateFlow<PlateFilters> = _plateFilters.asStateFlow()
+
+    fun setPlateFilters(f: PlateFilters) {
+        _plateFilters.value = f
+        sp.edit { putString(KEY_PLATE_FILTERS, f.name) }
+    }
+
+    private val _plateSpace = MutableStateFlow(enumOr(sp.getString(KEY_PLATE_SPACE, null), PlateSpace.SRGB))
+    /** The plate's projection primaries, the colour space of the file. sRGB on the phone: the gallery shows it as it is. */
+    val plateSpace: StateFlow<PlateSpace> = _plateSpace.asStateFlow()
+
+    fun setPlateSpace(s: PlateSpace) {
+        _plateSpace.value = s
+        sp.edit { putString(KEY_PLATE_SPACE, s.name) }
+    }
+
+    private val _lampRed = MutableStateFlow(snapLamp(finiteOrZero(sp.getFloat(KEY_LAMP_RED, 0f))))
+    /** The red lamp of the plate's projector, stops; the start value in review and the automatic JPEG's. */
+    val lampRed: StateFlow<Double> = _lampRed.asStateFlow()
+
+    fun setLampRed(stops: Double) {
+        val v = snapLamp(stops)
+        _lampRed.value = v
+        sp.edit { putFloat(KEY_LAMP_RED, v.toFloat()) }
+    }
+
+    private val _lampBlue = MutableStateFlow(snapLamp(finiteOrZero(sp.getFloat(KEY_LAMP_BLUE, 0f))))
+    /** The blue lamp. */
+    val lampBlue: StateFlow<Double> = _lampBlue.asStateFlow()
+
+    fun setLampBlue(stops: Double) {
+        val v = snapLamp(stops)
+        _lampBlue.value = v
+        sp.edit { putFloat(KEY_LAMP_BLUE, v.toFloat()) }
+    }
+
     companion object {
         /** How far either paper exposure may move, in stops: the core's `paper::STOP_LIMIT`, asked once. */
         val STOP_LIMIT: Double = paperStopLimit()
+
+        /** How far either lamp may move, in stops: the core's `print::LAMP_LIMIT`. */
+        val LAMP_LIMIT: Double = lampLimit()
+
+        /** Twelfths of a stop, inside ±[LAMP_LIMIT]. */
+        fun snapLamp(v: Double): Double =
+            (kotlin.math.round(finiteOrZero(v) * 12.0) / 12.0).coerceIn(-LAMP_LIMIT, LAMP_LIMIT)
+
+        private inline fun <reified E : Enum<E>> enumOr(name: String?, default: E): E =
+            name?.let { n -> enumValues<E>().firstOrNull { it.name == n } } ?: default
 
         /** Unsharp-mask ceiling, the same the core clamps to. */
         const val SHARPEN_LIMIT = 1.5
@@ -98,6 +159,11 @@ class Prefs(context: Context) {
         private const val KEY_DECONV = "deconvolution"
         private const val KEY_DECONV_N = "deconv_passes"
         private const val KEY_COMPENSATION = "compensation_thirds"
+        private const val KEY_PROCESS = "process"
+        private const val KEY_PLATE_FILTERS = "plate_filters"
+        private const val KEY_PLATE_SPACE = "plate_space"
+        private const val KEY_LAMP_RED = "lamp_red"
+        private const val KEY_LAMP_BLUE = "lamp_blue"
         /** ±3 EV in thirds. */
         const val COMP_LIMIT_THIRDS = 9
     }

@@ -27,6 +27,14 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
+/**
+ * The darkroom's two processes: the monochrome negative, or the
+ * three-colour plate (Prokudin-Gorsky's principle: three mixes of the
+ * same separation, printed through the same paper into one RGB file).
+ * A re-mix, not a re-development: the separation is the same.
+ */
+enum class Process { MONO, PLATE }
+
 /** How a frame is developed; chosen in the viewfinder, changeable in review. */
 data class DevelopSettings(
     val separation: SeparationMode = SeparationMode.DUBOIS,
@@ -36,7 +44,14 @@ data class DevelopSettings(
     val whiteBalance: WhiteBalanceMode = WhiteBalanceMode.AsShot,
     /** Save a finished JPEG (the paper at the settings exposures, full size) as soon as the frame is developed. */
     val autoJpeg: Boolean = true,
-)
+    val process: Process = Process.MONO,
+    /** The plate's taking filters (only read in the plate process). */
+    val plateFilters: PlateFilters = PlateFilters.CAMERA,
+    /** The plate's primaries, the colour space of the file. */
+    val plateSpace: PlateSpace = PlateSpace.SRGB,
+) {
+    val isPlate: Boolean get() = process == Process.PLATE
+}
 
 sealed interface ShotStatus {
     data object Saving : ShotStatus
@@ -161,6 +176,16 @@ class Darkroom private constructor(private val context: Context) {
         _cacheBytes.value = cache.sizeBytes()
     }
 
+    /** Fresh settings in the standing process (what a frame from an earlier run is developed in). */
+    fun standingSettings(): DevelopSettings = withStandingProcess(DevelopSettings())
+
+    /** `s` in the process the darkroom stands in now (a second development follows the switch made in review). */
+    fun withStandingProcess(s: DevelopSettings): DevelopSettings = s.copy(
+        process = prefs.process.value,
+        plateFilters = prefs.plateFilters.value,
+        plateSpace = prefs.plateSpace.value,
+    )
+
     /** Develop (again) from the cache, e.g. with other settings. */
     fun redevelop(name: String, settings: DevelopSettings) {
         scope.launch { enqueue(name, settings) }
@@ -185,6 +210,13 @@ class Darkroom private constructor(private val context: Context) {
                 val params = paramsFor(meta, shot.settings)
                 val t0 = System.nanoTime()
                 val developed = develop(input, params)
+                if (shot.settings.isPlate) {
+                    // The plate is a re-mix of the separation just made; the
+                    // lamps start from the settings, as the paper does.
+                    val w = developed.setPlate(shot.settings.plateFilters, shot.settings.plateSpace)
+                    developed.setLamps(prefs.lampRed.value, prefs.lampBlue.value)
+                    Log.i(TAG, "plate ${w.filters}: R ${w.red} G ${w.green} B ${w.blue}")
+                }
                 val info = developed.info()
                 Log.i(TAG, "developed $name in ${(System.nanoTime() - t0) / 1_000_000} ms: ${info.timing}")
                 val thumb = thumbnail(developed)
@@ -194,7 +226,7 @@ class Darkroom private constructor(private val context: Context) {
                 // A second development of the same frame does not add a second JPEG.
                 if (shot.settings.autoJpeg && shot.jpegUri == null) {
                     val uri = exportJpeg(
-                        developed, name, shot.settings.filter,
+                        developed, name, suffixFor(shot.settings, info),
                         soft = prefs.soft.value, hard = prefs.hard.value,
                         usm = prefs.sharpen.value,
                         deconvolution = prefs.deconvolution.value,
@@ -225,59 +257,77 @@ class Darkroom private constructor(private val context: Context) {
     private fun paramsFor(meta: RawMeta, s: DevelopSettings): DevelopParams =
         developParamsFor(meta.make, meta.model, meta.cfa, s)
 
+    /** 256 px box of the preview, grey or, in the plate process, colour. */
     private fun thumbnail(d: Developed): Bitmap {
-        val g = d.preview(prefs.soft.value, prefs.hard.value, 0u)
+        val soft = prefs.soft.value
+        val hard = prefs.hard.value
+        return if (d.info().plate != null) {
+            val g = d.previewRgb(soft, hard, 0u)
+            subsampled(g.width.toInt(), g.height.toInt()) { i ->
+                val r = g.data[3 * i].toInt() and 0xFF
+                val gg = g.data[3 * i + 1].toInt() and 0xFF
+                val b = g.data[3 * i + 2].toInt() and 0xFF
+                (0xFF shl 24) or (r shl 16) or (gg shl 8) or b
+            }
+        } else {
+            val g = d.preview(soft, hard, 0u)
+            subsampled(g.width.toInt(), g.height.toInt()) { i ->
+                val v = g.data[i].toInt() and 0xFF
+                (0xFF shl 24) or (v shl 16) or (v shl 8) or v
+            }
+        }
+    }
+
+    /** Every `scale`-th pixel of a `sw × sh` picture so the longer edge fits 256 px; [argb] reads pixel index `i`. */
+    private inline fun subsampled(sw: Int, sh: Int, argb: (Int) -> Int): Bitmap {
         // The preview planes are 2048 px; the thumbnail is a 256 px box.
-        val scale = maxOf(1, (maxOf(g.width.toInt(), g.height.toInt()) + 255) / 256)
-        val w = g.width.toInt() / scale
-        val h = g.height.toInt() / scale
+        val scale = maxOf(1, (maxOf(sw, sh) + 255) / 256)
+        val w = sw / scale
+        val h = sh / scale
         val px = IntArray(w * h)
-        val src = g.data
-        val sw = g.width.toInt()
         for (y in 0 until h) {
             val row = y * scale * sw
-            for (x in 0 until w) {
-                val v = src[row + x * scale].toInt() and 0xFF
-                px[y * w + x] = (0xFF shl 24) or (v shl 16) or (v shl 8) or v
-            }
+            for (x in 0 until w) px[y * w + x] = argb(row + x * scale)
         }
         return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
     }
 
     /**
      * The full-size JPEG into the album, `usm` (0..[Prefs.SHARPEN_LIMIT])
-     * sharpened, or deconvolved first when `deconvolution` is set.
+     * sharpened, or deconvolved first when `deconvolution` is set. In the
+     * plate process the file is RGB with the plate's profile. `suffix`
+     * names the filter or the plate in the file name ([suffixFor]).
      */
     fun exportJpeg(
         d: Developed,
         name: String,
-        filter: Filter,
+        suffix: String,
         soft: Double = 0.0,
         hard: Double = 0.0,
         usm: Double = 0.0,
         deconvolution: Boolean = false,
         deconvPasses: Int = 2,
-    ): Uri = exportPrint(name, filter, "jpg", MediaStoreWriter.MIME_JPEG) { path ->
+    ): Uri = exportPrint(name, suffix, "jpg", MediaStoreWriter.MIME_JPEG) { path ->
         d.exportJpeg(path, soft, hard, 0u, usm, deconvolution, passesFor(deconvolution, deconvPasses))
     }
 
-    /** The same picture as a 16-bit TIFF. */
+    /** The same picture as a 16-bit TIFF (RGB for a plate). */
     fun exportTiff(
         d: Developed,
         name: String,
-        filter: Filter,
+        suffix: String,
         soft: Double = 0.0,
         hard: Double = 0.0,
         usm: Double = 0.0,
         deconvolution: Boolean = false,
         deconvPasses: Int = 2,
-    ): Uri = exportPrint(name, filter, "tif", MediaStoreWriter.MIME_TIFF) { path ->
+    ): Uri = exportPrint(name, suffix, "tif", MediaStoreWriter.MIME_TIFF) { path ->
         d.exportTiff16(path, soft, hard, 0u, usm, deconvolution, passesFor(deconvolution, deconvPasses))
     }
 
     /** Rust writes to a path: a scratch file in the app cache, then the copy into the album. */
-    private fun exportPrint(name: String, filter: Filter, ext: String, mime: String, write: (String) -> Unit): Uri {
-        val fileName = "$name${suffixFor(filter)}.$ext"
+    private fun exportPrint(name: String, suffix: String, ext: String, mime: String, write: (String) -> Unit): Uri {
+        val fileName = "$name$suffix.$ext"
         val tmp = File(context.cacheDir, fileName)
         try {
             write(tmp.absolutePath)
@@ -290,14 +340,19 @@ class Darkroom private constructor(private val context: Context) {
     private fun passesFor(deconvolution: Boolean, passes: Int): UInt =
         if (deconvolution) passes.coerceIn(1, Prefs.DECONV_PASSES_MAX).toUInt() else 0u
 
-    /** Linear negative + saturation mask, the desktop interchange format. */
+    /**
+     * Linear negative + saturation mask, the desktop interchange format. In
+     * the plate process the stacked three-frame plate (`<name>.plate.tif`),
+     * which `mimizan print` prints in colour.
+     */
     fun exportNegative(d: Developed, name: String): List<Uri> {
-        val tmp = File(context.cacheDir, "$name.negative.tif")
-        val mask = File(context.cacheDir, "$name.negative.mask.tif")
+        val stem = if (d.info().plate != null) "$name.plate" else "$name.negative"
+        val tmp = File(context.cacheDir, "$stem.tif")
+        val mask = File(context.cacheDir, "$stem.mask.tif")
         try {
             d.exportNegative(tmp.absolutePath)
-            val uris = mutableListOf(media.importFile(tmp, "$name.negative.tif", MediaStoreWriter.MIME_TIFF))
-            if (mask.exists()) uris += media.importFile(mask, "$name.negative.mask.tif", MediaStoreWriter.MIME_TIFF)
+            val uris = mutableListOf(media.importFile(tmp, "$stem.tif", MediaStoreWriter.MIME_TIFF))
+            if (mask.exists()) uris += media.importFile(mask, "$stem.mask.tif", MediaStoreWriter.MIME_TIFF)
             return uris
         } finally {
             tmp.delete(); mask.delete()
@@ -326,6 +381,17 @@ class Darkroom private constructor(private val context: Context) {
             Filter.GREEN58 -> "_G58"
             Filter.BLUE47 -> "_B47"
         }
+
+        /** The plate in the file name, by the set the frame resolved to. */
+        fun suffixFor(plate: PlateState): String = when (plate.weights.filters) {
+            PlateFilters.CAMERA -> "_plate"
+            PlateFilters.WRATTEN -> "_plate_wratten"
+            PlateFilters.CHANNELS -> "_plate_channels"
+        }
+
+        /** The file-name suffix of a development as it stands: the plate it is in, else its filter. */
+        fun suffixFor(settings: DevelopSettings, info: DevelopInfo): String =
+            info.plate?.let { suffixFor(it) } ?: suffixFor(settings.filter)
     }
 }
 

@@ -16,9 +16,13 @@ import ch.bojovic.mimizanlab.camera.LensInfo
 import ch.bojovic.mimizanlab.engine.Darkroom
 import ch.bojovic.mimizanlab.engine.DevelopSettings
 import ch.bojovic.mimizanlab.engine.Filter
+import ch.bojovic.mimizanlab.engine.PlateFilters
+import ch.bojovic.mimizanlab.engine.PlateSpace
+import ch.bojovic.mimizanlab.engine.Process
 import ch.bojovic.mimizanlab.engine.SeparationMode
 import ch.bojovic.mimizanlab.engine.mixWeights
 import ch.bojovic.mimizanlab.engine.paperLut
+import ch.bojovic.mimizanlab.engine.plateWeights
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -31,6 +35,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.math.pow
 
 /** Viewfinder settings that are not camera state. */
 data class ViewfinderSettings(
@@ -52,7 +57,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private val _exposure = MutableStateFlow(ExposureSettings())
     val exposure: StateFlow<ExposureSettings> = _exposure.asStateFlow()
 
-    private val _develop = MutableStateFlow(DevelopSettings())
+    /** The process and the plate's choices come from the roll's standing settings; the rest is this session's. */
+    private val _develop = MutableStateFlow(darkroom.standingSettings())
     val develop: StateFlow<DevelopSettings> = _develop.asStateFlow()
 
     private val _viewfinder = MutableStateFlow(ViewfinderSettings())
@@ -61,29 +67,39 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
+    /** The paper's two exposures and the plate's two lamps, the standing values. */
+    private data class PaperAndLamps(val soft: Double, val hard: Double, val lampRed: Double, val lampBlue: Double)
+
+    private val paperAndLamps = combine(
+        darkroom.prefs.soft, darkroom.prefs.hard, darkroom.prefs.lampRed, darkroom.prefs.lampBlue,
+    ) { s, h, r, b -> PaperAndLamps(s, h, r, b) }
+
     /**
      * What the viewfinder shader applies to the camera preview: the still's
      * mix weights for the current filter and this frame's balance, pulled
      * back through the ISP's colour matrix, and the paper the automatic
-     * JPEG uses. Recomputed when the ISP colour moves (white balance), a
-     * develop setting changes, or either exposure changes.
+     * JPEG uses; in the plate process the three taking filters the same
+     * way, and the lamps. Recomputed when the ISP colour moves (white
+     * balance), a develop setting changes, or an exposure or lamp changes.
      */
     val tone: StateFlow<FinderTone> = combine(
         controller.ispColor,
         _develop,
-        combine(darkroom.prefs.soft, darkroom.prefs.hard) { s, h -> s to h },
+        paperAndLamps,
         _viewfinder,
         _lens,
-    ) { color, dev, paper, vf, lens ->
-        buildTone(color ?: IspColor.IDENTITY, dev, paper.first, paper.second, vf.zebra, lens)
+    ) { color, dev, pl, vf, lens ->
+        buildTone(color ?: IspColor.IDENTITY, dev, pl, vf.zebra, lens)
     }.flowOn(Dispatchers.Default).stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
         buildTone(
             IspColor.IDENTITY,
-            DevelopSettings(),
-            darkroom.prefs.soft.value,
-            darkroom.prefs.hard.value,
+            _develop.value,
+            PaperAndLamps(
+                darkroom.prefs.soft.value, darkroom.prefs.hard.value,
+                darkroom.prefs.lampRed.value, darkroom.prefs.lampBlue.value,
+            ),
             true,
             _lens.value,
         ),
@@ -91,6 +107,11 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch { tone.collect { controller.tone = it } }
+        // The review changes the standing process too; the viewfinder follows.
+        viewModelScope.launch {
+            combine(darkroom.prefs.process, darkroom.prefs.plateFilters, darkroom.prefs.plateSpace) { p, f, s -> Triple(p, f, s) }
+                .collect { (p, f, s) -> _develop.update { it.copy(process = p, plateFilters = f, plateSpace = s) } }
+        }
         viewModelScope.launch {
             darkroom.prefs.compensationThirds.collect { thirds ->
                 _exposure.update { it.copy(compensationStops = thirds / 3.0) }
@@ -105,8 +126,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private fun buildTone(
         color: IspColor,
         dev: DevelopSettings,
-        soft: Double,
-        hard: Double,
+        pl: PaperAndLamps,
         zebra: Boolean,
         lens: LensInfo?,
     ): FinderTone {
@@ -119,11 +139,31 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             ch.bojovic.mimizanlab.engine.Weights(0.25, 0.5, 0.25)
         }
         val weights = floatArrayOf(w.r.toFloat(), w.g.toFloat(), w.b.toFloat())
+        // The plate: the three taking filters as `develop` will resolve
+        // them for this lens's matrix, each pulled back like the mix.
+        val plate = if (dev.isPlate) {
+            try {
+                val pw = plateWeights(params, gains, lens?.xyzToCam?.toList(), dev.plateFilters, dev.plateSpace)
+                val out = FloatArray(9)
+                for ((i, row) in listOf(pw.red, pw.green, pw.blue).withIndex()) {
+                    val v = FinderTone.pullBack(floatArrayOf(row.r.toFloat(), row.g.toFloat(), row.b.toFloat()), color)
+                    v.copyInto(out, 3 * i)
+                }
+                out
+            } catch (t: Throwable) {
+                Log.w(TAG, "plate weights", t)
+                null
+            }
+        } else {
+            null
+        }
         return FinderTone(
             v = FinderTone.pullBack(weights, color),
-            lut = paperLut(soft, hard, 4096u).toFloatArray(),
+            lut = paperLut(pl.soft, pl.hard, 4096u).toFloatArray(),
             invGamma = 1f,
             zebra = if (zebra) 0.985f else 2f,
+            plate = plate,
+            lampGain = floatArrayOf(2.0.pow(pl.lampRed).toFloat(), 1f, 2.0.pow(pl.lampBlue).toFloat()),
         )
     }
 
@@ -234,6 +274,11 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setFilter(f: Filter) = _develop.update { it.copy(filter = f) }
+    fun setProcess(p: Process) = darkroom.prefs.setProcess(p)
+    fun setPlateFilters(f: PlateFilters) = darkroom.prefs.setPlateFilters(f)
+    fun setPlateSpace(s: PlateSpace) = darkroom.prefs.setPlateSpace(s)
+    fun setLampRed(stops: Double) = darkroom.prefs.setLampRed(stops)
+    fun setLampBlue(stops: Double) = darkroom.prefs.setLampBlue(stops)
     fun setSeparation(m: SeparationMode) = _develop.update { it.copy(separation = m) }
     fun setQuick(quick: Boolean) = _develop.update { it.copy(binning = if (quick) 2 else 1) }
     fun setAutoJpeg(on: Boolean) = _develop.update { it.copy(autoJpeg = on) }

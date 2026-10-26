@@ -65,10 +65,10 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.bojovic.mimizanlab.engine.Darkroom
-import ch.bojovic.mimizanlab.engine.DevelopSettings
 import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.SeparationMode
 import ch.bojovic.mimizanlab.engine.ShotStatus
+import ch.bojovic.mimizanlab.store.Prefs
 import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
@@ -86,6 +86,8 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
     val sharpen by darkroom.prefs.sharpen.collectAsStateWithLifecycle()
     val deconvolution by darkroom.prefs.deconvolution.collectAsStateWithLifecycle()
     val deconvPasses by darkroom.prefs.deconvPasses.collectAsStateWithLifecycle()
+    val plateFilters by darkroom.prefs.plateFilters.collectAsStateWithLifecycle()
+    val plateSpace by darkroom.prefs.plateSpace.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var showInfo by remember { mutableStateOf(false) }
     var exportMenu by remember { mutableStateOf(false) }
@@ -124,7 +126,7 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                     onZoomedOut = vm::clearDetail,
                     modifier = Modifier.fillMaxSize(),
                 )
-                s.needsDevelop -> DevelopPrompt(shot?.status, onDevelop = { vm.develop(vm.shotSettings() ?: DevelopSettings()) })
+                s.needsDevelop -> DevelopPrompt(shot?.status, onDevelop = { vm.develop() })
                 else -> CircularProgressIndicator()
             }
             if (s.busy || s.exporting != null) {
@@ -133,6 +135,7 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
             if (s.histogram.isNotEmpty()) {
                 Histogram(
                     bins = s.histogram,
+                    rgb = s.histogramRgb,
                     modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).size(width = 128.dp, height = 48.dp),
                 )
             }
@@ -140,28 +143,65 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
 
         if (s.info != null) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-                FilterRow(selected = s.filter, onSelect = vm::setFilter)
-                val w = s.weights
-                LabeledSlider(
-                    label = String.format(Locale.US, "R %.2f", w.r),
-                    value = w.r.toFloat(),
-                    onChange = { vm.setWeightsRB(it.toDouble(), w.b) },
+                val plate = s.plate
+                ProcessRow(
+                    plate = plate != null,
+                    filters = plateFilters,
+                    space = plateSpace,
+                    hasMatrix = s.info?.hasColourMatrix ?: false,
+                    onProcess = vm::setProcess,
+                    onFilters = vm::setPlateFilters,
+                    onSpace = vm::setPlateSpace,
                 )
-                LabeledSlider(
-                    label = String.format(Locale.US, "B %.2f", w.b),
-                    value = w.b.toFloat(),
-                    onChange = { vm.setWeightsRB(w.r, it.toDouble()) },
-                )
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    val e = s.effective
-                    Text(
-                        String.format(Locale.US, "G %.2f", w.g) +
-                            if (s.filter != Filter.NONE) String.format(Locale.US, "  →  %.2f/%.2f/%.2f", e.r, e.g, e.b) else "",
-                        fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
+                if (plate == null) {
+                    FilterRow(selected = s.filter, onSelect = vm::setFilter)
+                    val w = s.weights
+                    LabeledSlider(
+                        label = String.format(Locale.US, "R %.2f", w.r),
+                        value = w.r.toFloat(),
+                        onChange = { vm.setWeightsRB(it.toDouble(), w.b) },
                     )
-                    Spacer(Modifier.width(12.dp))
-                    TextButton(onClick = vm::resetWeights) { Text("Reset") }
-                    Spacer(Modifier.weight(1f))
+                    LabeledSlider(
+                        label = String.format(Locale.US, "B %.2f", w.b),
+                        value = w.b.toFloat(),
+                        onChange = { vm.setWeightsRB(w.r, it.toDouble()) },
+                    )
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        val e = s.effective
+                        Text(
+                            String.format(Locale.US, "G %.2f", w.g) +
+                                if (s.filter != Filter.NONE) String.format(Locale.US, "  →  %.2f/%.2f/%.2f", e.r, e.g, e.b) else "",
+                            fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        TextButton(onClick = vm::resetWeights) { Text("Reset") }
+                        Spacer(Modifier.weight(1f))
+                    }
+                } else {
+                    // The projector's lamps: red and blue in stops, green the reference.
+                    val limit = Prefs.LAMP_LIMIT.toFloat()
+                    LabeledSlider(
+                        label = String.format(Locale.US, "lamp R %+.2f", s.lampRed),
+                        value = s.lampRed.toFloat(),
+                        onChange = { vm.setLamps(it.toDouble(), s.lampBlue) },
+                        range = -limit..limit,
+                    )
+                    LabeledSlider(
+                        label = String.format(Locale.US, "lamp B %+.2f", s.lampBlue),
+                        value = s.lampBlue.toFloat(),
+                        onChange = { vm.setLamps(s.lampRed, it.toDouble()) },
+                        range = -limit..limit,
+                    )
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        val w = plate.weights
+                        Text(
+                            "R ${Format.weights(w.red)}\nG ${Format.weights(w.green)}\nB ${Format.weights(w.blue)}",
+                            fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, color = Color.Gray,
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        TextButton(onClick = vm::resetLamps, enabled = s.lampRed != 0.0 || s.lampBlue != 0.0) { Text("Lamps off") }
+                        Spacer(Modifier.weight(1f))
+                    }
                 }
                 PaperSliders(s.soft, s.hard, onSoft = vm::setSoft, onHard = vm::setHard)
                 Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -176,9 +216,13 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                                 sharpen > 0.0 -> ", sharpened"
                                 else -> ""
                             }
-                            DropdownMenuItem(text = { Text("JPEG$usm") }, onClick = { exportMenu = false; vm.exportJpeg() })
-                            DropdownMenuItem(text = { Text("TIFF 16-bit$usm") }, onClick = { exportMenu = false; vm.exportTiff() })
-                            DropdownMenuItem(text = { Text("Negative (linear TIFF + mask)") }, onClick = { exportMenu = false; vm.exportNegative() })
+                            val rgb = if (plate != null) " ${Format.plateSpace(plate.space)}" else ""
+                            DropdownMenuItem(text = { Text("JPEG$rgb$usm") }, onClick = { exportMenu = false; vm.exportJpeg() })
+                            DropdownMenuItem(text = { Text("TIFF 16-bit$rgb$usm") }, onClick = { exportMenu = false; vm.exportTiff() })
+                            DropdownMenuItem(
+                                text = { Text(if (plate != null) "Plate (linear TIFF, three frames + mask)" else "Negative (linear TIFF + mask)") },
+                                onClick = { exportMenu = false; vm.exportNegative() },
+                            )
                         }
                     }
                     val cur = vm.shotSettings()

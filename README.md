@@ -8,16 +8,20 @@ The phone records
 `RAW_SENSOR` frames, and the exact Mimizan Lab pipeline (frequency separation
 of the Bayer mosaic, no demosaic, no noise reduction) turns them into a
 monochrome negative on the phone, with the same bits the desktop CLI would
-produce from a DNG of the same frame.
+produce from a DNG of the same frame. Since 0.12.0 the same separation can
+be printed as a three-colour plate (Prokudin-Gorsky's principle, the
+second process of the desktop darkroom): three mixes through three taking
+filters, the same paper, one RGB file.
 
 ```
 Camera2 RAW_SENSOR ──> RawInput (Kotlin bridge) ──> mimizan-core (Rust, via UniFFI)
                    └─> app cache (.raw + .json, re-developable)   └─> Pictures/Mimizan Lab/
                                                                        MLM_*.jpg / .tif / .negative.tif
+                                                                       MLM_*_plate.jpg / .tif / .plate.tif
 ```
 
-Nothing but monochrome reaches the gallery: the raw frame stays in the app
-(and can be deleted there), the finished picture goes out.
+Only finished pictures reach the gallery: the raw frame stays in the app
+(and can be deleted there), the negative or the plate goes out.
 
 * `rust/mimizan-mobile` — the Rust cdylib around `mimizan-core`: `develop`,
   `remix`, `preview`, `detail`, `export_*`, UniFFI bindings for Kotlin.
@@ -103,9 +107,21 @@ cargo ndk -t arm64-v8a --platform 34 build --release --lib
    standing compensation in thirds of a stop, ±3 EV, kept across starts
    and added to the phone's auto-exposure; the EV slider on the viewfinder
    comes on top of it for the single shot.
-2. The filter row (Pan, Y8, YG11, O16, R25, G58, B47) is the "film" for
-   the shot; it can be changed afterwards in review without developing
-   again (`remix`).
+2. The process row, *Mono · Plate*, chooses the darkroom's process, kept
+   across starts. In *Mono* the filter row (Pan, Y8, YG11, O16, R25, G58,
+   B47) is the "film" for the shot; it can be changed afterwards in review
+   without developing again (`remix`). In *Plate* the row shows the three
+   taking filters (*Camera*: the sensor's own colour matrix towards the
+   primaries, colorimetric; *Wratten*: 25/58/47 in front of the
+   panchromatic emulsion, the softer palette of the historical glass;
+   *Channels*: the balanced channels as they are) and the primaries of the
+   file (sRGB for the gallery, Adobe RGB), and the viewfinder shows the
+   plate in colour. The plate is three mixes of the same separation,
+   printed through the same paper at the same two exposures: grey stays
+   grey at every density, saturated colours run towards white in the
+   shoulder like a slide. Its only colour control is the two lamps of the
+   projector (red and blue, stops, green the reference), under *Lamps* in
+   the settings sheet and as sliders in review.
 3. The shutter records one RAW frame into the app cache (no DNG is
    written). The development runs in a foreground service (notification),
    one frame at a time, and a full-size JPEG (the paper at the settings
@@ -124,26 +140,37 @@ cargo ndk -t arm64-v8a --platform 34 build --release --lib
    paper exposures in stops from the base print (±3, steps of 1/12; zero
    is about grade 2). They start from the settings and change the preview,
    the histogram, the 1:1 window and every export of this picture, all
-   through the same paper evaluation. Sharpening and deconvolution are the
+   through the same paper evaluation. *Mono · Plate* switches the picture
+   between the processes at once (a re-mix, the separation stays); in the
+   plate the R/B sliders are the two lamps (±2 stops, twelfths), and the
+   histogram shows the luminance with the three positives as outlines.
+   Sharpening and deconvolution are the
    settings amounts: JPEG and TIFF, not the 1:1 view. Export writes the
-   full-size JPEG, 16-bit TIFF, or the linear negative + saturation mask
-   for the desktop CLI. Share sends the last export.
+   full-size JPEG, 16-bit TIFF (RGB with the plate's profile in the plate
+   process), or the linear negative + saturation mask for the desktop CLI;
+   in the plate process that is the stacked three-frame plate
+   (`.plate.tif`), which `mimizan print` prints in colour. Share sends the
+   last export.
 5. The roll lists every frame in the cache; the bin icon (or a long press)
    deletes one for good, pictures already in the gallery stay.
 
 Only the most recent developed negative stays in memory (about 0.5 GB with
-its preview planes). Every frame is kept in the app cache as packed 16-bit
+its preview planes; a colour export holds about 50 MB more while it
+runs). Every frame is kept in the app cache as packed 16-bit
 samples plus metadata (1.5 GB budget, oldest first), so any shot on the
 roll can be developed again later, also with other settings. There is no
-DNG: the way to the desktop is Export > Negative (linear TIFF + mask).
+DNG: the way to the desktop is Export > Negative (linear TIFF + mask) or
+Export > Plate.
 
 ## Status
 
 Runs on the Pixel 9 (Android 17): main and ultrawide lens (the ultrawide
 through its physical camera id), RAW capture, monochrome JPEG in the
 gallery, development in 2.3–4.5 s per 12.5 MP frame (measured before core
-0.12.0; core 0.15.5, which 0.11.0 is built on, is level with that on the
-host), review with remix,
+0.12.0; core 0.15.5, which 0.11.0 and later are built on, is level with
+that on the host), review with remix, the three-colour plate (viewfinder,
+review, exports; the plate's preview takes about 250 ms and the colour
+JPEG about three times the grey one on the host),
 the split-grade paper, sharpening and exports, roll with delete. The phone's negative
 matches the desktop CLI's development of a DNG of the same frame to
 0.015 % RMS (the rest is DNG metadata rounding; measured with 0.1.0, which

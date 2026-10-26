@@ -34,12 +34,19 @@ class IspColor(val transform: FloatArray, val gains: FloatArray) {
  *                                      the paper already encodes the print
  *
  * [zebra] marks display values at or above it; > 1 means off.
+ *
+ * In the plate process [plate] holds the three taking filters pulled back
+ * the same way (rows R, G, B, nine values), and [lampGain] the lamps as
+ * linear factors (`2^stops`); the shader shows the three positives in
+ * colour while [v] stays the luminance for the histogram.
  */
 class FinderTone(
     val v: FloatArray,
     val lut: FloatArray,
     val invGamma: Float,
     val zebra: Float,
+    val plate: FloatArray? = null,
+    val lampGain: FloatArray = floatArrayOf(1f, 1f, 1f),
 ) {
     /** 256 x 1 grey ramp of [lut] for the shader (`lut.eval(x)`). */
     val lutBitmap: Bitmap by lazy {

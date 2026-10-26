@@ -13,6 +13,11 @@ import ch.bojovic.mimizanlab.engine.DevelopSettings
 import ch.bojovic.mimizanlab.engine.Developed
 import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.GrayImage
+import ch.bojovic.mimizanlab.engine.PlateFilters
+import ch.bojovic.mimizanlab.engine.PlateSpace
+import ch.bojovic.mimizanlab.engine.PlateState
+import ch.bojovic.mimizanlab.engine.Process
+import ch.bojovic.mimizanlab.engine.RgbImage
 import ch.bojovic.mimizanlab.engine.WeightSpace
 import ch.bojovic.mimizanlab.engine.Weights
 import ch.bojovic.mimizanlab.engine.normaliseWeights
@@ -44,8 +49,17 @@ data class ReviewState(
     val soft: Double = 0.0,
     /** Hard-pass time in stops from the base exposure. */
     val hard: Double = 0.0,
+    /** The plate process as the development stands; null is the monochrome negative. */
+    val plate: PlateState? = null,
+    /** The lamps the sliders show (also while the picture is monochrome, so they survive a switch). */
+    val lampRed: Double = 0.0,
+    val lampBlue: Double = 0.0,
+    /** Grey, or the plate in colour. */
     val preview: Bitmap? = null,
+    /** The luminance's histogram (the plate's too). */
     val histogram: FloatArray = FloatArray(0),
+    /** The three positives, 3 x 256 bins normalised together; empty for a negative. */
+    val histogramRgb: FloatArray = FloatArray(0),
     val detail: Detail? = null,
     val busy: Boolean = false,
     val exporting: String? = null,
@@ -88,6 +102,8 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
             name = name,
             soft = darkroom.prefs.soft.value,
             hard = darkroom.prefs.hard.value,
+            lampRed = darkroom.prefs.lampRed.value,
+            lampBlue = darkroom.prefs.lampBlue.value,
         )
         openJob = viewModelScope.launch {
             darkroom.current.collect { neg ->
@@ -95,12 +111,17 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                     developed = neg.developed
                     // info.weights already include the filter of the first
                     // mix; the sliders start from the camera's base weights.
+                    // The plate (and its lamps) is the process the frame
+                    // was developed in.
                     _state.update {
                         it.copy(
                             info = neg.info,
                             weights = neg.info.defaultWeights,
                             effective = neg.info.weights,
                             filter = neg.info.filter,
+                            plate = neg.info.plate,
+                            lampRed = neg.info.plate?.lampRed ?: it.lampRed,
+                            lampBlue = neg.info.plate?.lampBlue ?: it.lampBlue,
                             needsDevelop = false,
                             detail = null,
                         )
@@ -114,9 +135,10 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun develop(settings: DevelopSettings = DevelopSettings()) {
+    /** Develop (again) from the cache, in the process the darkroom stands in now. */
+    fun develop(settings: DevelopSettings = shotSettings() ?: DevelopSettings()) {
         val shot = darkroom.shots.value.firstOrNull { it.name == _state.value.name } ?: return
-        darkroom.redevelop(shot.name, settings)
+        darkroom.redevelop(shot.name, darkroom.withStandingProcess(settings))
     }
 
     fun shotSettings(): DevelopSettings? = darkroom.shots.value.firstOrNull { it.name == _state.value.name }?.settings
@@ -125,6 +147,40 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(filter = f) }
         remixAndRender()
     }
+
+    /**
+     * Switch the process: the plate with the standing filters and
+     * primaries, or back to the monochrome mix. A re-mix of the same
+     * separation; the roll remembers the choice for the next shot.
+     */
+    fun setProcess(p: Process) {
+        darkroom.prefs.setProcess(p)
+        val cur = _state.value
+        if ((p == Process.PLATE) == (cur.plate != null)) return
+        remixAndRender()
+    }
+
+    fun setPlateFilters(f: PlateFilters) {
+        darkroom.prefs.setPlateFilters(f)
+        if (_state.value.plate != null) remixAndRender()
+    }
+
+    fun setPlateSpace(s: PlateSpace) {
+        darkroom.prefs.setPlateSpace(s)
+        if (_state.value.plate != null) remixAndRender()
+    }
+
+    /** The two lamps, in twelfths of a stop; green is the reference. */
+    fun setLamps(red: Double, blue: Double) {
+        _state.update { it.copy(lampRed = Prefs.snapLamp(red), lampBlue = Prefs.snapLamp(blue)) }
+        renderJob?.cancel()
+        renderJob = viewModelScope.launch {
+            delay(60)
+            render(lamps = true)
+        }
+    }
+
+    fun resetLamps() = setLamps(0.0, 0.0)
 
     /** Sliders give R and B; G takes the rest so the sum stays 1. */
     fun setWeightsRB(r: Double, b: Double) {
@@ -161,7 +217,12 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun render(remix: Boolean = false) {
+    /**
+     * Draw the picture as it stands. `remix` applies the sliders and the
+     * standing process first (the mix, or the plate's filters and
+     * primaries); `lamps` pushes the two lamps to the development.
+     */
+    private fun render(remix: Boolean = false, lamps: Boolean = false) {
         renderJob?.cancel()
         renderJob = viewModelScope.launch(Dispatchers.Default) {
             val d = developed ?: return@launch
@@ -170,14 +231,36 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                     _state.update { it.copy(busy = true) }
                     val s = _state.value
                     if (remix) {
-                        val w = d.remix(normaliseWeights(s.weights), WeightSpace.BALANCED, s.filter)
-                        _state.update { it.copy(effective = w) }
+                        if (darkroom.prefs.process.value == Process.PLATE) {
+                            d.setPlate(darkroom.prefs.plateFilters.value, darkroom.prefs.plateSpace.value)
+                            d.setLamps(s.lampRed, s.lampBlue)
+                        } else {
+                            val w = d.remix(normaliseWeights(s.weights), WeightSpace.BALANCED, s.filter)
+                            _state.update { it.copy(effective = w) }
+                        }
                     }
-                    val g = d.preview(s.soft, s.hard, 0u)
+                    if (lamps && s.plate != null) {
+                        d.setLamps(s.lampRed, s.lampBlue)
+                    }
+                    val info = d.info()
                     val h = d.histogram(s.soft, s.hard)
-                    val max = (h.maxOrNull() ?: 1uL).toDouble().coerceAtLeast(1.0)
-                    val hist = FloatArray(h.size) { (h[it].toDouble() / max).toFloat() }
-                    _state.update { it.copy(preview = toBitmap(g), histogram = hist, detail = null, busy = false, info = d.info()) }
+                    val hist = normalised(h)
+                    val plate = info.plate
+                    val bitmap: Bitmap
+                    val histRgb: FloatArray
+                    if (plate != null) {
+                        bitmap = toBitmap(d.previewRgb(s.soft, s.hard, 0u))
+                        histRgb = normalised(d.histogramRgb(s.soft, s.hard))
+                    } else {
+                        bitmap = toBitmap(d.preview(s.soft, s.hard, 0u))
+                        histRgb = FloatArray(0)
+                    }
+                    _state.update {
+                        it.copy(
+                            preview = bitmap, histogram = hist, histogramRgb = histRgb, detail = null,
+                            busy = false, info = info, plate = plate,
+                        )
+                    }
                     // A zoomed-in view has to follow the new tones.
                     detailRegion?.let { r -> requestDetail(r[0], r[1], r[2], r[3]) }
                 } catch (t: Throwable) {
@@ -186,6 +269,11 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
         }
+    }
+
+    private fun normalised(h: List<ULong>): FloatArray {
+        val max = (h.maxOrNull() ?: 1uL).toDouble().coerceAtLeast(1.0)
+        return FloatArray(h.size) { (h[it].toDouble() / max).toFloat() }
     }
 
     /**
@@ -201,8 +289,12 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
             renderLock.withLock {
                 try {
                     val s = _state.value
-                    val g = d.detail(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.soft, s.hard, 0u, 0.0)
-                    _state.update { it.copy(detail = Detail(x, y, toBitmap(g))) }
+                    val bitmap = if (s.plate != null) {
+                        toBitmap(d.detailRgb(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.soft, s.hard, 0u, 0.0))
+                    } else {
+                        toBitmap(d.detail(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.soft, s.hard, 0u, 0.0))
+                    }
+                    _state.update { it.copy(detail = Detail(x, y, bitmap)) }
                 } catch (t: Throwable) {
                     Log.w("Review", "detail", t)
                 }
@@ -216,32 +308,35 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(detail = null) }
     }
 
-    fun exportJpeg() = export("JPEG") { d, name, f ->
+    fun exportJpeg() = export("JPEG") { d, name, suffix ->
         val s = _state.value
         darkroom.exportJpeg(
-            d, name, f, s.soft, s.hard,
+            d, name, suffix, s.soft, s.hard,
             darkroom.prefs.sharpen.value, darkroom.prefs.deconvolution.value, darkroom.prefs.deconvPasses.value,
         )
     }
 
-    fun exportTiff() = export("TIFF 16-bit") { d, name, f ->
+    fun exportTiff() = export("TIFF 16-bit") { d, name, suffix ->
         val s = _state.value
         darkroom.exportTiff(
-            d, name, f, s.soft, s.hard,
+            d, name, suffix, s.soft, s.hard,
             darkroom.prefs.sharpen.value, darkroom.prefs.deconvolution.value, darkroom.prefs.deconvPasses.value,
         )
     }
 
-    fun exportNegative() = export("negative") { d, name, _ -> darkroom.exportNegative(d, name).first() }
+    fun exportNegative() = export(if (_state.value.plate != null) "plate" else "negative") { d, name, _ ->
+        darkroom.exportNegative(d, name).first()
+    }
 
-    private fun export(label: String, f: (Developed, String, Filter) -> Uri) {
+    private fun export(label: String, f: (Developed, String, String) -> Uri) {
         val d = developed ?: return
         val s = _state.value
+        val suffix = s.plate?.let { Darkroom.suffixFor(it) } ?: Darkroom.suffixFor(s.filter)
         viewModelScope.launch(Dispatchers.IO) {
             renderLock.withLock {
                 _state.update { it.copy(exporting = label) }
                 try {
-                    val uri = f(d, s.name, s.filter)
+                    val uri = f(d, s.name, suffix)
                     _state.update { it.copy(exporting = null, lastExport = uri, message = "Saved $label to Pictures/Mimizan Lab") }
                 } catch (t: Throwable) {
                     Log.e("Review", "export", t)
@@ -274,6 +369,25 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
             for (i in px.indices) {
                 val v = src[i].toInt() and 0xFF
                 px[i] = (0xFF shl 24) or (v shl 16) or (v shl 8) or v
+            }
+            Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+        }
+
+        /**
+         * RGB8 -> ARGB bitmap. The values are the paper's gamma 2.2 in the
+         * plate's primaries; the display takes them as sRGB, as it takes
+         * the grey preview (the same small difference, now in colour).
+         */
+        suspend fun toBitmap(g: RgbImage): Bitmap = withContext(Dispatchers.Default) {
+            val w = g.width.toInt()
+            val h = g.height.toInt()
+            val px = IntArray(w * h)
+            val src = g.data
+            for (i in px.indices) {
+                val r = src[3 * i].toInt() and 0xFF
+                val gg = src[3 * i + 1].toInt() and 0xFF
+                val b = src[3 * i + 2].toInt() and 0xFF
+                px[i] = (0xFF shl 24) or (r shl 16) or (gg shl 8) or b
             }
             Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
         }

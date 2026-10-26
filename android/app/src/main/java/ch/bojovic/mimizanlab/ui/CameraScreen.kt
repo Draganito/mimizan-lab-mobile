@@ -58,7 +58,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -74,6 +76,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.bojovic.mimizanlab.camera.FlashMode
 import ch.bojovic.mimizanlab.engine.Filter
+import ch.bojovic.mimizanlab.engine.PlateFilters
+import ch.bojovic.mimizanlab.engine.PlateSpace
+import ch.bojovic.mimizanlab.engine.Process
 import ch.bojovic.mimizanlab.engine.SeparationMode
 import ch.bojovic.mimizanlab.engine.ShotStatus
 import ch.bojovic.mimizanlab.engine.coreVersion
@@ -102,6 +107,8 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val deconvolution by vm.darkroom.prefs.deconvolution.collectAsStateWithLifecycle()
     val deconvPasses by vm.darkroom.prefs.deconvPasses.collectAsStateWithLifecycle()
     val compensation by vm.darkroom.prefs.compensationThirds.collectAsStateWithLifecycle()
+    val lampRed by vm.darkroom.prefs.lampRed.collectAsStateWithLifecycle()
+    val lampBlue by vm.darkroom.prefs.lampBlue.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
     var confirmDeleteAll by remember { mutableStateOf(false) }
@@ -149,7 +156,18 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
             }
         }
 
-        FilterRow(selected = develop.filter, onSelect = vm::setFilter)
+        // The process, then the "film": the contrast filter of the negative,
+        // or the plate's taking filters and primaries.
+        ProcessRow(
+            plate = develop.isPlate,
+            filters = develop.plateFilters,
+            space = develop.plateSpace,
+            hasMatrix = lens?.xyzToCam != null,
+            onProcess = vm::setProcess,
+            onFilters = vm::setPlateFilters,
+            onSpace = vm::setPlateSpace,
+        )
+        if (!develop.isPlate) FilterRow(selected = develop.filter, onSelect = vm::setFilter)
 
         // Viewfinder with focus tap and overlays. It takes the height the
         // readout and the shutter row leave over: on a short screen it is
@@ -337,6 +355,28 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                     "Zero is the base print. These exposures drive the live viewfinder, the automatic JPEG, the roll thumbnail, and the starting values in review. Each picture can still be changed there.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
+                if (develop.isPlate) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("Lamps", style = MaterialTheme.typography.titleMedium)
+                    val lampLimit = Prefs.LAMP_LIMIT.toFloat()
+                    LabeledSlider(
+                        label = String.format(Locale.US, "red %+.2f", lampRed),
+                        value = lampRed.toFloat(),
+                        onChange = { vm.setLampRed(it.toDouble()) },
+                        range = -lampLimit..lampLimit,
+                    )
+                    LabeledSlider(
+                        label = String.format(Locale.US, "blue %+.2f", lampBlue),
+                        value = lampBlue.toFloat(),
+                        onChange = { vm.setLampBlue(it.toDouble()) },
+                        range = -lampLimit..lampLimit,
+                    )
+                    Text(
+                        "The projector's three lamps, green the reference: stops of exposure added to the red and the blue positive. " +
+                            "The only colour control of the plate; the paper's two exposures stay the same for all three.",
+                        style = MaterialTheme.typography.bodySmall, color = Color.Gray,
+                    )
+                }
                 LabeledSlider(
                     label = if (sharpen > 0.0) String.format(Locale.US, "USM %.2f", sharpen) else "USM off",
                     value = sharpen.toFloat(),
@@ -430,6 +470,52 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     }
 }
 
+/**
+ * The darkroom's process, *Mono · Plate*, and, for the plate, its taking
+ * filters and primaries. One scrolling row, so the viewfinder and the
+ * review share it.
+ */
+@Composable
+fun ProcessRow(
+    plate: Boolean,
+    filters: PlateFilters,
+    space: PlateSpace,
+    hasMatrix: Boolean,
+    onProcess: (Process) -> Unit,
+    onFilters: (PlateFilters) -> Unit,
+    onSpace: (PlateSpace) -> Unit,
+) {
+    val chipColors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF3A3A3A))
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        FilterChip(selected = !plate, onClick = { onProcess(Process.MONO) }, label = { Text("Mono") }, colors = chipColors)
+        FilterChip(
+            selected = plate,
+            onClick = { onProcess(Process.PLATE) },
+            label = { Text("Plate") },
+            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF4A3A2A)),
+        )
+        if (plate) {
+            Spacer(Modifier.width(6.dp))
+            for (f in PlateFilters.entries) {
+                FilterChip(
+                    selected = f == filters,
+                    onClick = { onFilters(f) },
+                    label = { Text(if (f == PlateFilters.CAMERA && !hasMatrix) "Camera (no matrix)" else Format.plateFilters(f)) },
+                    colors = chipColors,
+                )
+            }
+            Spacer(Modifier.width(6.dp))
+            for (sp in PlateSpace.entries) {
+                FilterChip(selected = sp == space, onClick = { onSpace(sp) }, label = { Text(Format.plateSpace(sp)) }, colors = chipColors)
+            }
+        }
+    }
+}
+
 @Composable
 fun FilterRow(selected: Filter, onSelect: (Filter) -> Unit) {
     Row(
@@ -509,19 +595,39 @@ fun ShutterButton(enabled: Boolean, onClick: () -> Unit) {
     )
 }
 
+/**
+ * The luminance's histogram as bars; for a plate, [rgb] (three runs of
+ * equal length, R then G then B) drawn as outlines over it, the way the
+ * desktop's print histogram shows the three channels.
+ */
 @Composable
-fun Histogram(bins: FloatArray, modifier: Modifier = Modifier, color: Color = Color.White) {
+fun Histogram(bins: FloatArray, modifier: Modifier = Modifier, color: Color = Color.White, rgb: FloatArray = FloatArray(0)) {
     Canvas(modifier.background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(4.dp)).padding(2.dp)) {
         if (bins.isEmpty()) return@Canvas
         val w = size.width / bins.size
+        val barAlpha = if (rgb.isEmpty()) 0.85f else 0.45f
         for (i in bins.indices) {
             val h = bins[i].coerceIn(0f, 1f) * size.height
             drawLine(
-                color = color.copy(alpha = 0.85f),
+                color = color.copy(alpha = barAlpha),
                 start = Offset(i * w + w / 2, size.height),
                 end = Offset(i * w + w / 2, size.height - h),
                 strokeWidth = w,
             )
+        }
+        if (rgb.size >= 3 && rgb.size % 3 == 0) {
+            val n = rgb.size / 3
+            val step = size.width / n
+            val colours = arrayOf(Color(0xFFFF6060), Color(0xFF60FF60), Color(0xFF7090FF))
+            for (c in 0 until 3) {
+                val path = Path()
+                for (i in 0 until n) {
+                    val x = i * step + step / 2
+                    val y = size.height - rgb[c * n + i].coerceIn(0f, 1f) * size.height
+                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                drawPath(path, colours[c], style = Stroke(width = 1.5f))
+            }
         }
     }
 }

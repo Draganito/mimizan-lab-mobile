@@ -63,8 +63,12 @@ fn run(name: &str, input: RawInput, params: DevelopParams) {
     let _ = dev.remix(Weights { r: 0.4, g: 0.4, b: 0.2 }, WeightSpace::Balanced, Filter::Yellow8);
     let _ = dev.preview(0.0, 0.0, 0);
     let remix_ms = t.elapsed().as_millis();
+    let t = Instant::now();
+    let _ = dev.set_plate(PlateFilters::Wratten, PlateSpace::Srgb);
+    let _ = dev.preview_rgb(0.0, 0.0, 0);
+    let plate_ms = t.elapsed().as_millis();
     println!(
-        "{name:<10} {}x{}  develop {ms:>6} ms (ingest {} / separate {} / mix {} / preview planes {})  preview {preview_ms} ms  remix+preview {remix_ms} ms  peak RSS {:.0} MB",
+        "{name:<10} {}x{}  develop {ms:>6} ms (ingest {} / separate {} / mix {} / preview planes {})  preview {preview_ms} ms  remix+preview {remix_ms} ms  plate+preview {plate_ms} ms  peak RSS {:.0} MB",
         info.width,
         info.height,
         info.timing.ingest_ms,
@@ -73,6 +77,33 @@ fn run(name: &str, input: RawInput, params: DevelopParams) {
         info.timing.preview_ms,
         peak_rss_mb().unwrap_or(f64::NAN)
     );
+    if name == "dubois" {
+        // The colour export, the one place the plate costs more than a mix.
+        let dir = std::env::temp_dir();
+        for (label, lamps) in [("mono", None), ("plate", Some((0.0, 0.0)))] {
+            match lamps {
+                None => {
+                    let _ = dev.remix(Weights::NATIVE, WeightSpace::Balanced, Filter::None);
+                }
+                Some((r, b)) => {
+                    let _ = dev.set_plate(PlateFilters::Camera, PlateSpace::Srgb);
+                    let _ = dev.set_lamps(r, b);
+                }
+            }
+            let path = dir.join(format!("mimizan-spike-{label}.jpg"));
+            let t = Instant::now();
+            let out = dev.export_jpeg(path.display().to_string(), 0.0, 0.0, 0, 0.5, false, 0);
+            let export_ms = t.elapsed().as_millis();
+            let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let _ = std::fs::remove_file(&path);
+            println!(
+                "           {label:<6} jpeg export {export_ms:>6} ms  {:.1} MB  {}  peak RSS {:.0} MB",
+                bytes as f64 / 1e6,
+                out.map(|_| "ok").unwrap_or("failed"),
+                peak_rss_mb().unwrap_or(f64::NAN)
+            );
+        }
+    }
     drop(dev);
 }
 

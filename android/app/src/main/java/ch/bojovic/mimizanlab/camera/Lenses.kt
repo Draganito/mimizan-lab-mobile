@@ -8,6 +8,7 @@ import android.util.Log
 import android.util.Range
 import android.util.Rational
 import android.util.Size
+import ch.bojovic.mimizanlab.raw.RawFrameBridge
 import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.roundToInt
@@ -49,6 +50,8 @@ data class LensInfo(
     val physicalHeightMm: Float,
     /** `SENSOR_INFO_COLOR_FILTER_ARRANGEMENT` of the sensor (0 when unknown). */
     val cfa: Int = 0,
+    /** XYZ → camera for D65, 9 values row-major, for the plate's camera filters in the viewfinder. */
+    val xyzToCam: DoubleArray? = null,
 ) {
     /** Id whose characteristics describe the sensor (black level, CFA, arrays). */
     val sensorId: String get() = physicalId ?: cameraId
@@ -145,6 +148,7 @@ object Lenses {
             physicalWidthMm = phys?.width ?: 0f,
             physicalHeightMm = phys?.height ?: 0f,
             cfa = c.get(CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT) ?: 0,
+            xyzToCam = RawFrameBridge.colourMatrix(c),
         )
     }
 }

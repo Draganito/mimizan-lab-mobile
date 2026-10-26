@@ -138,6 +138,41 @@ separation:
 Gray8 buffers cross the FFI as `ByteArray` (UniFFI fast path) and are
 expanded to ARGB bitmaps on the Kotlin side.
 
+### The plate
+
+The second process of the darkroom (`PLATE.md` in the mimizan
+repository): three mixes of the same separation through three "taking
+filters", printed through the same paper into one RGB file. On the phone it
+is, as on the desktop, a re-mix and not a re-development:
+
+* *Mono · Plate* (`ProcessRow`, in the viewfinder and in review) ->
+  `set_plate(filters, space)` resolves the three weight triples for this
+  frame (`Camera`: the frame's `SENSOR_COLOR_TRANSFORM` for D65 towards the
+  primaries; `Wratten`: 25/58/47 in front of the camera file's response or
+  the native one; `Channels`) and keeps the monochrome mix stored;
+  `remix(...)` is the way back. The choice and the lamps are standing
+  settings (`Prefs`), so the next shot opens in the same process and a
+  development done in review carries over.
+* lamps R / B -> `set_lamps(red, blue)`, stops within ±2, green the
+  reference. Preview, histogram, 1:1 window and every export apply them as
+  `v · 2^lamp` before the paper, the print's placing.
+* `preview_rgb`, `detail_rgb`, `histogram_rgb` are the colour versions of
+  the three grey calls (interleaved RGB8; `histogram` stays the
+  luminance's and is drawn as bars under the three channel outlines).
+* `export_jpeg` / `export_tiff16` render the three positives one after the
+  other (one full-resolution mix alive at a time beside the finished
+  sheets; about +50 MB over the grey export at 12.5 MP) and write RGB with
+  the plate's ICC profile. `export_negative` writes the stacked
+  three-frame plate the desktop `mimizan print` recognises
+  (`<name>.plate.tif` + one mask frame).
+* Files are named `_plate`, `_plate_wratten`, `_plate_channels`, so the
+  negative and the plate of one frame sit side by side in the gallery.
+
+`PlateSpace` defaults to sRGB on the phone (the gallery and sharing take
+the file as it is); Adobe RGB is a chip away. The preview bitmap carries
+the paper's gamma 2.2 values in the plate's primaries and is displayed as
+sRGB, the same small difference the grey preview has had all along.
+
 ## Viewfinder shader
 
 `MonoViewfinder` wraps the preview `TextureView` in a Compose
@@ -146,7 +181,11 @@ on the `TextureView` itself blacked out the UI above it on the Pixel 9).
 The AGSL program linearises the pinned sRGB preview, mixes with the
 development's weights pulled back through the frame's ISP matrix, and
 indexes `paper_lut` (the print curve over linear grey, no second gamma).
-Zebra stripes mark display values above 0.985. It is an approximation of
+In the plate process it mixes three times with the taking filters
+(`plate_weights`, the numbers `set_plate` will use for the still, each
+pulled back the same way), multiplies by the lamps and indexes the same
+table per channel, so the viewfinder shows the plate in colour. Zebra
+stripes mark display values above 0.985 (of the brightest channel). It is an approximation of
 the mix on balanced raw channels (the camera's preview is already white
 balanced and tone mapped), good enough to see what a filter and the paper
 do to the tonal separation; the negative itself never passes through it.

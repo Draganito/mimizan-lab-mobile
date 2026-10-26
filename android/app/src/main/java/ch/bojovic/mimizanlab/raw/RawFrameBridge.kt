@@ -195,10 +195,7 @@ object RawFrameBridge {
         val gains = r.get(CaptureResult.COLOR_CORRECTION_GAINS)
         val wb = gains?.let { doubleArrayOf(it.red.toDouble(), it.greenEven.toDouble(), it.greenOdd.toDouble(), it.blue.toDouble()) }
 
-        val xf = ch.get(CameraCharacteristics.SENSOR_COLOR_TRANSFORM1)
-        val xyz = xf?.let { t ->
-            DoubleArray(9) { i -> t.getElement(i % 3, i / 3).toDouble() }
-        }
+        val xyz = colourMatrix(ch)
 
         return RawMeta(
             make = Build.MANUFACTURER,
@@ -221,6 +218,29 @@ object RawFrameBridge {
             capturedAtEpochMs = c.capturedAtEpochMs,
         )
     }
+
+    /**
+     * The sensor's XYZ → camera matrix for daylight, 9 values row-major
+     * (rows R, G, B): the `SENSOR_COLOR_TRANSFORM` whose reference
+     * illuminant is D65 (21), as the desktop reads the D65 matrix first;
+     * else the first one. The plate's `Camera` filters are built from it.
+     */
+    fun colourMatrix(ch: CameraCharacteristics): DoubleArray? {
+        val ill1 = ch.get(CameraCharacteristics.SENSOR_REFERENCE_ILLUMINANT1)
+        val ill2 = ch.get(CameraCharacteristics.SENSOR_REFERENCE_ILLUMINANT2)?.toInt()
+        val t1 = ch.get(CameraCharacteristics.SENSOR_COLOR_TRANSFORM1)
+        val t2 = ch.get(CameraCharacteristics.SENSOR_COLOR_TRANSFORM2)
+        val t = when {
+            ill2 == D65 && t2 != null -> t2
+            ill1 == D65 && t1 != null -> t1
+            else -> t1 ?: t2
+        } ?: return null
+        // getElement(column, row): the matrix stored row-major.
+        return DoubleArray(9) { i -> t.getElement(i % 3, i / 3).toDouble() }
+    }
+
+    /** `SENSOR_REFERENCE_ILLUMINANT*` value for D65 (the DNG/EXIF code). */
+    private const val D65 = 21
 
     /** Active array relative to the buffer; null when it is the whole buffer. */
     fun cropOf(pre: Rect?, active: Rect?, bufW: Int, bufH: Int): IntArray? {

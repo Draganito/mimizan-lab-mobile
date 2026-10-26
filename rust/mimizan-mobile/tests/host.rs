@@ -202,6 +202,151 @@ fn camera_file_sets_weights_and_noise() {
     assert!(develop(synthetic_input(160, 120, 1), params).is_err(), "phase mismatch is refused");
 }
 
+/// A flat grey frame: every photosite at `v` of the range.
+fn flat_input(w: usize, h: usize, v: f64) -> RawInput {
+    let mut input = synthetic_input(w, h, 1);
+    let (black, white) = (256.0, 4095.0);
+    let dn = (black + v * (white - black)).round() as u16;
+    input.data = dn.to_le_bytes().repeat(w * h);
+    input
+}
+
+/// Nikon Z f, D65, rows R, G, B: a matrix with negative off-diagonals.
+const ZF_MATRIX: [f64; 9] = [1.1607, -0.4491, -0.0977, -0.4522, 1.246, 0.2304, -0.0458, 0.1519, 0.7616];
+
+#[test]
+fn plate_is_a_remix_grey_stays_grey_and_the_lamps_move_one_channel() {
+    let (w, h) = (160usize, 120usize);
+    let mut input = flat_input(w, h, 0.3);
+    input.xyz_to_cam = Some(ZF_MATRIX.to_vec());
+    let gains = input.wb_gains.clone();
+    let params = DevelopParams { preview_long_edge: 80, ..DevelopParams::default() };
+    let dev = develop(input, params.clone()).unwrap();
+    assert!(dev.info().has_colour_matrix);
+    assert!(dev.info().plate.is_none());
+    assert!(dev.preview_rgb(0.0, 0.0, 0).is_err(), "colour needs the plate process");
+
+    // The viewfinder's numbers are the still's.
+    let pw = dev.set_plate(PlateFilters::Camera, PlateSpace::Srgb).unwrap();
+    assert_eq!(pw.filters, PlateFilters::Camera);
+    let vf = plate_weights(
+        params.clone(),
+        gains,
+        Some(ZF_MATRIX.to_vec()),
+        PlateFilters::Camera,
+        PlateSpace::Srgb,
+    )
+    .unwrap();
+    assert_eq!(vf, pw);
+    for row in [pw.red, pw.green, pw.blue] {
+        assert!((row.r + row.g + row.b - 1.0).abs() < 1e-9, "{row:?}");
+    }
+    assert!(pw.red.r > 1.0 && pw.red.g < 0.0, "the camera set sharpens the colour: {:?}", pw.red);
+    let state = dev.info().plate.expect("plate state");
+    assert_eq!(state.space, PlateSpace::Srgb);
+    assert_eq!((state.lamp_red, state.lamp_blue), (0.0, 0.0));
+    assert!(dev.info().json.contains("\"plate\""));
+
+    // Grey in, grey out on all three positives, whatever the set.
+    for f in [PlateFilters::Camera, PlateFilters::Wratten, PlateFilters::Channels] {
+        dev.set_plate(f, PlateSpace::Srgb).unwrap();
+        let rgb = dev.preview_rgb(0.0, 0.0, 0).unwrap();
+        assert_eq!((rgb.width, rgb.height), (80, 60));
+        assert_eq!(rgb.data.len(), 80 * 60 * 3);
+        let c = rgb.data.len() / 2 - rgb.data.len() / 2 % 3;
+        let (r, g, b) = (rgb.data[c], rgb.data[c + 1], rgb.data[c + 2]);
+        assert!(r.abs_diff(g) <= 1 && g.abs_diff(b) <= 1, "{f:?}: {r} {g} {b}");
+        assert!(r > 20 && r < 235, "{f:?}: a mid grey, not clipped: {r}");
+        let d = dev.detail_rgb(10, 10, 32, 24, 0.0, 0.0, 0, 0.0).unwrap();
+        assert_eq!((d.width, d.height), (32, 24));
+        let i = 3 * (12 * 32 + 16);
+        assert!(d.data[i].abs_diff(d.data[i + 1]) <= 1 && d.data[i + 1].abs_diff(d.data[i + 2]) <= 1);
+        // The grey preview is the same picture as the plate's luminance.
+        let grey = dev.preview(0.0, 0.0, 0).unwrap();
+        assert!(grey.data[c / 3].abs_diff(g) <= 1, "{f:?}: luminance {} vs green {g}", grey.data[c / 3]);
+    }
+
+    // Lamps: half a stop on red lifts red, green and blue stay.
+    let before = dev.preview_rgb(0.0, 0.0, 0).unwrap();
+    dev.set_lamps(0.5, 0.0).unwrap();
+    let after = dev.preview_rgb(0.0, 0.0, 0).unwrap();
+    assert!(after.data[0] > before.data[0], "red {} -> {}", before.data[0], after.data[0]);
+    assert_eq!(after.data[1], before.data[1]);
+    assert_eq!(after.data[2], before.data[2]);
+    assert_eq!(dev.info().plate.unwrap().lamp_red, 0.5);
+    assert!(dev.set_lamps(2.5, 0.0).is_err(), "lamps stay within the limit");
+    assert!((lamp_limit() - 2.0).abs() < 1e-12);
+    let hist = dev.histogram_rgb(0.0, 0.0).unwrap();
+    assert_eq!(hist.len(), 3 * 256);
+    for c in 0..3 {
+        assert_eq!(hist[c * 256..(c + 1) * 256].iter().sum::<u64>(), 80 * 60, "channel {c}");
+    }
+    // The turned preview keeps the pixel's three channels together.
+    let turned = dev.preview_rgb(0.0, 0.0, 1).unwrap();
+    assert_eq!((turned.width, turned.height), (60, 80));
+    assert_eq!(&turned.data[0..3], &after.data[3 * (80 * 59)..3 * (80 * 59) + 3]);
+
+    // Exports: RGB files, and the stacked plate the desktop prints.
+    let dir = tmp_dir("plate");
+    let tif = dev.export_tiff16(dir.join("p.tif").display().to_string(), 0.0, 0.0, 0, 0.5, false, 0).unwrap();
+    assert_eq!((tif.width, tif.height), (w as u32, h as u32));
+    let planes = mimizan_core::tiffin::read_rgb16(&dir.join("p.tif")).expect("an RGB TIFF");
+    assert_eq!((planes[0].width, planes[0].height), (w, h));
+    assert!(planes[0].at(80, 60) > planes[1].at(80, 60), "the red lamp is in the file");
+    assert!((planes[1].at(80, 60) - planes[2].at(80, 60)).abs() < 1.0 / 65535.0);
+    let jpg = dev.export_jpeg(dir.join("p.jpg").display().to_string(), 0.0, 0.0, 0, 0.0, false, 0).unwrap();
+    assert_eq!((jpg.width, jpg.height), (w as u32, h as u32));
+    assert!(std::fs::metadata(dir.join("p.jpg")).unwrap().len() > 0);
+
+    let neg = dev.export_negative(dir.join("plate.tif").display().to_string()).unwrap();
+    assert_eq!((neg.width, neg.height), (w as u32, 3 * h as u32), "three frames stacked");
+    let p = mimizan_core::print::PrintParams {
+        recipe: mimizan_core::recipe::Recipe::on_paper(),
+        lamps: [0.5, 0.0, 0.0],
+        ..Default::default()
+    };
+    let out = mimizan_core::print::render(&dir.join("plate.tif"), &p)
+        .expect("the desktop prints the phone's plate");
+    assert!(out.plate.is_some(), "recognised as a plate");
+    assert_eq!((out.plane.width, out.plane.height), (w, h));
+    let sheet = out.plate.as_ref().unwrap();
+    assert!(
+        (out.plane.at(80, 60) - planes[0].at(80, 60)).abs() < 2.0 / 65535.0,
+        "same red as the phone's TIFF"
+    );
+    assert!((sheet.green.at(80, 60) - planes[1].at(80, 60)).abs() < 2.0 / 65535.0);
+    std::fs::remove_dir_all(&dir).unwrap();
+
+    // Back to the monochrome process.
+    let used = dev.remix(Weights::NATIVE, WeightSpace::Balanced, Filter::None).unwrap();
+    assert_eq!(used, Weights::NATIVE);
+    assert!(dev.info().plate.is_none());
+    assert!(!dev.info().json.contains("\"plate\""));
+    assert!(dev.preview_rgb(0.0, 0.0, 0).is_err());
+    let grey = dev.export_negative(dir.join("neg.tif").display().to_string());
+    assert!(grey.is_err(), "the directory is gone");
+}
+
+#[test]
+fn camera_filters_without_a_matrix_are_the_channels() {
+    let input = flat_input(64, 48, 0.4);
+    assert!(input.xyz_to_cam.is_none());
+    let dev = develop(input, DevelopParams { preview_long_edge: 0, ..DevelopParams::default() }).unwrap();
+    assert!(!dev.info().has_colour_matrix);
+    let pw = dev.set_plate(PlateFilters::Camera, PlateSpace::AdobeRgb).unwrap();
+    assert_eq!(pw.filters, PlateFilters::Channels);
+    assert_eq!(pw.red, Weights { r: 1.0, g: 0.0, b: 0.0 });
+    let vf = plate_weights(DevelopParams::default(), None, None, PlateFilters::Camera, PlateSpace::AdobeRgb)
+        .unwrap();
+    assert_eq!(vf, pw);
+    // Wratten in front of the native emulsion: the core's crosstalk numbers.
+    let wr =
+        plate_weights(DevelopParams::default(), None, None, PlateFilters::Wratten, PlateSpace::Srgb).unwrap();
+    assert_eq!(wr.filters, PlateFilters::Wratten);
+    assert!(wr.red.r > 0.8 && wr.red.b == 0.0, "{:?}", wr.red);
+    assert!(dev.preview_rgb(0.0, 0.0, 0).is_err(), "no preview planes");
+}
+
 #[test]
 fn invalid_input_is_an_error_not_a_panic() {
     let mut input = synthetic_input(64, 48, 1);

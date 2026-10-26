@@ -5,6 +5,9 @@
 use mimizan_core::cfa::BayerPhase;
 use mimizan_core::ingest::WhiteBalance;
 use mimizan_core::mix::{ColorFilter, WeightSpace as CoreWeightSpace, Weights as CoreWeights};
+use mimizan_core::plate::{
+    PlateFilters as CorePlateFilters, PlateSpace as CorePlateSpace, PlateWeights as CorePlateWeights,
+};
 use mimizan_core::separate::MaskMode;
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -269,6 +272,112 @@ pub fn normalise_weights(w: Weights) -> Result<Weights> {
     Ok(Weights { r: w.r / s, g: w.g / s, b: w.b / s })
 }
 
+/// The taking filters of the three-colour plate (`plate.rs` in the core):
+/// how the three positives are derived from the balanced channels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum PlateFilters {
+    /// The camera's colour matrix towards the output primaries
+    /// (colorimetric; falls back to `Channels` without a matrix).
+    Camera,
+    /// Wratten 25 / 58 / 47 in front of the panchromatic emulsion.
+    Wratten,
+    /// The balanced channels as they are (Library of Congress).
+    Channels,
+}
+
+impl PlateFilters {
+    pub fn core(self) -> CorePlateFilters {
+        match self {
+            Self::Camera => CorePlateFilters::Camera,
+            Self::Wratten => CorePlateFilters::Wratten,
+            Self::Channels => CorePlateFilters::Channels,
+        }
+    }
+    pub fn from_core(f: CorePlateFilters) -> Self {
+        match f {
+            CorePlateFilters::Camera => Self::Camera,
+            CorePlateFilters::Wratten => Self::Wratten,
+            CorePlateFilters::Channels => Self::Channels,
+        }
+    }
+}
+
+/// The projection primaries: the RGB colour space of the colour file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
+pub enum PlateSpace {
+    /// Adobe RGB (1998): its curve is the paper's gamma 2.2, its gamut
+    /// holds the saturated primaries.
+    AdobeRgb,
+    /// sRGB primaries with the paper's gamma 2.2 (the gallery, sharing).
+    Srgb,
+}
+
+impl PlateSpace {
+    pub fn core(self) -> CorePlateSpace {
+        match self {
+            Self::AdobeRgb => CorePlateSpace::AdobeRgb,
+            Self::Srgb => CorePlateSpace::Srgb,
+        }
+    }
+    pub fn from_core(s: CorePlateSpace) -> Self {
+        match s {
+            CorePlateSpace::AdobeRgb => Self::AdobeRgb,
+            CorePlateSpace::Srgb => Self::Srgb,
+        }
+    }
+}
+
+/// The three taking filters as weight triples on the balanced channels,
+/// by output channel. Each sums to one so grey gives three equal plates;
+/// the `Camera` set has negative weights off the diagonal.
+#[derive(Clone, Copy, Debug, PartialEq, uniffi::Record)]
+pub struct PlateWeights {
+    pub red: Weights,
+    pub green: Weights,
+    pub blue: Weights,
+    /// The set the rows came from (`Camera` becomes `Channels` when the
+    /// frame carries no colour matrix).
+    pub filters: PlateFilters,
+}
+
+impl PlateWeights {
+    pub fn from_core(w: &CorePlateWeights) -> Self {
+        let [r, g, b] = w.weights();
+        Self {
+            red: Weights::from_core(r),
+            green: Weights::from_core(g),
+            blue: Weights::from_core(b),
+            filters: PlateFilters::from_core(w.filters),
+        }
+    }
+}
+
+/// The plate process of a development, as `DevelopInfo` reports it.
+#[derive(Clone, Copy, Debug, PartialEq, uniffi::Record)]
+pub struct PlateState {
+    pub weights: PlateWeights,
+    pub space: PlateSpace,
+    /// Stops of exposure added to the red and the blue positive; green is
+    /// the reference.
+    pub lamp_red: f64,
+    pub lamp_blue: f64,
+}
+
+/// How far either lamp may move, in stops (the core's `print::LAMP_LIMIT`).
+#[uniffi::export]
+pub fn lamp_limit() -> f64 {
+    mimizan_core::print::LAMP_LIMIT
+}
+
+/// 8-bit RGB image, interleaved, row-major, upright. The values are the
+/// paper's encoding (gamma 2.2) in the primaries of the plate's space.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct RgbImage {
+    pub width: u32,
+    pub height: u32,
+    pub data: Vec<u8>,
+}
+
 /// Everything a development needs (ingest + separation + first mix).
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
 pub struct DevelopParams {
@@ -413,6 +522,11 @@ pub struct DevelopInfo {
     /// Fraction of pixels flagged saturated (after dilation).
     pub saturated_fraction: f64,
     pub defects: u64,
+    /// The frame came with a colour matrix (`SENSOR_COLOR_TRANSFORM`), so
+    /// the `Camera` plate filters are the camera's own.
+    pub has_colour_matrix: bool,
+    /// Present while the development is in the plate process.
+    pub plate: Option<PlateState>,
     pub timing: Timing,
     pub json: String,
 }

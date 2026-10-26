@@ -19,6 +19,19 @@ pub fn as_shot_from_gains(g: &[f64]) -> Result<[f64; 3]> {
     }
 }
 
+/// A Camera2 `SENSOR_COLOR_TRANSFORM` (9 values, rows R, G, B) as the
+/// core's XYZ → camera matrix; `None` when absent or all zero.
+pub fn matrix_of(m: Option<&[f64]>) -> Result<Option<[[f64; 3]; 3]>> {
+    match m {
+        Some(m) if m.len() == 9 && m.iter().all(|v| v.is_finite()) && m.iter().any(|v| *v != 0.0) => {
+            Ok(Some([[m[0], m[1], m[2]], [m[3], m[4], m[5]], [m[6], m[7], m[8]]]))
+        }
+        Some(m) if m.len() == 9 => Ok(None),
+        Some(_) => Err(MimizanError::Invalid { msg: "xyz_to_cam needs 9 values".into() }),
+        None => Ok(None),
+    }
+}
+
 /// Build the frame the pipeline ingests. Validates sizes and levels; the
 /// pixel data is copied once (bytes -> u16).
 pub fn to_raw_frame(input: &RawInput) -> Result<RawFrame> {
@@ -72,14 +85,7 @@ pub fn to_raw_frame(input: &RawInput) -> Result<RawFrame> {
         None => None,
     };
 
-    let xyz_to_cam = match &input.xyz_to_cam {
-        Some(m) if m.len() == 9 && m.iter().all(|v| v.is_finite()) && m.iter().any(|v| *v != 0.0) => {
-            Some([[m[0], m[1], m[2]], [m[3], m[4], m[5]], [m[6], m[7], m[8]]])
-        }
-        Some(m) if m.len() == 9 => None,
-        Some(_) => return Err(MimizanError::Invalid { msg: "xyz_to_cam needs 9 values".into() }),
-        None => None,
-    };
+    let xyz_to_cam = matrix_of(input.xyz_to_cam.as_deref())?;
 
     let exposure = match &input.exposure {
         Some(e) => Exposure {

@@ -3,14 +3,17 @@
 //! copy for the interactive preview, and the print exports. Mirrors what the
 //! desktop GUI's `Session` does, with the same core calls.
 
-use crate::frame::{as_shot_from_gains, bin_cfa_2x, to_raw_frame};
+use crate::frame::{as_shot_from_gains, bin_cfa_2x, matrix_of, to_raw_frame};
 use crate::types::*;
 use mimizan_core::calib::CameraFile;
 use mimizan_core::icc::GrayTrc;
 use mimizan_core::mix::{mix, Weights as CoreWeights};
-use mimizan_core::pipeline::{negative_from_frame, NegativeInfo, NegativeParams};
+use mimizan_core::pipeline::{negative_from_frame, plate_base, NegativeInfo, NegativeParams};
 use mimizan_core::plane::Plane;
-use mimizan_core::print::{self as pr, orient, rotated, PrintParams, PrintSource};
+use mimizan_core::plate::{
+    mix_plate_stacked, PlateInfo, PlateParams, PlateSpace as CorePlateSpace, PlateWeights as CorePlateWeights,
+};
+use mimizan_core::print::{self as pr, orient, rotated, PrintOutput, PrintParams, PrintSource, LAMP_LIMIT};
 use mimizan_core::recipe::{Recipe, Sharpen};
 use mimizan_core::resize::{fit_dims, resize};
 use mimizan_core::separate::Separation;
@@ -44,6 +47,14 @@ struct PreviewPlanes {
     c2: Plane,
 }
 
+/// The plate process: the three taking filters resolved for this frame,
+/// the primaries of the colour file.
+#[derive(Clone, Copy)]
+struct PlateProcess {
+    weights: CorePlateWeights,
+    space: CorePlateSpace,
+}
+
 struct Inner {
     sep: Separation,
     /// 8-bit sidecar: `round(255*mask_max)`, 255 where saturated.
@@ -52,9 +63,19 @@ struct Inner {
     info: NegativeInfo,
     binning: u32,
     separation_mode: SeparationMode,
+    /// The monochrome mix (filter included). Kept while the plate is on,
+    /// so the luminance histogram and the way back stay what they were.
     weights: CoreWeights,
     filter: Filter,
     default_weights: CoreWeights,
+    /// `Some` while the development is in the plate process.
+    plate: Option<PlateProcess>,
+    /// The red and the blue lamp, stops; green is the reference.
+    lamps: [f64; 2],
+    /// What the plate's filters are resolved from: the camera file's
+    /// panchromatic response (or the native one) and the frame's matrix.
+    camera_file: Option<CameraFile>,
+    xyz_to_cam: Option<[[f64; 3]; 3]>,
     preview: Option<PreviewPlanes>,
     timing: Timing,
 }
@@ -113,6 +134,7 @@ pub fn develop_impl(input: RawInput, params: DevelopParams) -> Result<Developed>
     }
     p.filter = params.filter.core();
 
+    let xyz_to_cam = frame.xyz_to_cam;
     let mut neg = negative_from_frame(&frame, &p, 0)?;
     drop(frame);
     let mut sep =
@@ -150,10 +172,66 @@ pub fn develop_impl(input: RawInput, params: DevelopParams) -> Result<Developed>
             weights,
             filter: params.filter,
             default_weights,
+            plate: None,
+            lamps: [0.0; 2],
+            camera_file: p.camera_file,
+            xyz_to_cam,
             preview,
             timing,
         }),
     })
+}
+
+/// The camera file in `params`, parsed and checked.
+fn camera_file_of(params: &DevelopParams) -> Result<Option<CameraFile>> {
+    match &params.camera_file_json {
+        Some(json) => {
+            let cam: CameraFile = serde_json::from_str(json)
+                .map_err(|e| MimizanError::Invalid { msg: format!("camera file: {e}") })?;
+            cam.validate()?;
+            Ok(Some(cam))
+        }
+        None => Ok(None),
+    }
+}
+
+/// The balance `ingest` would apply for these settings and gains (only
+/// `AsShot` and `Manual` are known before the frame is ingested).
+fn balance_of(params: &DevelopParams, wb_gains: Option<&[f64]>) -> Result<[f64; 3]> {
+    Ok(match (&params.white_balance, wb_gains) {
+        (WhiteBalanceMode::AsShot, Some(g)) => as_shot_from_gains(g)?,
+        (WhiteBalanceMode::Manual { r, g, b }, _) if *g > 0.0 && *r > 0.0 && *b > 0.0 => [r / g, 1.0, b / g],
+        _ => [1.0; 3],
+    })
+}
+
+/// The plate's three taking filters `set_plate` would resolve for these
+/// settings, this balance and this colour matrix: the same calls, so a
+/// viewfinder that mixes the three positives on the GPU uses the still's
+/// numbers.
+pub fn plate_weights_impl(
+    params: &DevelopParams,
+    wb_gains: Option<&[f64]>,
+    xyz_to_cam: Option<&[f64]>,
+    filters: PlateFilters,
+    space: PlateSpace,
+) -> Result<CorePlateWeights> {
+    let cam = camera_file_of(params)?;
+    let wb = balance_of(params, wb_gains)?;
+    let m = matrix_of(xyz_to_cam)?;
+    let base = plate_base(cam.as_ref(), wb);
+    let p = PlateParams { filters: filters.core(), space: space.core() };
+    Ok(CorePlateWeights::resolve(&p, base, m.as_ref())?)
+}
+
+/// Stops within ±`LAMP_LIMIT`, finite.
+fn check_lamp(name: &str, v: f64) -> Result<f64> {
+    if !v.is_finite() || v.abs() > LAMP_LIMIT {
+        return Err(MimizanError::Invalid {
+            msg: format!("{name} lamp {v} not within ±{LAMP_LIMIT} stops")
+        });
+    }
+    Ok(v)
 }
 
 /// The balanced weights `develop_impl` would mix with for these settings
@@ -163,10 +241,7 @@ pub fn develop_impl(input: RawInput, params: DevelopParams) -> Result<Developed>
 /// (the GPU) uses the still's numbers.
 pub fn mix_weights_impl(params: &DevelopParams, wb_gains: Option<&[f64]>) -> Result<CoreWeights> {
     let mut p = NegativeParams::default();
-    if let Some(json) = &params.camera_file_json {
-        let cam: CameraFile = serde_json::from_str(json)
-            .map_err(|e| MimizanError::Invalid { msg: format!("camera file: {e}") })?;
-        cam.validate()?;
+    if let Some(cam) = camera_file_of(params)? {
         p = p.with_camera_file(cam);
     }
     if let Some(w) = params.weights {
@@ -174,11 +249,7 @@ pub fn mix_weights_impl(params: &DevelopParams, wb_gains: Option<&[f64]>) -> Res
     }
     p.weights.validate()?;
     // Only raw-space weights depend on the balance; mirror `ingest`'s choice.
-    let wb = match (&params.white_balance, wb_gains) {
-        (WhiteBalanceMode::AsShot, Some(g)) => as_shot_from_gains(g)?,
-        (WhiteBalanceMode::Manual { r, g, b }, _) if *g > 0.0 && *r > 0.0 && *b > 0.0 => [r / g, 1.0, b / g],
-        _ => [1.0; 3],
-    };
+    let wb = balance_of(params, wb_gains)?;
     let w = p.weights.to_balanced(p.weights_space, wb).filtered(params.filter.core());
     w.validate()?;
     Ok(w)
@@ -232,6 +303,29 @@ fn gray8(plane: &Plane, map: &ToneMap) -> Vec<u8> {
     plane.data.par_iter().map(|&v| (map.eval(v) * 255.0).round() as u8).collect()
 }
 
+/// The three positives of a plate as 8-bit RGB: channel `c` placed by its
+/// lamp (`v · 2^lamp`, the print's placing), then the same paper as the
+/// grey, interleaved. `lamps` are R, G, B.
+fn rgb8(planes: &[Plane; 3], lamps: [f64; 3], map: &ToneMap) -> Vec<u8> {
+    let n = planes[0].data.len();
+    debug_assert!(planes.iter().all(|p| p.data.len() == n));
+    let gains = lamps.map(|l| 2f64.powf(l));
+    let mut out = vec![0u8; 3 * n];
+    out.par_chunks_mut(3).enumerate().for_each(|(i, px)| {
+        for c in 0..3 {
+            let v = planes[c].data[i];
+            let placed = if lamps[c] == 0.0 { v } else { v * gains[c] };
+            px[c] = (map.eval(placed) * 255.0).round() as u8;
+        }
+    });
+    out
+}
+
+/// The lamps by output channel R, G, B from the stored red and blue.
+fn lamps_rgb(l: [f64; 2]) -> [f64; 3] {
+    [l[0], 0.0, l[1]]
+}
+
 /// Map a rectangle of the upright image (after `orientation`) back to the
 /// sensor frame of a `w`×`h` source, using the same table as `orient`.
 fn source_rect(
@@ -263,24 +357,26 @@ fn source_rect(
     (x0, y0, x1 - x0 + 1, y1 - y0 + 1)
 }
 
-/// Rotate an 8-bit image 90° clockwise `quarter_turns` times; returns the
-/// new (width, height, pixels). The core keeps its copy for its own tests.
-fn rotate_gray8_cw(w: usize, h: usize, g: &[u8], quarter_turns: u8) -> (usize, usize, Vec<u8>) {
-    debug_assert_eq!(g.len(), w * h);
+/// Rotate an 8-bit image of `C` interleaved channels 90° clockwise
+/// `quarter_turns` times; returns the new (width, height, pixels). The core
+/// keeps its copy for its own tests.
+fn rotate8_cw<const C: usize>(w: usize, h: usize, g: &[u8], quarter_turns: u8) -> (usize, usize, Vec<u8>) {
+    debug_assert_eq!(g.len(), w * h * C);
     let k = quarter_turns % 4;
     if k == 0 {
         return (w, h, g.to_vec());
     }
     let (ow, oh) = if k % 2 == 1 { (h, w) } else { (w, h) };
-    let mut out = vec![0u8; ow * oh];
-    for (oy, row) in out.chunks_mut(ow.max(1)).enumerate() {
-        for (ox, o) in row.iter_mut().enumerate() {
+    let mut out = vec![0u8; ow * oh * C];
+    for (oy, row) in out.chunks_mut((ow * C).max(1)).enumerate() {
+        for (ox, o) in row.chunks_mut(C).enumerate() {
             let (sx, sy) = match k {
                 1 => (oy, h - 1 - ox),
                 2 => (w - 1 - ox, h - 1 - oy),
                 _ => (w - 1 - oy, ox),
             };
-            *o = g[sy * w + sx];
+            let i = (sy * w + sx) * C;
+            o.copy_from_slice(&g[i..i + C]);
         }
     }
     (ow, oh, out)
@@ -292,6 +388,93 @@ fn crop(p: &Plane, x: usize, y: usize, w: usize, h: usize) -> Plane {
         out.row_mut(r).copy_from_slice(&p.row(y + r)[x..x + w]);
     }
     out
+}
+
+/// The geometry of a 1:1 window: the asked rectangle in display
+/// coordinates, clamped; the margin the USM needs so the blur does not see
+/// the window edge; the source rectangle in the sensor frame.
+struct DetailWindow {
+    o: u16,
+    x0: usize,
+    y0: usize,
+    rw: usize,
+    rh: usize,
+    mx0: usize,
+    my0: usize,
+    /// Source rectangle (sensor frame) of the window plus margin.
+    src: (usize, usize, usize, usize),
+    map: ToneMap,
+    usm: f64,
+    r_px: f64,
+}
+
+impl DetailWindow {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        g: &Inner,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        soft: f64,
+        hard: f64,
+        extra_quarter_turns: u8,
+        usm_amount: f64,
+    ) -> Result<Self> {
+        let o = rotated(g.orientation, extra_quarter_turns);
+        let (sw, sh) = (g.sep.lum.width, g.sep.lum.height);
+        let (dw, dh) = if matches!(o, 5..=8) { (sh, sw) } else { (sw, sh) };
+        let x0 = (x as usize).min(dw.saturating_sub(1));
+        let y0 = (y as usize).min(dh.saturating_sub(1));
+        let rw = (width as usize).clamp(1, (dw - x0).max(1));
+        let rh = (height as usize).clamp(1, (dh - y0).max(1));
+
+        // Radius the export would use, from the same geometry.
+        let map = paper(soft, hard)?;
+        let usm = if usm_amount.is_finite() { usm_amount.clamp(0.0, 1.5) } else { 0.0 };
+        let r_px = if usm > 0.0 {
+            let params = PrintParams {
+                recipe: Recipe {
+                    curve: Tone::Paper(split_grade(soft, hard)?),
+                    sharpen: Sharpen::Usm { amount: usm },
+                    ..Recipe::default()
+                },
+                ..Default::default()
+            };
+            pr::layout(sw, sh, o, &params).usm_radius_px
+        } else {
+            0.0
+        };
+        let margin = if usm > 0.0 { (3.0 * r_px).ceil() as usize + 1 } else { 0 };
+        let mx0 = x0.saturating_sub(margin);
+        let my0 = y0.saturating_sub(margin);
+        let mx1 = (x0 + rw + margin).min(dw);
+        let my1 = (y0 + rh + margin).min(dh);
+        let src = source_rect(o, sw, sh, mx0, my0, mx1 - mx0, my1 - my0);
+        Ok(Self { o, x0, y0, rw, rh, mx0, my0, src, map, usm, r_px })
+    }
+
+    /// The window (plus margin) of the three separation planes, sensor frame.
+    fn crops(&self, g: &Inner) -> (Plane, Plane, Plane) {
+        let (cx, cy, cw, ch) = self.src;
+        (crop(&g.sep.lum, cx, cy, cw, ch), crop(&g.sep.c1, cx, cy, cw, ch), crop(&g.sep.c2, cx, cy, cw, ch))
+    }
+
+    /// One positive of the window: upright, placed by `lamp`, the paper,
+    /// the USM with the sidecar's mask, the margin cut away. Print values
+    /// in [0, 1], `rw × rh`.
+    fn positive(&self, g: &Inner, mixed: Plane, lamp: f64) -> Plane {
+        let mut up = orient(&mixed, self.o);
+        render(&mut up, lamp, &self.map);
+        let encoded = if self.usm > 0.0 {
+            let (cx, cy, cw, ch) = self.src;
+            let mask = orient(&g.mask_crop(cx, cy, cw, ch), self.o);
+            unsharp(&up, self.r_px, self.usm, Some(&mask))
+        } else {
+            up
+        };
+        crop(&encoded, self.x0 - self.mx0, self.y0 - self.my0, self.rw, self.rh)
+    }
 }
 
 impl Inner {
@@ -347,31 +530,80 @@ impl Inner {
             default_weights: Weights::from_core(self.default_weights),
             saturated_fraction: self.info.report.saturated_dilated as f64 / n,
             defects: self.info.report.defects as u64,
+            has_colour_matrix: self.xyz_to_cam.is_some(),
+            plate: self.plate.map(|p| PlateState {
+                weights: PlateWeights::from_core(&p.weights),
+                space: PlateSpace::from_core(p.space),
+                lamp_red: self.lamps[0],
+                lamp_blue: self.lamps[1],
+            }),
             timing: self.timing.clone(),
             json: serde_json::to_string(&self.info).unwrap_or_default(),
         }
     }
 
-    /// Full-resolution mix with the current weights and the sidecar as a
-    /// plane, ready for the print path.
-    fn print_source(&self, turns: u8) -> (Plane, Plane, u16) {
-        let plane = mix(&self.sep, &self.weights);
-        let mask = self.mask_plane();
-        (plane, mask, rotated(self.orientation, turns))
+    /// The taking filters for this frame: the camera file's panchromatic
+    /// response (or the native) behind the Wratten glass, the frame's own
+    /// matrix for the camera set. Same call as `negative --plate`.
+    fn resolve_plate(&self, filters: PlateFilters, space: PlateSpace) -> Result<CorePlateWeights> {
+        let base = plate_base(self.camera_file.as_ref(), self.info.wb);
+        let p = PlateParams { filters: filters.core(), space: space.core() };
+        Ok(CorePlateWeights::resolve(&p, base, self.xyz_to_cam.as_ref())?)
     }
 
-    fn export(&self, path: &Path, params: &PrintParams, turns: u8) -> Result<ExportInfo> {
-        let t = Instant::now();
-        let (plane, mask, orientation) = self.print_source(turns);
+    /// The plate's three positives as `[red, green, blue]` of a mixed set
+    /// of planes (the preview planes, or a window of the separation).
+    fn plate_planes(lum: &Plane, c1: &Plane, c2: &Plane, w: &CorePlateWeights) -> [Plane; 3] {
+        let [r, g, b] = w.weights();
+        [mix_planes(lum, c1, c2, &r), mix_planes(lum, c1, c2, &g), mix_planes(lum, c1, c2, &b)]
+    }
+
+    /// One positive through the print pass: the full-resolution mix with
+    /// `weights`, the sidecar as the mask, the recipe placed by `lamp`.
+    fn render_positive(
+        &self,
+        weights: &CoreWeights,
+        mask: &Plane,
+        params: &PrintParams,
+        orientation: u16,
+        lamp: f64,
+    ) -> PrintOutput {
+        let plane = mix(&self.sep, weights);
+        let mut q = params.clone();
+        q.recipe.place += lamp;
         let src = PrintSource {
             plane: &plane,
-            mask: Some(&mask),
+            mask: Some(mask),
             orientation,
             name: "camera".into(),
             description: serde_json::to_value(&self.info).ok(),
         };
-        let out = pr::render_planes(&src, params);
-        drop(plane);
+        pr::render_planes(&src, &q)
+    }
+
+    /// The print: one grey positive, or the three of the plate rendered one
+    /// after the other (one full-resolution mix alive at a time beside the
+    /// finished sheets) and written as one RGB file.
+    fn export(&self, path: &Path, params: &PrintParams, turns: u8) -> Result<ExportInfo> {
+        let t = Instant::now();
+        let orientation = rotated(self.orientation, turns);
+        let mask = self.mask_plane();
+        let out = match self.plate {
+            None => self.render_positive(&self.weights, &mask, params, orientation, 0.0),
+            Some(p) => {
+                let [wr, wg, wb] = p.weights.weights();
+                let lamps = lamps_rgb(self.lamps);
+                let mut r = self.render_positive(&wr, &mask, params, orientation, lamps[0]);
+                let g = self.render_positive(&wg, &mask, params, orientation, lamps[1]);
+                let b = self.render_positive(&wb, &mask, params, orientation, lamps[2]);
+                if lamps.iter().any(|&l| l != 0.0) {
+                    info!("lamps R {:+.2} G {:+.2} B {:+.2} stops", lamps[0], lamps[1], lamps[2]);
+                }
+                r.info.plate = Some(pr::PlatePrintInfo { filters: p.weights.filters, space: p.space, lamps });
+                r.plate = Some(pr::PlateSheet { green: g.plane, blue: b.plane, space: p.space });
+                r
+            }
+        };
         drop(mask);
         pr::write(&out, path, params)?;
         Ok(ExportInfo {
@@ -379,6 +611,21 @@ impl Inner {
             width: out.info.width as u32,
             height: out.info.height as u32,
             ms: t.elapsed().as_millis() as u64,
+        })
+    }
+
+    /// The print map and the preview planes, or the error the caller returns.
+    fn preview_and_paper(&self, soft: f64, hard: f64) -> Result<(&PreviewPlanes, ToneMap)> {
+        let pv = self
+            .preview
+            .as_ref()
+            .ok_or_else(|| MimizanError::Invalid { msg: "developed without preview planes".into() })?;
+        Ok((pv, paper(soft, hard)?))
+    }
+
+    fn plate_or_err(&self) -> Result<PlateProcess> {
+        self.plate.ok_or_else(|| MimizanError::Invalid {
+            msg: "the development is not in the plate process".into(),
         })
     }
 }
@@ -389,7 +636,8 @@ impl Developed {
         lock_msg(self.inner.lock()).info()
     }
 
-    /// Change the mix without separating again. `weights` are in `space`
+    /// Change the mix without separating again, and return to the
+    /// monochrome process if the plate was on. `weights` are in `space`
     /// (raw weights are converted with this image's balance), then the
     /// filter is applied. Returns the balanced weights the mix now uses.
     pub fn remix(&self, weights: Weights, space: WeightSpace, filter: Filter) -> Result<Weights> {
@@ -403,25 +651,88 @@ impl Developed {
         g.info.weights = w;
         g.info.filter = filter.core();
         g.info.weights_raw = w.balanced_to_raw(g.info.wb);
+        g.plate = None;
+        g.info.plate = None;
         Ok(Weights::from_core(w))
+    }
+
+    /// Turn the development into a three-colour plate (or change its
+    /// filters / primaries): a re-mix, not a re-development. The monochrome
+    /// mix stays stored; `remix` returns to it. Returns the three taking
+    /// filters as resolved for this frame (`Camera` becomes `Channels`
+    /// without a colour matrix).
+    pub fn set_plate(&self, filters: PlateFilters, space: PlateSpace) -> Result<PlateWeights> {
+        let mut g = lock_msg(self.inner.lock());
+        let w = g.resolve_plate(filters, space)?;
+        for (name, row) in ["red", "green", "blue"].iter().zip(w.rows) {
+            info!(
+                "plate {name}: weights R {:+.3} G {:+.3} B {:+.3} ({})",
+                row[0],
+                row[1],
+                row[2],
+                w.filters.name()
+            );
+        }
+        g.plate = Some(PlateProcess { weights: w, space: space.core() });
+        g.info.plate = Some(PlateInfo::new(&w, space.core(), g.sep.lum.height));
+        Ok(PlateWeights::from_core(&w))
+    }
+
+    /// The projector's two lamps: stops of exposure added to the red and
+    /// the blue positive, within ±`lamp_limit()`. Green is the reference.
+    /// Preview, 1:1 window and every export of the plate follow.
+    pub fn set_lamps(&self, red: f64, blue: f64) -> Result<()> {
+        let lamps = [check_lamp("red", red)?, check_lamp("blue", blue)?];
+        lock_msg(self.inner.lock()).lamps = lamps;
+        Ok(())
     }
 
     /// The negative as the viewer shows it: current mix on the cached
     /// upright preview planes, the paper applied pixel by pixel (the same
     /// evaluation the file uses), no sharpening, then
     /// `extra_quarter_turns` clockwise. `soft` and `hard` are stops from
-    /// the base exposure.
+    /// the base exposure. In the plate process this is the luminance of
+    /// the plate (the monochrome mix); `preview_rgb` is the colour.
     pub fn preview(&self, soft: f64, hard: f64, extra_quarter_turns: u8) -> Result<GrayImage> {
         let g = lock_msg(self.inner.lock());
-        let pv = g
-            .preview
-            .as_ref()
-            .ok_or_else(|| MimizanError::Invalid { msg: "developed without preview planes".into() })?;
-        let map = paper(soft, hard)?;
+        let (pv, map) = g.preview_and_paper(soft, hard)?;
         let plane = mix_planes(&pv.lum, &pv.c1, &pv.c2, &g.weights);
         let bytes = gray8(&plane, &map);
-        let (w, h, data) = rotate_gray8_cw(plane.width, plane.height, &bytes, extra_quarter_turns);
+        let (w, h, data) = rotate8_cw::<1>(plane.width, plane.height, &bytes, extra_quarter_turns);
         Ok(GrayImage { width: w as u32, height: h as u32, data })
+    }
+
+    /// The plate as the viewer shows it: the three positives from the
+    /// cached preview planes, each placed by its lamp and put through the
+    /// same paper, interleaved RGB. Needs the plate process.
+    pub fn preview_rgb(&self, soft: f64, hard: f64, extra_quarter_turns: u8) -> Result<RgbImage> {
+        let g = lock_msg(self.inner.lock());
+        let p = g.plate_or_err()?;
+        let (pv, map) = g.preview_and_paper(soft, hard)?;
+        let planes = Inner::plate_planes(&pv.lum, &pv.c1, &pv.c2, &p.weights);
+        let bytes = rgb8(&planes, lamps_rgb(g.lamps), &map);
+        let (w, h, data) = rotate8_cw::<3>(pv.lum.width, pv.lum.height, &bytes, extra_quarter_turns);
+        Ok(RgbImage { width: w as u32, height: h as u32, data })
+    }
+
+    /// Three 256-bin histograms, R then G then B, of the plate's positives
+    /// after the paper (preview planes, lamps applied). Needs the plate
+    /// process; `histogram` stays the luminance's.
+    pub fn histogram_rgb(&self, soft: f64, hard: f64) -> Result<Vec<u64>> {
+        let g = lock_msg(self.inner.lock());
+        let p = g.plate_or_err()?;
+        let (pv, map) = g.preview_and_paper(soft, hard)?;
+        let planes = Inner::plate_planes(&pv.lum, &pv.c1, &pv.c2, &p.weights);
+        let lamps = lamps_rgb(g.lamps);
+        let mut bins = vec![0u64; 3 * 256];
+        for (c, plane) in planes.iter().enumerate() {
+            let gain = 2f64.powf(lamps[c]);
+            for &v in &plane.data {
+                let placed = if lamps[c] == 0.0 { v } else { v * gain };
+                bins[c * 256 + ((map.eval(placed) * 255.0).round() as usize).min(255)] += 1;
+            }
+        }
+        Ok(bins)
     }
 
     /// 1:1 window of the full-resolution negative. The rectangle is in the
@@ -443,58 +754,49 @@ impl Developed {
         usm_amount: f64,
     ) -> Result<GrayImage> {
         let g = lock_msg(self.inner.lock());
-        let o = rotated(g.orientation, extra_quarter_turns);
-        let (sw, sh) = (g.sep.lum.width, g.sep.lum.height);
-        let (dw, dh) = if matches!(o, 5..=8) { (sh, sw) } else { (sw, sh) };
-        let x0 = (x as usize).min(dw.saturating_sub(1));
-        let y0 = (y as usize).min(dh.saturating_sub(1));
-        let rw = (width as usize).clamp(1, (dw - x0).max(1));
-        let rh = (height as usize).clamp(1, (dh - y0).max(1));
+        let win = DetailWindow::new(&g, x, y, width, height, soft, hard, extra_quarter_turns, usm_amount)?;
+        let (lum, c1, c2) = win.crops(&g);
+        let mixed = if g.weights.is_native() { lum } else { mix_planes(&lum, &c1, &c2, &g.weights) };
+        let plane = win.positive(&g, mixed, 0.0);
+        let data = plane.data.par_iter().map(|&v| (v.clamp(0.0, 1.0) * 255.0).round() as u8).collect();
+        Ok(GrayImage { width: win.rw as u32, height: win.rh as u32, data })
+    }
 
-        // Radius the export would use, from the same geometry.
-        let map = paper(soft, hard)?;
-        let usm = if usm_amount.is_finite() { usm_amount.clamp(0.0, 1.5) } else { 0.0 };
-        let r_px = if usm > 0.0 {
-            let params = PrintParams {
-                recipe: Recipe {
-                    curve: Tone::Paper(split_grade(soft, hard)?),
-                    sharpen: Sharpen::Usm { amount: usm },
-                    ..Recipe::default()
-                },
-                ..Default::default()
-            };
-            pr::layout(sw, sh, o, &params).usm_radius_px
-        } else {
-            0.0
-        };
-        let margin = if usm > 0.0 { (3.0 * r_px).ceil() as usize + 1 } else { 0 };
-        let mx0 = x0.saturating_sub(margin);
-        let my0 = y0.saturating_sub(margin);
-        let mx1 = (x0 + rw + margin).min(dw);
-        let my1 = (y0 + rh + margin).min(dh);
-        let (mw, mh) = (mx1 - mx0, my1 - my0);
-
-        let (cx, cy, cw, ch) = source_rect(o, sw, sh, mx0, my0, mw, mh);
-        let lum = crop(&g.sep.lum, cx, cy, cw, ch);
-        let mixed = if g.weights.is_native() {
-            lum
-        } else {
-            let c1 = crop(&g.sep.c1, cx, cy, cw, ch);
-            let c2 = crop(&g.sep.c2, cx, cy, cw, ch);
-            mix_planes(&lum, &c1, &c2, &g.weights)
-        };
-        let mut up = orient(&mixed, o);
-        render(&mut up, 0.0, &map);
-        let encoded = if usm > 0.0 {
-            let mask = orient(&g.mask_crop(cx, cy, cw, ch), o);
-            unsharp(&up, r_px, usm, Some(&mask))
-        } else {
-            up
-        };
-        // Cut the margin away again.
-        let window = crop(&encoded, x0 - mx0, y0 - my0, rw, rh);
-        let data = window.data.par_iter().map(|&v| (v.clamp(0.0, 1.0) * 255.0).round() as u8).collect();
-        Ok(GrayImage { width: rw as u32, height: rh as u32, data })
+    /// The 1:1 window of the plate: the same geometry, margin and
+    /// sharpening as `detail`, three positives placed by their lamps,
+    /// interleaved RGB. Needs the plate process.
+    #[allow(clippy::too_many_arguments)] // UniFFI method: a flat argument list is the interface
+    pub fn detail_rgb(
+        &self,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        soft: f64,
+        hard: f64,
+        extra_quarter_turns: u8,
+        usm_amount: f64,
+    ) -> Result<RgbImage> {
+        let g = lock_msg(self.inner.lock());
+        let p = g.plate_or_err()?;
+        let win = DetailWindow::new(&g, x, y, width, height, soft, hard, extra_quarter_turns, usm_amount)?;
+        let (lum, c1, c2) = win.crops(&g);
+        let lamps = lamps_rgb(g.lamps);
+        let rows = p.weights.weights();
+        let mut planes: [Option<Plane>; 3] = [None, None, None];
+        for c in 0..3 {
+            let mixed = mix_planes(&lum, &c1, &c2, &rows[c]);
+            planes[c] = Some(win.positive(&g, mixed, lamps[c]));
+        }
+        let [Some(r), Some(gr), Some(b)] = planes else { unreachable!() };
+        let n = r.data.len();
+        let mut data = vec![0u8; 3 * n];
+        data.par_chunks_mut(3).enumerate().for_each(|(i, px)| {
+            px[0] = (r.data[i].clamp(0.0, 1.0) * 255.0).round() as u8;
+            px[1] = (gr.data[i].clamp(0.0, 1.0) * 255.0).round() as u8;
+            px[2] = (b.data[i].clamp(0.0, 1.0) * 255.0).round() as u8;
+        });
+        Ok(RgbImage { width: win.rw as u32, height: win.rh as u32, data })
     }
 
     /// 256-bin histogram of the current mix after the paper, from the preview
@@ -521,7 +823,10 @@ impl Developed {
     /// radius from the print geometry, saturation masked), Richardson–Lucy
     /// on every pixel (`deconvolution`, `deconv_iterations` passes, same
     /// radius, no mask) followed by USM when `usm_amount` > 0, or nothing
-    /// sharpened. `soft` and `hard` are stops from the base exposure.
+    /// sharpened. `soft` and `hard` are stops from the base exposure. In
+    /// the plate process the file is 8-bit RGB with the plate's ICC
+    /// profile: the three positives through the same pass, placed by their
+    /// lamps.
     #[allow(clippy::too_many_arguments)] // UniFFI method: a flat argument list is the interface
     pub fn export_jpeg(
         &self,
@@ -551,7 +856,8 @@ impl Developed {
 
     /// Print as 16-bit grey TIFF, gamma 2.2 ICC, full resolution, the paper
     /// applied. Richardson–Lucy runs first when `deconvolution` is set,
-    /// then USM when `usm_amount` > 0.
+    /// then USM when `usm_amount` > 0. In the plate process: 16-bit RGB
+    /// with the plate's ICC profile.
     #[allow(clippy::too_many_arguments)] // UniFFI method: a flat argument list is the interface
     pub fn export_tiff16(
         &self,
@@ -581,13 +887,19 @@ impl Developed {
 
     /// The linear negative exactly as the desktop CLI writes it
     /// (`mimizan negative`): 16-bit grey, linear ICC, orientation as a tag,
-    /// JSON description, plus the `<stem>.mask.tif` sidecar. For comparing
-    /// on-device and desktop results on the same DNG.
+    /// JSON description, plus the `<stem>.mask.tif` sidecar. In the plate
+    /// process it is the stacked plate (`negative --plate`: blue, green,
+    /// red frames, the `plate` object in the description), which
+    /// `mimizan print` on the desktop prints in colour. The sidecar is one
+    /// frame, the same for all three.
     pub fn export_negative(&self, path: String) -> Result<ExportInfo> {
         let g = lock_msg(self.inner.lock());
         let t = Instant::now();
         let p = PathBuf::from(path);
-        let plane = mix(&g.sep, &g.weights);
+        let plane = match g.plate {
+            Some(pp) => mix_plate_stacked(&g.sep, &pp.weights)?,
+            None => mix(&g.sep, &g.weights),
+        };
         let desc =
             serde_json::to_string(&g.info).map_err(|e| MimizanError::Internal { msg: e.to_string() })?;
         write_gray16(
@@ -597,7 +909,9 @@ impl Developed {
         )?;
         let stem = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
         let side = p.with_file_name(format!("{stem}.mask.tif"));
-        write_gray8(&side, plane.width, plane.height, &g.mask8, "mimizan mask: 255*max(M), 255=saturated")?;
+        // One frame's mask, also under a three-frame plate.
+        let (mw, mh) = (g.sep.lum.width, g.sep.lum.height);
+        write_gray8(&side, mw, mh, &g.mask8, "mimizan mask: 255*max(M), 255=saturated")?;
         Ok(ExportInfo {
             path: p.display().to_string(),
             width: plane.width as u32,

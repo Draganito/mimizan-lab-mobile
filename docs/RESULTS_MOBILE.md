@@ -101,6 +101,19 @@ in the app, so the negative is unchanged apart from the core's own
 revisions (the Camera2 path still matches the desktop decoder bit for
 bit on the Nikon Z f NEF).
 
+### The plate (0.12.0, host, 16 threads, 4080x3072)
+
+| | grey | plate |
+|---|---|---|
+| switch + preview (2048 px planes) | remix+preview 71–75 ms | `set_plate` + `preview_rgb` 240–252 ms |
+| JPEG export, USM 0.5 | 650 ms, 1.5 MB | 1943 ms, 4.2 MB |
+| peak RSS over the development | 930 MB | 979 MB |
+
+Three mixes instead of one, so about three times the mix work; the
+separation is not touched. The colour export renders the three positives
+one after the other and holds about 50 MB more than the grey one at its
+widest. Phone numbers not yet measured.
+
 ## APK
 
 * Debug: 66 MB (unminified, icons-extended), Rust release profile.

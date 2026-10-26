@@ -62,3 +62,21 @@ pub fn develop(input: RawInput, params: DevelopParams) -> Result<Arc<Developed>>
 pub fn mix_weights(params: DevelopParams, wb_gains: Option<Vec<f64>>) -> Result<Weights> {
     session::mix_weights_impl(&params, wb_gains.as_deref()).map(Weights::from_core)
 }
+
+/// The plate's three taking filters `Developed::set_plate` will resolve
+/// for `params`, a frame with these `COLOR_CORRECTION_GAINS` and this
+/// `SENSOR_COLOR_TRANSFORM` (9 values, rows R, G, B, XYZ → camera; the
+/// D65 one when the device offers two). The live viewfinder mixes its
+/// three positives with exactly these numbers. `Camera` without a matrix
+/// resolves to `Channels`.
+#[uniffi::export]
+pub fn plate_weights(
+    params: DevelopParams,
+    wb_gains: Option<Vec<f64>>,
+    xyz_to_cam: Option<Vec<f64>>,
+    filters: PlateFilters,
+    space: PlateSpace,
+) -> Result<PlateWeights> {
+    session::plate_weights_impl(&params, wb_gains.as_deref(), xyz_to_cam.as_deref(), filters, space)
+        .map(|w| PlateWeights::from_core(&w))
+}

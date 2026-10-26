@@ -1,6 +1,9 @@
 package ch.bojovic.mimizanlab.ui
 
 import ch.bojovic.mimizanlab.engine.Filter
+import ch.bojovic.mimizanlab.engine.PlateFilters
+import ch.bojovic.mimizanlab.engine.PlateSpace
+import ch.bojovic.mimizanlab.engine.Weights
 import java.util.Locale
 import kotlin.math.ln
 import kotlin.math.pow
@@ -37,6 +40,20 @@ object Format {
         Filter.GREEN58 -> "G58"
         Filter.BLUE47 -> "B47"
     }
+
+    fun plateFilters(f: PlateFilters): String = when (f) {
+        PlateFilters.CAMERA -> "Camera"
+        PlateFilters.WRATTEN -> "Wratten"
+        PlateFilters.CHANNELS -> "Channels"
+    }
+
+    fun plateSpace(s: PlateSpace): String = when (s) {
+        PlateSpace.SRGB -> "sRGB"
+        PlateSpace.ADOBE_RGB -> "Adobe RGB"
+    }
+
+    /** A weight triple as the Enlarger shows it, signed (the camera set goes negative). */
+    fun weights(w: Weights): String = String.format(Locale.US, "%+.2f %+.2f %+.2f", w.r, w.g, w.b)
 
     /** Log-spaced shutter slider: 0..1 -> [lo, hi] ns. */
     fun sliderToNs(t: Float, lo: Long, hi: Long): Long {
