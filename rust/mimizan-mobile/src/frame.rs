@@ -122,6 +122,8 @@ pub fn to_raw_frame(input: &RawInput) -> Result<RawFrame> {
         crop,
         orientation,
         xyz_to_cam,
+        // The bridge chooses the D65 SENSOR_COLOR_TRANSFORM.
+        illuminant: xyz_to_cam.map(|_| 21),
         wb_as_shot,
         exposure,
         data: RawData::Integer(samples),
@@ -203,6 +205,7 @@ pub fn bin_cfa_2x(f: &RawFrame) -> Result<RawFrame> {
         crop: Rect { x: 0, y: 0, w: nw, h: nh },
         orientation: f.orientation,
         xyz_to_cam: f.xyz_to_cam,
+        illuminant: f.illuminant,
         wb_as_shot: f.wb_as_shot,
         exposure: f.exposure.clone(),
         data: RawData::Float(out),
