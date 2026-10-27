@@ -170,7 +170,8 @@ gallery, development in 2.3–4.5 s per 12.5 MP frame (measured before core
 0.12.0; core 0.15.5, which 0.11.0 and later are built on, is level with
 that on the host; 0.12.1 is on core 0.15.6, where a burnt-out green
 photosite takes the colour out of the plate around it, so clipped
-highlights print white instead of pink), review with remix, the three-colour plate (viewfinder,
+highlights print white instead of pink; 0.12.2 is on core 0.16.0, no
+change on the phone), review with remix, the three-colour plate (viewfinder,
 review, exports; the plate's preview takes about 250 ms and the colour
 JPEG about three times the grey one on the host),
 the split-grade paper, sharpening and exports, roll with delete. The phone's negative
