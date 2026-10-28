@@ -66,16 +66,26 @@ fn synthetic_develop_preview_remix_export() {
     assert_eq!(hist.iter().sum::<u64>(), 120 * 160);
 
     // Detail is 1:1 in display coordinates.
-    let d = dev.detail(10, 20, 64, 48, 0.0, 0.0, 0, 0.0).unwrap();
+    let d = dev.detail(10, 20, 64, 48, 0.0, 0.0, 0, 0.7, 0.0).unwrap();
     assert_eq!((d.width, d.height), (64, 48));
-    let d_edge = dev.detail(230, 300, 100, 100, 0.0, 0.0, 0, 0.0).unwrap();
+    let d_edge = dev.detail(230, 300, 100, 100, 0.0, 0.0, 0, 0.7, 0.0).unwrap();
     assert_eq!((d_edge.width, d_edge.height), (10, 20), "clamped to the upright 240x320 picture");
-    // Sharpened detail keeps the window size (the radius for this tiny
-    // 240x320 "print" is 0.12 px, so the picture itself barely moves).
-    let d_usm = dev.detail(10, 20, 64, 48, 0.0, 0.0, 0, 1.0).unwrap();
-    assert_eq!((d_usm.width, d_usm.height), (64, 48));
-    let d_corner = dev.detail(0, 0, 32, 32, 0.0, 0.0, 0, 1.0).unwrap();
+    // The peak keeps the window size and changes the pixels.
+    let d_peak = dev.detail(10, 20, 64, 48, 0.0, 0.0, 0, 0.7, 1.0).unwrap();
+    assert_eq!((d_peak.width, d_peak.height), (64, 48));
+    assert_ne!(d_peak.data, d.data, "a peak amount of 1 sharpens the window");
+    let d_corner = dev.detail(0, 0, 32, 32, 0.0, 0.0, 0, 2.8, 1.0).unwrap();
     assert_eq!((d_corner.width, d_corner.height), (32, 32), "margin clamps at the picture edge");
+    // Out-of-range values are pulled into the core's range, not refused.
+    let d_wild = dev.detail(10, 20, 64, 48, 0.0, 0.0, 0, f64::NAN, 99.0).unwrap();
+    assert_eq!((d_wild.width, d_wild.height), (64, 48));
+
+    // The measurement answers in range; a synthetic chart has clean edges.
+    let m = dev.measure_peak(0.0, 0.0).unwrap();
+    let lim = peak_limits();
+    assert!((lim.radius_min..=lim.radius_max).contains(&m.radius), "radius {}", m.radius);
+    assert!((0.0..=lim.amount_max).contains(&m.amount), "amount {}", m.amount);
+    assert_eq!(lim.radius_default, 0.7);
 
     // A stop of soft light is a different print from the base exposure.
     let pv_soft = dev.preview(1.0, 0.0, 0).unwrap();
@@ -97,13 +107,12 @@ fn synthetic_develop_preview_remix_export() {
 
     // Exports.
     let dir = tmp_dir("synth");
-    let jpg = dev.export_jpeg(dir.join("p.jpg").display().to_string(), 0.0, 0.0, 0, 0.0, false, 0).unwrap();
+    let jpg = dev.export_jpeg(dir.join("p.jpg").display().to_string(), 0.0, 0.0, 0, 0.7, 0.0).unwrap();
     assert_eq!((jpg.width, jpg.height), (240, 320), "full size, upright");
-    let jpg_usm =
-        dev.export_jpeg(dir.join("u.jpg").display().to_string(), 0.0, 0.0, 0, 0.8, false, 0).unwrap();
-    assert_eq!((jpg_usm.width, jpg_usm.height), (240, 320));
-    dev.export_jpeg(dir.join("deconv.jpg").display().to_string(), 0.0, 0.0, 0, 0.0, true, 3).unwrap();
-    let tif = dev.export_tiff16(dir.join("p.tif").display().to_string(), 0.0, 0.0, 1, 0.0, false, 0).unwrap();
+    let jpg_peak =
+        dev.export_jpeg(dir.join("u.jpg").display().to_string(), 0.0, 0.0, 0, m.radius, 0.8).unwrap();
+    assert_eq!((jpg_peak.width, jpg_peak.height), (240, 320));
+    let tif = dev.export_tiff16(dir.join("p.tif").display().to_string(), 0.0, 0.0, 1, 0.7, 0.0).unwrap();
     assert_eq!(
         (tif.width, tif.height),
         (320, 240),
@@ -112,7 +121,7 @@ fn synthetic_develop_preview_remix_export() {
     let neg = dev.export_negative(dir.join("neg.tif").display().to_string()).unwrap();
     assert_eq!((neg.width, neg.height), (w as u32, h as u32));
     assert!(dir.join("neg.mask.tif").exists());
-    assert!(dev.export_jpeg(dir.join("x.tif").display().to_string(), 0.0, 0.0, 0, 0.0, false, 0).is_err());
+    assert!(dev.export_jpeg(dir.join("x.tif").display().to_string(), 0.0, 0.0, 0, 0.7, 0.0).is_err());
     std::fs::remove_dir_all(&dir).unwrap();
 
     dev.release_preview();
@@ -257,7 +266,7 @@ fn plate_is_a_remix_grey_stays_grey_and_the_lamps_move_one_channel() {
         let (r, g, b) = (rgb.data[c], rgb.data[c + 1], rgb.data[c + 2]);
         assert!(r.abs_diff(g) <= 1 && g.abs_diff(b) <= 1, "{f:?}: {r} {g} {b}");
         assert!(r > 20 && r < 235, "{f:?}: a mid grey, not clipped: {r}");
-        let d = dev.detail_rgb(10, 10, 32, 24, 0.0, 0.0, 0, 0.0).unwrap();
+        let d = dev.detail_rgb(10, 10, 32, 24, 0.0, 0.0, 0, 0.7, 0.0).unwrap();
         assert_eq!((d.width, d.height), (32, 24));
         let i = 3 * (12 * 32 + 16);
         assert!(d.data[i].abs_diff(d.data[i + 1]) <= 1 && d.data[i + 1].abs_diff(d.data[i + 2]) <= 1);
@@ -288,13 +297,13 @@ fn plate_is_a_remix_grey_stays_grey_and_the_lamps_move_one_channel() {
 
     // Exports: RGB files, and the stacked plate the desktop prints.
     let dir = tmp_dir("plate");
-    let tif = dev.export_tiff16(dir.join("p.tif").display().to_string(), 0.0, 0.0, 0, 0.5, false, 0).unwrap();
+    let tif = dev.export_tiff16(dir.join("p.tif").display().to_string(), 0.0, 0.0, 0, 0.7, 0.5).unwrap();
     assert_eq!((tif.width, tif.height), (w as u32, h as u32));
     let planes = mimizan_core::tiffin::read_rgb16(&dir.join("p.tif")).expect("an RGB TIFF");
     assert_eq!((planes[0].width, planes[0].height), (w, h));
     assert!(planes[0].at(80, 60) > planes[1].at(80, 60), "the red lamp is in the file");
     assert!((planes[1].at(80, 60) - planes[2].at(80, 60)).abs() < 1.0 / 65535.0);
-    let jpg = dev.export_jpeg(dir.join("p.jpg").display().to_string(), 0.0, 0.0, 0, 0.0, false, 0).unwrap();
+    let jpg = dev.export_jpeg(dir.join("p.jpg").display().to_string(), 0.0, 0.0, 0, 0.7, 0.0).unwrap();
     assert_eq!((jpg.width, jpg.height), (w as u32, h as u32));
     assert!(std::fs::metadata(dir.join("p.jpg")).unwrap().len() > 0);
 

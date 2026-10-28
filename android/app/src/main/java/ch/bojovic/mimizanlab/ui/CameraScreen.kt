@@ -103,9 +103,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val cacheBytes by vm.darkroom.cacheBytes.collectAsStateWithLifecycle()
     val soft by vm.darkroom.prefs.soft.collectAsStateWithLifecycle()
     val hard by vm.darkroom.prefs.hard.collectAsStateWithLifecycle()
-    val sharpen by vm.darkroom.prefs.sharpen.collectAsStateWithLifecycle()
-    val deconvolution by vm.darkroom.prefs.deconvolution.collectAsStateWithLifecycle()
-    val deconvPasses by vm.darkroom.prefs.deconvPasses.collectAsStateWithLifecycle()
+    val peak by vm.darkroom.prefs.peak.collectAsStateWithLifecycle()
     val compensation by vm.darkroom.prefs.compensationThirds.collectAsStateWithLifecycle()
     val lampRed by vm.darkroom.prefs.lampRed.collectAsStateWithLifecycle()
     val lampBlue by vm.darkroom.prefs.lampBlue.collectAsStateWithLifecycle()
@@ -377,28 +375,11 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                         style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                     )
                 }
-                LabeledSlider(
-                    label = if (sharpen > 0.0) String.format(Locale.US, "USM %.2f", sharpen) else "USM off",
-                    value = sharpen.toFloat(),
-                    onChange = { vm.setSharpen(it.toDouble()) },
-                    range = 0f..Prefs.SHARPEN_LIMIT.toFloat(),
-                )
-                SettingRow("Deconvolution", deconvolution) { vm.setDeconvolution(it) }
-                if (deconvolution) {
-                    LabeledSlider(
-                        label = "Passes $deconvPasses",
-                        value = deconvPasses.toFloat(),
-                        onChange = { vm.setDeconvPasses(it.roundToInt()) },
-                        range = 1f..Prefs.DECONV_PASSES_MAX.toFloat(),
-                        steps = Prefs.DECONV_PASSES_MAX - 2,
-                    )
-                }
+                SettingRow("Peak", peak) { vm.setPeak(it) }
                 Text(
-                    if (deconvolution) {
-                        "Runs first, on every pixel. If USM is above zero, it sharpens that result afterwards. USM off leaves only the deconvolution."
-                    } else {
-                        "USM sharpens the automatic JPEG and the full-size JPEG / TIFF."
-                    },
+                    "Sharpens the automatic JPEG and the full-size JPEG / TIFF. Radius and amount are measured on each " +
+                        "negative: the smallest high-pass that brings its edges to the target, without a rim. " +
+                        "Review shows the measured pair and lets you move it; the 1:1 view shows the result.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 Spacer(Modifier.height(4.dp))

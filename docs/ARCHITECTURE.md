@@ -121,16 +121,23 @@ separation:
   that map over linear grey). The starting pair comes from `Prefs` (the
   settings sheet) and is also the automatic JPEG; a review does not write
   the pair back.
+* after a development -> `measure_peak(soft, hard)`: the native-size
+  print of the current mix (the plate's green positive), nothing
+  sharpened, through the core's `peak::tune` — the same search as the
+  desktop's `peak` program and GUI. The radius (Gaussian σ, pixels of the
+  negative) and amount are kept with the negative in memory
+  (`Darkroom.Negative.peak`); review starts its two sliders from them and
+  "Measured" returns to them.
 * pinch zoom beyond the preview resolution -> `detail(x, y, w, h, soft,
-  hard, turns, usm_amount)` for the visible window, drawn 1:1 on top of the
-  scaled preview. The app passes `usm_amount = 0` (the 1:1 window is the
-  plain mix); with `usm_amount > 0` the window is mixed with a margin of
-  `3r + 1` px, the paper is applied, `usm::unsharp` runs with the radius
-  `print::geometry` gives for the full-size print (1.49 px for 4080x3072 at
-  300 dpi) and the saturation mask window (`mask8` crop), then the margin
-  is cut off again.
-* export -> `export_jpeg` (full size, with `usm_amount`, `deconvolution`,
-  `deconv_iterations`), `export_tiff16` (with the same),
+  hard, turns, peak_radius, peak_amount)` for the visible window, drawn
+  1:1 on top of the scaled preview. With an amount above zero the window
+  is mixed with a margin of `kernel_radius(σ) + 1` px, the paper is
+  applied, `usm::unsharp` runs with the radius as given (the window is
+  1:1, so the print's scale factor is 1) and no mask, as
+  `print::apply_peak_picture` does on the full print, then the margin is
+  cut off again.
+* export -> `export_jpeg` (full size, with `peak_radius`, `peak_amount`;
+  the recipe's `sharpen` is `Off`), `export_tiff16` (with the same),
   `export_negative` (linear 16-bit TIFF + `.mask.tif`), written to a
   scratch file and imported into MediaStore. JPEG quality is the core's
   fixed 100.

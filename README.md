@@ -129,11 +129,11 @@ cargo ndk -t arm64-v8a --platform 34 build --release --lib
    is done.
    The settings sheet (slider icon) chooses the separation (Dubois /
    adaptive / mask off), Quick mode, whether the JPEG is saved
-   automatically, the soft and hard exposures, the unsharp-mask amount for the
-   automatic JPEG and the full-size exports, the Richardson–Lucy
-   deconvolution (1..10 passes on every pixel before the USM, same radius,
-   no halo but the noise comes back; `mimizan print --deconv` on the
-   desktop), and shows the storage the raw frames take with a "Delete all".
+   automatically, the soft and hard exposures, the Peak checkbox (the
+   desktop's high-pass: radius and amount measured on each negative after
+   development, the smallest pair that brings its edges to the target
+   without a rim; off leaves the exports as they are), and shows the
+   storage the raw frames take with a "Delete all".
 4. The thumbnail opens the review: pinch to zoom (beyond the 2048 px
    preview the visible window is rendered 1:1 from the negative), filter
    chips and R/B sliders change the mix, **soft** and **hard** set the two
@@ -144,8 +144,10 @@ cargo ndk -t arm64-v8a --platform 34 build --release --lib
    between the processes at once (a re-mix, the separation stays); in the
    plate the R/B sliders are the two lamps (±2 stops, twelfths), and the
    histogram shows the luminance with the three positives as outlines.
-   Sharpening and deconvolution are the
-   settings amounts: JPEG and TIFF, not the 1:1 view. Export writes the
+   With Peak on, two sliders show the
+   measured radius (σ, pixels of the negative) and amount and let you move
+   them, "Measured" goes back; the 1:1 view shows the result, the exports
+   apply it. Export writes the
    full-size JPEG, 16-bit TIFF (RGB with the plate's profile in the plate
    process), or the linear negative + saturation mask for the desktop CLI;
    in the plate process that is the stacked three-frame plate
@@ -171,7 +173,8 @@ gallery, development in 2.3–4.5 s per 12.5 MP frame (measured before core
 that on the host; 0.12.1 is on core 0.15.6, where a burnt-out green
 photosite takes the colour out of the plate around it, so clipped
 highlights print white instead of pink; 0.12.2 is on core 0.16.0, no
-change on the phone), review with remix, the three-colour plate (viewfinder,
+change on the phone; 0.13.0 is on core 0.16.3 and replaces USM and
+deconvolution with the desktop's Peak), review with remix, the three-colour plate (viewfinder,
 review, exports; the plate's preview takes about 250 ms and the colour
 JPEG about three times the grey one on the host),
 the split-grade paper, sharpening and exports, roll with delete. The phone's negative

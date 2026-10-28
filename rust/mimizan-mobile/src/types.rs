@@ -531,6 +531,37 @@ pub struct DevelopInfo {
     pub json: String,
 }
 
+/// Peak's high-pass as measured on one negative (`peak.rs` in the core):
+/// the Gaussian σ in pixels of the negative and the coefficient in
+/// `x + amount · (x − blur)`. `found` is false when no clean edge was
+/// measured; radius is then the default and amount zero.
+#[derive(Clone, Copy, Debug, PartialEq, uniffi::Record)]
+pub struct PeakMeasured {
+    pub radius: f64,
+    pub amount: f64,
+    pub found: bool,
+}
+
+/// The range the core accepts for the peak fields (`recipe.rs`).
+#[derive(Clone, Copy, Debug, PartialEq, uniffi::Record)]
+pub struct PeakLimits {
+    pub radius_default: f64,
+    pub radius_min: f64,
+    pub radius_max: f64,
+    pub amount_max: f64,
+}
+
+#[uniffi::export]
+pub fn peak_limits() -> PeakLimits {
+    use mimizan_core::recipe::{PEAK_AMOUNT_MAX, PEAK_RADIUS_DEFAULT, PEAK_RADIUS_MAX, PEAK_RADIUS_MIN};
+    PeakLimits {
+        radius_default: PEAK_RADIUS_DEFAULT,
+        radius_min: PEAK_RADIUS_MIN,
+        radius_max: PEAK_RADIUS_MAX,
+        amount_max: PEAK_AMOUNT_MAX,
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
 pub struct ExportInfo {
     pub path: String,

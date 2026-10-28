@@ -284,9 +284,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun setAutoJpeg(on: Boolean) = _develop.update { it.copy(autoJpeg = on) }
     fun setSoft(stops: Double) = darkroom.prefs.setSoft(stops)
     fun setHard(stops: Double) = darkroom.prefs.setHard(stops)
-    fun setSharpen(amount: Double) = darkroom.prefs.setSharpen(amount)
-    fun setDeconvolution(on: Boolean) = darkroom.prefs.setDeconvolution(on)
-    fun setDeconvPasses(n: Int) = darkroom.prefs.setDeconvPasses(n)
+    fun setPeak(on: Boolean) = darkroom.prefs.setPeak(on)
     fun setCompensationThirds(thirds: Int) = darkroom.prefs.setCompensationThirds(thirds)
     fun toggleZebra() = _viewfinder.update { it.copy(zebra = !it.zebra) }
     fun toggleGrid() = _viewfinder.update { it.copy(grid = !it.grid) }

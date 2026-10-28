@@ -92,7 +92,7 @@ fn run(name: &str, input: RawInput, params: DevelopParams) {
             }
             let path = dir.join(format!("mimizan-spike-{label}.jpg"));
             let t = Instant::now();
-            let out = dev.export_jpeg(path.display().to_string(), 0.0, 0.0, 0, 0.5, false, 0);
+            let out = dev.export_jpeg(path.display().to_string(), 0.0, 0.0, 0, 0.7, 0.5);
             let export_ms = t.elapsed().as_millis();
             let bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             let _ = std::fs::remove_file(&path);

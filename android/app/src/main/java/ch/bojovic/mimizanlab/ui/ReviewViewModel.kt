@@ -13,6 +13,7 @@ import ch.bojovic.mimizanlab.engine.DevelopSettings
 import ch.bojovic.mimizanlab.engine.Developed
 import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.GrayImage
+import ch.bojovic.mimizanlab.engine.PeakMeasured
 import ch.bojovic.mimizanlab.engine.PlateFilters
 import ch.bojovic.mimizanlab.engine.PlateSpace
 import ch.bojovic.mimizanlab.engine.PlateState
@@ -54,6 +55,11 @@ data class ReviewState(
     /** The lamps the sliders show (also while the picture is monochrome, so they survive a switch). */
     val lampRed: Double = 0.0,
     val lampBlue: Double = 0.0,
+    /** Peak's radius (pixels of the negative) and amount the exports and the 1:1 view use. */
+    val peakRadius: Double = Prefs.PEAK.radiusDefault,
+    val peakAmount: Double = 0.0,
+    /** What the algorithm measured on this negative; null until the development carries it. */
+    val peakMeasured: PeakMeasured? = null,
     /** Grey, or the plate in colour. */
     val preview: Bitmap? = null,
     /** The luminance's histogram (the plate's too). */
@@ -81,6 +87,13 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     private var openJob: Job? = null
     /** Last 1:1 window asked for, so a slider change can refresh it. */
     private var detailRegion: IntArray? = null
+
+    init {
+        // The Peak checkbox lives in the settings; a zoomed-in view follows it.
+        viewModelScope.launch {
+            darkroom.prefs.peak.collect { detailRegion?.let { r -> requestDetail(r[0], r[1], r[2], r[3]) } }
+        }
+    }
 
     /** Bind to a shot; follows [Darkroom.current] so a (re)development shows up. */
     fun open(name: String) {
@@ -122,6 +135,11 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                             plate = neg.info.plate,
                             lampRed = neg.info.plate?.lampRed ?: it.lampRed,
                             lampBlue = neg.info.plate?.lampBlue ?: it.lampBlue,
+                            // A (re)development has new pixels: the fields
+                            // take the measured pair, as on the desktop.
+                            peakMeasured = neg.peak,
+                            peakRadius = neg.peak?.radius ?: Prefs.PEAK.radiusDefault,
+                            peakAmount = neg.peak?.amount ?: 0.0,
                             needsDevelop = false,
                             detail = null,
                         )
@@ -181,6 +199,21 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun resetLamps() = setLamps(0.0, 0.0)
+
+    /** Peak's radius and amount by hand; only the 1:1 view has to follow (the preview is never sharpened). */
+    fun setPeak(radius: Double, amount: Double) {
+        _state.update { it.copy(peakRadius = Prefs.clampPeakRadius(radius), peakAmount = Prefs.clampPeakAmount(amount)) }
+        detailRegion?.let { r -> requestDetail(r[0], r[1], r[2], r[3]) }
+    }
+
+    /** Back to the pair the algorithm measured. */
+    fun resetPeak() {
+        val m = _state.value.peakMeasured ?: return
+        setPeak(m.radius, m.amount)
+    }
+
+    /** The amount the exports and the 1:1 view apply: zero while the Peak checkbox is off. */
+    private fun peakAmountApplied(s: ReviewState): Double = if (darkroom.prefs.peak.value) s.peakAmount else 0.0
 
     /** Sliders give R and B; G takes the rest so the sum stays 1. */
     fun setWeightsRB(r: Double, b: Double) {
@@ -289,10 +322,11 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
             renderLock.withLock {
                 try {
                     val s = _state.value
+                    val amount = peakAmountApplied(s)
                     val bitmap = if (s.plate != null) {
-                        toBitmap(d.detailRgb(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.soft, s.hard, 0u, 0.0))
+                        toBitmap(d.detailRgb(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.soft, s.hard, 0u, s.peakRadius, amount))
                     } else {
-                        toBitmap(d.detail(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.soft, s.hard, 0u, 0.0))
+                        toBitmap(d.detail(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.soft, s.hard, 0u, s.peakRadius, amount))
                     }
                     _state.update { it.copy(detail = Detail(x, y, bitmap)) }
                 } catch (t: Throwable) {
@@ -310,18 +344,12 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
 
     fun exportJpeg() = export("JPEG") { d, name, suffix ->
         val s = _state.value
-        darkroom.exportJpeg(
-            d, name, suffix, s.soft, s.hard,
-            darkroom.prefs.sharpen.value, darkroom.prefs.deconvolution.value, darkroom.prefs.deconvPasses.value,
-        )
+        darkroom.exportJpeg(d, name, suffix, s.soft, s.hard, s.peakRadius, peakAmountApplied(s))
     }
 
     fun exportTiff() = export("TIFF 16-bit") { d, name, suffix ->
         val s = _state.value
-        darkroom.exportTiff(
-            d, name, suffix, s.soft, s.hard,
-            darkroom.prefs.sharpen.value, darkroom.prefs.deconvolution.value, darkroom.prefs.deconvPasses.value,
-        )
+        darkroom.exportTiff(d, name, suffix, s.soft, s.hard, s.peakRadius, peakAmountApplied(s))
     }
 
     fun exportNegative() = export(if (_state.value.plate != null) "plate" else "negative") { d, name, _ ->

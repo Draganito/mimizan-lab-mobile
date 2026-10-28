@@ -101,8 +101,17 @@ class Darkroom private constructor(private val context: Context) {
     private val queueLock = Mutex()
     private val developLock = Mutex()
 
-    /** A developed frame plus the identity it belongs to. */
-    class Negative(val name: String, val developed: Developed, val info: DevelopInfo, val settings: DevelopSettings)
+    /**
+     * A developed frame plus the identity it belongs to, and Peak's radius
+     * and amount as measured on it (null when the measurement failed).
+     */
+    class Negative(
+        val name: String,
+        val developed: Developed,
+        val info: DevelopInfo,
+        val settings: DevelopSettings,
+        val peak: PeakMeasured?,
+    )
 
     init {
         // Frames from an earlier run are still in the cache: list them so
@@ -220,17 +229,21 @@ class Darkroom private constructor(private val context: Context) {
                 val info = developed.info()
                 Log.i(TAG, "developed $name in ${(System.nanoTime() - t0) / 1_000_000} ms: ${info.timing}")
                 val thumb = thumbnail(developed)
+                // Peak's radius and amount for this negative, as the
+                // desktop measures them on opening a picture. Measured even
+                // with the checkbox off: review can turn it on without a
+                // second pass.
+                val peak = measurePeak(developed, name)
                 // Replace the negative kept in memory.
-                _current.getAndUpdate { Negative(name, developed, info, shot.settings) }?.developed?.close()
+                _current.getAndUpdate { Negative(name, developed, info, shot.settings, peak) }?.developed?.close()
                 updateShot(name) { it.copy(status = ShotStatus.Ready(info), thumbnail = thumb) }
                 // A second development of the same frame does not add a second JPEG.
                 if (shot.settings.autoJpeg && shot.jpegUri == null) {
                     val uri = exportJpeg(
                         developed, name, suffixFor(shot.settings, info),
                         soft = prefs.soft.value, hard = prefs.hard.value,
-                        usm = prefs.sharpen.value,
-                        deconvolution = prefs.deconvolution.value,
-                        deconvPasses = prefs.deconvPasses.value,
+                        peakRadius = peak?.radius ?: Prefs.PEAK.radiusDefault,
+                        peakAmount = if (prefs.peak.value) peak?.amount ?: 0.0 else 0.0,
                     )
                     updateShot(name) { it.copy(jpegUri = uri) }
                 }
@@ -293,8 +306,23 @@ class Darkroom private constructor(private val context: Context) {
     }
 
     /**
-     * The full-size JPEG into the album, `usm` (0..[Prefs.SHARPEN_LIMIT])
-     * sharpened, or deconvolved first when `deconvolution` is set. In the
+     * Peak's radius and amount on `d` at the settings exposures; null (and
+     * a log line) when the measurement throws, so a development never
+     * fails on its sharpening.
+     */
+    private fun measurePeak(d: Developed, name: String): PeakMeasured? = try {
+        val t0 = System.nanoTime()
+        val m = d.measurePeak(prefs.soft.value, prefs.hard.value)
+        Log.i(TAG, "peak $name: radius ${m.radius} px, amount ${m.amount}, found ${m.found}, ${(System.nanoTime() - t0) / 1_000_000} ms")
+        m
+    } catch (t: Throwable) {
+        Log.w(TAG, "peak $name", t)
+        null
+    }
+
+    /**
+     * The full-size JPEG into the album, Peak's high-pass applied when
+     * `peakAmount` > 0 (`peakRadius` in pixels of the negative). In the
      * plate process the file is RGB with the plate's profile. `suffix`
      * names the filter or the plate in the file name ([suffixFor]).
      */
@@ -304,11 +332,10 @@ class Darkroom private constructor(private val context: Context) {
         suffix: String,
         soft: Double = 0.0,
         hard: Double = 0.0,
-        usm: Double = 0.0,
-        deconvolution: Boolean = false,
-        deconvPasses: Int = 2,
+        peakRadius: Double = Prefs.PEAK.radiusDefault,
+        peakAmount: Double = 0.0,
     ): Uri = exportPrint(name, suffix, "jpg", MediaStoreWriter.MIME_JPEG) { path ->
-        d.exportJpeg(path, soft, hard, 0u, usm, deconvolution, passesFor(deconvolution, deconvPasses))
+        d.exportJpeg(path, soft, hard, 0u, peakRadius, peakAmount)
     }
 
     /** The same picture as a 16-bit TIFF (RGB for a plate). */
@@ -318,11 +345,10 @@ class Darkroom private constructor(private val context: Context) {
         suffix: String,
         soft: Double = 0.0,
         hard: Double = 0.0,
-        usm: Double = 0.0,
-        deconvolution: Boolean = false,
-        deconvPasses: Int = 2,
+        peakRadius: Double = Prefs.PEAK.radiusDefault,
+        peakAmount: Double = 0.0,
     ): Uri = exportPrint(name, suffix, "tif", MediaStoreWriter.MIME_TIFF) { path ->
-        d.exportTiff16(path, soft, hard, 0u, usm, deconvolution, passesFor(deconvolution, deconvPasses))
+        d.exportTiff16(path, soft, hard, 0u, peakRadius, peakAmount)
     }
 
     /** Rust writes to a path: a scratch file in the app cache, then the copy into the album. */
@@ -336,9 +362,6 @@ class Darkroom private constructor(private val context: Context) {
             tmp.delete()
         }
     }
-
-    private fun passesFor(deconvolution: Boolean, passes: Int): UInt =
-        if (deconvolution) passes.coerceIn(1, Prefs.DECONV_PASSES_MAX).toUInt() else 0u
 
     /**
      * Linear negative + saturation mask, the desktop interchange format. In

@@ -14,30 +14,35 @@ use mimizan_core::plate::{
     mix_plate_stacked, PlateInfo, PlateParams, PlateSpace as CorePlateSpace, PlateWeights as CorePlateWeights,
 };
 use mimizan_core::print::{self as pr, orient, rotated, PrintOutput, PrintParams, PrintSource, LAMP_LIMIT};
-use mimizan_core::recipe::{Recipe, Sharpen};
+use mimizan_core::recipe::{Peak, Recipe, Sharpen};
 use mimizan_core::resize::{fit_dims, resize};
 use mimizan_core::separate::Separation;
 use mimizan_core::tiffout::{write_gray16, write_gray8, TiffMeta};
 use mimizan_core::tone::{render, Tone, ToneMap};
-use mimizan_core::usm::unsharp;
+use mimizan_core::usm::{kernel_radius, unsharp};
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Instant;
 use tracing::info;
 
-/// The sharpening mode of an export from the bridge's flat arguments:
-/// Richardson–Lucy with an optional USM, then USM alone, else off. A
-/// non-finite amount counts as zero.
-fn sharpen_mode(usm_amount: f64, deconvolution: bool, deconv_iterations: u32) -> Sharpen {
-    let usm = if usm_amount.is_finite() { usm_amount.clamp(0.0, 1.5) } else { 0.0 };
-    if deconvolution {
-        Sharpen::Deconv { passes: deconv_iterations.clamp(1, 10), usm_amount: usm }
-    } else if usm > 0.0 {
-        Sharpen::Usm { amount: usm }
-    } else {
-        Sharpen::Off
-    }
+/// The peak high-pass of an export from the bridge's flat arguments: the
+/// pair pulled into the core's range, on when the amount is above zero. A
+/// non-finite amount counts as zero, a non-finite radius as the default.
+fn peak_of(radius: f64, amount: f64) -> Peak {
+    let (radius, amount) = Peak::clamp_measured(radius, amount);
+    Peak { on: amount > 0.0, radius, amount }
+}
+
+/// The print recipe of an export: the paper, no USM or deconvolution, the
+/// peak as given.
+fn export_recipe(soft: f64, hard: f64, peak_radius: f64, peak_amount: f64) -> Result<Recipe> {
+    Ok(Recipe {
+        curve: Tone::Paper(split_grade(soft, hard)?),
+        sharpen: Sharpen::Off,
+        peak: peak_of(peak_radius, peak_amount),
+        ..Recipe::default()
+    })
 }
 
 /// Upright, downscaled separation for the preview (never sharpened).
@@ -391,8 +396,8 @@ fn crop(p: &Plane, x: usize, y: usize, w: usize, h: usize) -> Plane {
 }
 
 /// The geometry of a 1:1 window: the asked rectangle in display
-/// coordinates, clamped; the margin the USM needs so the blur does not see
-/// the window edge; the source rectangle in the sensor frame.
+/// coordinates, clamped; the margin the peak's blur needs so it does not
+/// see the window edge; the source rectangle in the sensor frame.
 struct DetailWindow {
     o: u16,
     x0: usize,
@@ -404,7 +409,9 @@ struct DetailWindow {
     /// Source rectangle (sensor frame) of the window plus margin.
     src: (usize, usize, usize, usize),
     map: ToneMap,
-    usm: f64,
+    peak: Peak,
+    /// The peak's radius in the window's pixels: the window is 1:1, so the
+    /// print's scale is 1 and the radius is the negative's.
     r_px: f64,
 }
 
@@ -419,7 +426,8 @@ impl DetailWindow {
         soft: f64,
         hard: f64,
         extra_quarter_turns: u8,
-        usm_amount: f64,
+        peak_radius: f64,
+        peak_amount: f64,
     ) -> Result<Self> {
         let o = rotated(g.orientation, extra_quarter_turns);
         let (sw, sh) = (g.sep.lum.width, g.sep.lum.height);
@@ -429,29 +437,16 @@ impl DetailWindow {
         let rw = (width as usize).clamp(1, (dw - x0).max(1));
         let rh = (height as usize).clamp(1, (dh - y0).max(1));
 
-        // Radius the export would use, from the same geometry.
         let map = paper(soft, hard)?;
-        let usm = if usm_amount.is_finite() { usm_amount.clamp(0.0, 1.5) } else { 0.0 };
-        let r_px = if usm > 0.0 {
-            let params = PrintParams {
-                recipe: Recipe {
-                    curve: Tone::Paper(split_grade(soft, hard)?),
-                    sharpen: Sharpen::Usm { amount: usm },
-                    ..Recipe::default()
-                },
-                ..Default::default()
-            };
-            pr::layout(sw, sh, o, &params).usm_radius_px
-        } else {
-            0.0
-        };
-        let margin = if usm > 0.0 { (3.0 * r_px).ceil() as usize + 1 } else { 0 };
+        let peak = peak_of(peak_radius, peak_amount);
+        let r_px = pr::peak_print_radius(peak.radius, 1.0);
+        let margin = if peak.applies() { kernel_radius(r_px) + 1 } else { 0 };
         let mx0 = x0.saturating_sub(margin);
         let my0 = y0.saturating_sub(margin);
         let mx1 = (x0 + rw + margin).min(dw);
         let my1 = (y0 + rh + margin).min(dh);
         let src = source_rect(o, sw, sh, mx0, my0, mx1 - mx0, my1 - my0);
-        Ok(Self { o, x0, y0, rw, rh, mx0, my0, src, map, usm, r_px })
+        Ok(Self { o, x0, y0, rw, rh, mx0, my0, src, map, peak, r_px })
     }
 
     /// The window (plus margin) of the three separation planes, sensor frame.
@@ -461,18 +456,12 @@ impl DetailWindow {
     }
 
     /// One positive of the window: upright, placed by `lamp`, the paper,
-    /// the USM with the sidecar's mask, the margin cut away. Print values
-    /// in [0, 1], `rw × rh`.
-    fn positive(&self, g: &Inner, mixed: Plane, lamp: f64) -> Plane {
+    /// the peak on every pixel (no mask, as the print), the margin cut
+    /// away. Print values in [0, 1], `rw × rh`.
+    fn positive(&self, mixed: Plane, lamp: f64) -> Plane {
         let mut up = orient(&mixed, self.o);
         render(&mut up, lamp, &self.map);
-        let encoded = if self.usm > 0.0 {
-            let (cx, cy, cw, ch) = self.src;
-            let mask = orient(&g.mask_crop(cx, cy, cw, ch), self.o);
-            unsharp(&up, self.r_px, self.usm, Some(&mask))
-        } else {
-            up
-        };
+        let encoded = if self.peak.applies() { unsharp(&up, self.r_px, self.peak.amount, None) } else { up };
         crop(&encoded, self.x0 - self.mx0, self.y0 - self.my0, self.rw, self.rh)
     }
 }
@@ -493,19 +482,6 @@ impl Inner {
             self.sep.lum.height,
             self.mask8.par_iter().map(|&v| f64::from(v) / 255.0).collect(),
         )
-    }
-
-    /// Window of the sidecar as a plane, without materialising the whole mask.
-    fn mask_crop(&self, x: usize, y: usize, w: usize, h: usize) -> Plane {
-        let stride = self.sep.lum.width;
-        let mut out = Plane::zeros(w, h);
-        for r in 0..h {
-            let src = &self.mask8[(y + r) * stride + x..(y + r) * stride + x + w];
-            for (o, &v) in out.row_mut(r).iter_mut().zip(src) {
-                *o = f64::from(v) / 255.0;
-            }
-        }
-        out
     }
 
     fn info(&self) -> DevelopInfo {
@@ -737,10 +713,10 @@ impl Developed {
 
     /// 1:1 window of the full-resolution negative. The rectangle is in the
     /// coordinates of the displayed picture (file orientation plus
-    /// `extra_quarter_turns`); it is clamped to the picture. `usm_amount`
-    /// > 0 sharpens the window the way the full-size export would (same
-    /// radius, saturation mask respected), with a margin so the blur does
-    /// not see the window edge.
+    /// `extra_quarter_turns`); it is clamped to the picture. A
+    /// `peak_amount` > 0 sharpens the window the way the full-size export
+    /// does (`peak_radius` in pixels of the negative, which at 1:1 are the
+    /// window's), with a margin so the blur does not see the window edge.
     #[allow(clippy::too_many_arguments)] // UniFFI method: a flat argument list is the interface
     pub fn detail(
         &self,
@@ -751,13 +727,25 @@ impl Developed {
         soft: f64,
         hard: f64,
         extra_quarter_turns: u8,
-        usm_amount: f64,
+        peak_radius: f64,
+        peak_amount: f64,
     ) -> Result<GrayImage> {
         let g = lock_msg(self.inner.lock());
-        let win = DetailWindow::new(&g, x, y, width, height, soft, hard, extra_quarter_turns, usm_amount)?;
+        let win = DetailWindow::new(
+            &g,
+            x,
+            y,
+            width,
+            height,
+            soft,
+            hard,
+            extra_quarter_turns,
+            peak_radius,
+            peak_amount,
+        )?;
         let (lum, c1, c2) = win.crops(&g);
         let mixed = if g.weights.is_native() { lum } else { mix_planes(&lum, &c1, &c2, &g.weights) };
-        let plane = win.positive(&g, mixed, 0.0);
+        let plane = win.positive(mixed, 0.0);
         let data = plane.data.par_iter().map(|&v| (v.clamp(0.0, 1.0) * 255.0).round() as u8).collect();
         Ok(GrayImage { width: win.rw as u32, height: win.rh as u32, data })
     }
@@ -775,18 +763,30 @@ impl Developed {
         soft: f64,
         hard: f64,
         extra_quarter_turns: u8,
-        usm_amount: f64,
+        peak_radius: f64,
+        peak_amount: f64,
     ) -> Result<RgbImage> {
         let g = lock_msg(self.inner.lock());
         let p = g.plate_or_err()?;
-        let win = DetailWindow::new(&g, x, y, width, height, soft, hard, extra_quarter_turns, usm_amount)?;
+        let win = DetailWindow::new(
+            &g,
+            x,
+            y,
+            width,
+            height,
+            soft,
+            hard,
+            extra_quarter_turns,
+            peak_radius,
+            peak_amount,
+        )?;
         let (lum, c1, c2) = win.crops(&g);
         let lamps = lamps_rgb(g.lamps);
         let rows = p.weights.weights();
         let mut planes: [Option<Plane>; 3] = [None, None, None];
         for c in 0..3 {
             let mixed = mix_planes(&lum, &c1, &c2, &rows[c]);
-            planes[c] = Some(win.positive(&g, mixed, lamps[c]));
+            planes[c] = Some(win.positive(mixed, lamps[c]));
         }
         let [Some(r), Some(gr), Some(b)] = planes else { unreachable!() };
         let n = r.data.len();
@@ -818,15 +818,43 @@ impl Developed {
         Ok(bins)
     }
 
+    /// Peak's radius and amount for this negative, measured on the
+    /// native-size print at these paper exposures the way the desktop does
+    /// (`peak::tune` in the core): the current mix, or the plate's green
+    /// positive; nothing sharpened for the render, no border, no scaling.
+    /// The result is already inside the range `export_jpeg` accepts. Costs
+    /// one full-resolution print pass.
+    pub fn measure_peak(&self, soft: f64, hard: f64) -> Result<PeakMeasured> {
+        let g = lock_msg(self.inner.lock());
+        let t = Instant::now();
+        let params = PrintParams { recipe: export_recipe(soft, hard, 0.0, 0.0)?, ..Default::default() };
+        let weights = match g.plate {
+            Some(p) => p.weights.weights()[1],
+            None => g.weights,
+        };
+        let mask = g.mask_plane();
+        let out = g.render_positive(&weights, &mask, &params, g.orientation, 0.0);
+        drop(mask);
+        let samples: Vec<f32> = out.plane.data.par_iter().map(|&v| v as f32).collect();
+        let (w, h) = (out.plane.width, out.plane.height);
+        drop(out);
+        let tuned = mimizan_core::peak::tune(&samples, w, h);
+        let (radius, amount) = Peak::clamp_measured(tuned.radius, tuned.amount);
+        info!(
+            "peak measured: radius {radius:.2} px, amount {amount:.2}, edge {} in {} ms",
+            if tuned.found { "found" } else { "not found" },
+            t.elapsed().as_millis()
+        );
+        Ok(PeakMeasured { radius, amount, found: tuned.found })
+    }
+
     /// Print as JPEG (8-bit grey, quality 100, grey ICC) at full size:
-    /// the paper applied, then unsharp masking with `usm_amount` (0..1.5,
-    /// radius from the print geometry, saturation masked), Richardson–Lucy
-    /// on every pixel (`deconvolution`, `deconv_iterations` passes, same
-    /// radius, no mask) followed by USM when `usm_amount` > 0, or nothing
-    /// sharpened. `soft` and `hard` are stops from the base exposure. In
-    /// the plate process the file is 8-bit RGB with the plate's ICC
-    /// profile: the three positives through the same pass, placed by their
-    /// lamps.
+    /// the paper applied, then Peak's high-pass on the picture when
+    /// `peak_amount` > 0 (`peak_radius` σ in pixels of the negative, the
+    /// pair `measure_peak` returns or the user's; no mask, as the desktop
+    /// print). `soft` and `hard` are stops from the base exposure. In the
+    /// plate process the file is 8-bit RGB with the plate's ICC profile:
+    /// the three positives through the same pass, placed by their lamps.
     #[allow(clippy::too_many_arguments)] // UniFFI method: a flat argument list is the interface
     pub fn export_jpeg(
         &self,
@@ -834,17 +862,12 @@ impl Developed {
         soft: f64,
         hard: f64,
         extra_quarter_turns: u8,
-        usm_amount: f64,
-        deconvolution: bool,
-        deconv_iterations: u32,
+        peak_radius: f64,
+        peak_amount: f64,
     ) -> Result<ExportInfo> {
         let g = lock_msg(self.inner.lock());
         let params = PrintParams {
-            recipe: Recipe {
-                curve: Tone::Paper(split_grade(soft, hard)?),
-                sharpen: sharpen_mode(usm_amount, deconvolution, deconv_iterations),
-                ..Recipe::default()
-            },
+            recipe: export_recipe(soft, hard, peak_radius, peak_amount)?,
             ..Default::default()
         };
         let p = PathBuf::from(path);
@@ -855,9 +878,8 @@ impl Developed {
     }
 
     /// Print as 16-bit grey TIFF, gamma 2.2 ICC, full resolution, the paper
-    /// applied. Richardson–Lucy runs first when `deconvolution` is set,
-    /// then USM when `usm_amount` > 0. In the plate process: 16-bit RGB
-    /// with the plate's ICC profile.
+    /// applied, the peak as in `export_jpeg`. In the plate process: 16-bit
+    /// RGB with the plate's ICC profile.
     #[allow(clippy::too_many_arguments)] // UniFFI method: a flat argument list is the interface
     pub fn export_tiff16(
         &self,
@@ -865,17 +887,12 @@ impl Developed {
         soft: f64,
         hard: f64,
         extra_quarter_turns: u8,
-        usm_amount: f64,
-        deconvolution: bool,
-        deconv_iterations: u32,
+        peak_radius: f64,
+        peak_amount: f64,
     ) -> Result<ExportInfo> {
         let g = lock_msg(self.inner.lock());
         let params = PrintParams {
-            recipe: Recipe {
-                curve: Tone::Paper(split_grade(soft, hard)?),
-                sharpen: sharpen_mode(usm_amount, deconvolution, deconv_iterations),
-                ..Recipe::default()
-            },
+            recipe: export_recipe(soft, hard, peak_radius, peak_amount)?,
             ..Default::default()
         };
         let p = PathBuf::from(path);
