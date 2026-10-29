@@ -51,8 +51,11 @@ final class CaptureState {
     var error: String?
     /// 64 bins of the viewfinder picture, normalised to the largest.
     var histogram: [Float] = Array(repeating: 0, count: 64)
-    /// Width / height of the finder frames as delivered (after rotation).
+    /// Width / height of the finder picture as shown (after rotation).
     var frameAspect: CGFloat = 3.0 / 4.0
+    /// Quarter-turns clockwise the shader applies when the camera refused to
+    /// rotate the frames itself. 0 once the connection honours the angle.
+    var rotationQuarters: Int = 0
     /// The camera's white-balance gains R, G, B of the moment.
     var wbGains: [Double]?
 }
@@ -224,13 +227,25 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     }
 
     private func applyPreviewRotation(_ angle: CGFloat) {
-        guard let c = videoOutput.connection(with: .video), c.isVideoRotationAngleSupported(angle) else { return }
-        c.videoRotationAngle = angle
+        // Ask the connection first. It only honours the angle when the
+        // bundle opted in; when it refuses, the frames stay in the sensor's
+        // orientation and the shader turns them (`FinderUniforms.rotation`).
+        var applied = false
+        if let c = videoOutput.connection(with: .video), c.isVideoRotationAngleSupported(angle) {
+            c.videoRotationAngle = angle
+            applied = true
+        }
         let d = device?.activeFormat.formatDescription.dimensions
         let w = CGFloat(d?.width ?? 4), h = CGFloat(d?.height ?? 3)
-        let turned = Int(angle.rounded()) % 180 != 0
+        let quarter = Int(angle.rounded()) / 90
+        let turned = quarter % 2 != 0
         let aspect = turned ? h / w : w / h
-        Task { @MainActor in self.state.frameAspect = aspect }
+        // What the shader still has to turn, in quarter-turns clockwise.
+        let shaderTurns = applied ? 0 : ((4 - (quarter % 4 + 4) % 4) % 4)
+        Task { @MainActor in
+            self.state.frameAspect = aspect
+            self.state.rotationQuarters = shaderTurns
+        }
     }
 
     // MARK: controls
@@ -272,7 +287,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         queue.async {
             guard let d = self.device else { return }
             let angle = self.rotation?.videoRotationAngleForHorizonLevelPreview ?? 0
-            let dp = CaptureSession.devicePoint(p, previewAngle: angle)
+            let dp = CaptureSession.devicePoint(p, previewAngle: angle, shaderQuarters: self.state.rotationQuarters)
             do {
                 try d.lockForConfiguration()
                 defer { d.unlockForConfiguration() }
@@ -306,9 +321,12 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     }
 
     /// A point of the upright finder picture (0..1) in the device's own
-    /// frame (landscape sensor, origin top-left), undoing the preview rotation.
-    static func devicePoint(_ p: CGPoint, previewAngle: CGFloat) -> CGPoint {
-        switch Int(previewAngle.rounded()) % 360 {
+    /// frame (landscape sensor, origin top-left), undoing the rotation the
+    /// picture was shown with: the connection's angle, or the shader's
+    /// quarter-turns when the connection refused.
+    static func devicePoint(_ p: CGPoint, previewAngle: CGFloat, shaderQuarters: Int) -> CGPoint {
+        let shown = shaderQuarters == 0 ? Int(previewAngle.rounded()) : (360 - shaderQuarters * 90)
+        switch (shown % 360 + 360) % 360 {
         case 90: return CGPoint(x: p.y, y: 1 - p.x)
         case 180: return CGPoint(x: 1 - p.x, y: 1 - p.y)
         case 270: return CGPoint(x: 1 - p.y, y: p.x)

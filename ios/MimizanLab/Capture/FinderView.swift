@@ -18,6 +18,7 @@ private struct FinderUniforms {
     var plate: Float
     var lutLast: Float
     var zebra: Float
+    var rotation: Float
 }
 
 final class FinderRenderer: NSObject, MTKViewDelegate {
@@ -25,7 +26,7 @@ final class FinderRenderer: NSObject, MTKViewDelegate {
     private let queue: MTLCommandQueue
     private let pipeline: MTLComputePipelineState
     private var textureCache: CVMetalTextureCache?
-    private let lock = OSAllocatedUnfairLock<(CVPixelBuffer?, FinderTone?)>(initialState: (nil, nil))
+    private let lock = OSAllocatedUnfairLock<(CVPixelBuffer?, FinderTone?, Int)>(initialState: (nil, nil, 0))
     private var lutBuffer: MTLBuffer?
     private var lutFor: [Float] = []
 
@@ -56,10 +57,15 @@ final class FinderRenderer: NSObject, MTKViewDelegate {
         lock.withLockUnchecked { $0.1 = tone }
     }
 
+    /// Quarter-turns clockwise the shader applies to the camera frame.
+    func set(rotationQuarters: Int) {
+        lock.withLockUnchecked { $0.2 = rotationQuarters }
+    }
+
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     func draw(in view: MTKView) {
-        let (frame, tone) = lock.withLockUnchecked { $0 }
+        let (frame, tone, turns) = lock.withLockUnchecked { $0 }
         guard let frame, let tone, let cache = textureCache,
               let drawable = view.currentDrawable
         else { return }
@@ -81,7 +87,8 @@ final class FinderRenderer: NSObject, MTKViewDelegate {
             lampGain: tone.lampGain,
             plate: tone.plate == nil ? 0 : 1,
             lutLast: Float(tone.lut.count - 1),
-            zebra: tone.zebra
+            zebra: tone.zebra,
+            rotation: Float(turns)
         )
         guard let cmd = queue.makeCommandBuffer(), let enc = cmd.makeComputeCommandEncoder() else { return }
         enc.setComputePipelineState(pipeline)

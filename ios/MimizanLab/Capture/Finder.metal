@@ -15,6 +15,9 @@ struct FinderUniforms {
     float plate;
     float lutLast;
     float zebra;
+    // Quarter-turns clockwise to apply when the camera delivers the frame
+    // in the sensor's own orientation. 0 when the connection rotated it.
+    float rotation;
 };
 
 static inline float lin(float c) {
@@ -36,7 +39,12 @@ kernel void finder(texture2d<float, access::sample> src [[texture(0)]],
 {
     if (gid.x >= dst.get_width() || gid.y >= dst.get_height()) return;
     constexpr sampler s(filter::linear, address::clamp_to_edge, coord::normalized);
-    float2 uv = (float2(gid) + 0.5f) / float2(dst.get_width(), dst.get_height());
+    float2 p = (float2(gid) + 0.5f) / float2(dst.get_width(), dst.get_height());
+    float2 uv = p;
+    int turns = int(u.rotation + 0.5f) % 4;
+    if (turns == 1) uv = float2(p.y, 1.0f - p.x);        // 90 clockwise
+    else if (turns == 2) uv = float2(1.0f - p.x, 1.0f - p.y);
+    else if (turns == 3) uv = float2(1.0f - p.y, p.x);   // 90 counter-clockwise
     float4 c = src.sample(s, uv);
     float3 l = float3(lin(c.r), lin(c.g), lin(c.b));
     float3 o;

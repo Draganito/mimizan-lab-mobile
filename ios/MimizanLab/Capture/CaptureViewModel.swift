@@ -62,6 +62,7 @@ final class CaptureViewModel {
             _ = prefs.soft; _ = prefs.hard; _ = prefs.lampRed; _ = prefs.lampBlue
             _ = prefs.process; _ = prefs.plateFilters; _ = prefs.plateSpace
             _ = local; _ = viewfinder.zebra; _ = lens
+            _ = session.state.rotationQuarters
             _ = darkroom.shots.first?.meta.xyzToCam
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
@@ -117,6 +118,7 @@ final class CaptureViewModel {
             session.tone = t
             renderer?.set(tone: t)
         }
+        renderer?.set(rotationQuarters: session.state.rotationQuarters)
     }
 
     /// The sensor's XYZ → camera matrix as the last DNG of this lens
