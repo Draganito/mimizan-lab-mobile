@@ -36,6 +36,9 @@ struct ExposureSettings: Equatable {
 @MainActor
 @Observable
 final class CaptureState {
+    /// Created by the session off the main actor; every field has its start value.
+    nonisolated init() {}
+
     var lens: LensInfo?
     var iso: Int?
     var exposureSeconds: Double?

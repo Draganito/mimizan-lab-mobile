@@ -39,7 +39,7 @@ enum Images {
         let scale = max(1, (max(sw, sh) + box - 1) / box)
         let w = sw / scale, h = sh / scale
         var px = [UInt8](repeating: 0, count: w * h)
-        g.data.withUnsafeBytes { src in
+        g.data.withUnsafeBytes { (src: UnsafeRawBufferPointer) in
             for y in 0..<h {
                 let row = y * scale * sw
                 for x in 0..<w { px[y * w + x] = src[row + x * scale] }
@@ -54,7 +54,7 @@ enum Images {
         let scale = max(1, (max(sw, sh) + box - 1) / box)
         let w = sw / scale, h = sh / scale
         var px = [UInt8](repeating: 0, count: 3 * w * h)
-        g.data.withUnsafeBytes { src in
+        g.data.withUnsafeBytes { (src: UnsafeRawBufferPointer) in
             for y in 0..<h {
                 let row = y * scale * sw
                 for x in 0..<w {

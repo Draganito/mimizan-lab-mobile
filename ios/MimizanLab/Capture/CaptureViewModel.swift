@@ -22,7 +22,7 @@ struct ViewfinderSettings: Equatable {
 final class CaptureViewModel {
     let darkroom = Darkroom.shared
     let session = CaptureSession()
-    let renderer = FinderRenderer()
+    let renderer = FinderRenderer.make()
     let lenses: [LensInfo]
 
     private(set) var lens: LensInfo?

@@ -29,13 +29,18 @@ final class FinderRenderer: NSObject, MTKViewDelegate {
     private var lutBuffer: MTLBuffer?
     private var lutFor: [Float] = []
 
-    init?() {
+    /// nil without a Metal device or the `finder` kernel in the bundle.
+    static func make() -> FinderRenderer? {
         guard let device = MTLCreateSystemDefaultDevice(),
               let queue = device.makeCommandQueue(),
               let lib = device.makeDefaultLibrary(),
               let fn = lib.makeFunction(name: "finder"),
               let pipeline = try? device.makeComputePipelineState(function: fn)
         else { return nil }
+        return FinderRenderer(device: device, queue: queue, pipeline: pipeline)
+    }
+
+    private init(device: MTLDevice, queue: MTLCommandQueue, pipeline: MTLComputePipelineState) {
         self.device = device
         self.queue = queue
         self.pipeline = pipeline
