@@ -59,6 +59,7 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
         INFOPLIST_KEY_UIStatusBarStyle: UIStatusBarStyleLightContent
+        INFOPLIST_KEY_AVCaptureVideoRotationAngleEnabled: YES
         # The Rust static library needs these beyond what the package declares.
         OTHER_LDFLAGS: "-liconv -lresolv"
         MTL_ENABLE_DEBUG_INFO: NO
