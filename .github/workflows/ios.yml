@@ -98,7 +98,7 @@ jobs:
             -derivedDataPath DerivedData \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             -IDEBuildingContinueBuildingAfterErrors=YES \
-            build | tee build.log | grep -E "error:|\*\* BUILD" || true
+            build | tee build.log | grep -E "error:|\.swift:[0-9]+:[0-9]+: warning:|\*\* BUILD" || true
           grep -q "\*\* BUILD SUCCEEDED \*\*" build.log
       - name: Package
         working-directory: mimizan-lab-mobile/ios
