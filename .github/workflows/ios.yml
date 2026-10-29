@@ -71,13 +71,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: mimizan-lab-mobile/rust/mimizan-mobile
-      - name: Xcode
-        # The runner's default Xcode: its simulator runtime matches its
-        # SDK, which the asset-catalog compiler insists on even for a
-        # device build.
-        run: |
-          xcode-select -p
-          xcodebuild -version
+      - name: Xcode 26
+        # App Store Connect rejects anything built with an SDK older than
+        # iOS 26, so the unsigned build uses the same toolchain as the
+        # TestFlight one.
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.0"
       - name: Core, bindings, xcframework
         working-directory: mimizan-lab-mobile
         run: scripts/build_ios.sh --device-only
