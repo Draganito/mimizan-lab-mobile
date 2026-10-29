@@ -1,0 +1,143 @@
+# Signs the iOS app and uploads it to TestFlight, from a macOS runner,
+# without a certificate on the runner: the archive is built unsigned,
+# `xcodebuild -exportArchive` signs it with Apple's cloud-managed
+# distribution certificate (an App Store Connect API key with the Admin
+# role allows that), and `altool` uploads the result.
+#
+# Repository secrets (Settings → Secrets and variables → Actions):
+#   APPLE_TEAM_ID     the 10-character Team ID (developer.apple.com → Membership)
+#   ASC_KEY_ID        the API key's Key ID
+#   ASC_ISSUER_ID     the Issuer ID shown above the key list
+#   ASC_API_KEY_P8    the .p8 file, base64 (`base64 -w0 AuthKey_XXXXXXXXXX.p8`)
+#
+# Needs an app record in App Store Connect with the bundle ID
+# ch.bojovic.mimizanlab. Internal testers see every build as soon as
+# processing is done; no review.
+name: TestFlight
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  testflight:
+    name: Sign and upload
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mimizan-lab-mobile
+      - uses: actions/checkout@v4
+        with:
+          repository: Draganito/mimizan
+          path: mimizan
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mimizan-lab-mobile/rust/mimizan-mobile
+      - name: Xcode
+        run: |
+          xcode-select -p
+          xcodebuild -version
+      - name: Core, bindings, xcframework
+        working-directory: mimizan-lab-mobile
+        run: scripts/build_ios.sh --device-only
+      - name: XcodeGen
+        working-directory: mimizan-lab-mobile/ios
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: API key
+        env:
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          test -n "$ASC_API_KEY_P8" || { echo "secret ASC_API_KEY_P8 is empty" >&2; exit 1; }
+          mkdir -p "$HOME/private_keys" "$RUNNER_TEMP/keys"
+          echo "$ASC_API_KEY_P8" | base64 --decode > "$RUNNER_TEMP/keys/AuthKey.p8"
+          cp "$RUNNER_TEMP/keys/AuthKey.p8" "$HOME/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          chmod 600 "$RUNNER_TEMP/keys/AuthKey.p8" "$HOME/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+
+      - name: Archive (unsigned)
+        working-directory: mimizan-lab-mobile/ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project MimizanLab.xcodeproj \
+            -scheme MimizanLab \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath DerivedData \
+            -archivePath build/MimizanLab.xcarchive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            archive | tee archive.log | grep -E "error:|\.swift:[0-9]+:[0-9]+: warning:|\*\* ARCHIVE" || true
+          grep -q "\*\* ARCHIVE SUCCEEDED \*\*" archive.log
+
+      - name: Export (cloud signing)
+        working-directory: mimizan-lab-mobile/ios
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -o pipefail
+          cat > ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>export</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>teamID</key><string>${APPLE_TEAM_ID}</string>
+            <key>uploadSymbols</key><true/>
+            <key>manageAppVersionAndBuildNumber</key><true/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath build/MimizanLab.xcarchive \
+            -exportOptionsPlist ExportOptions.plist \
+            -exportPath out \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            | tee export.log | grep -E "error:|EXPORT" || true
+          grep -q "\*\* EXPORT SUCCEEDED \*\*" export.log
+          ls -la out
+          codesign -dv --entitlements - out/MimizanLab.ipa 2>/dev/null || true
+
+      - name: Upload to TestFlight
+        working-directory: mimizan-lab-mobile/ios
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          xcrun altool --upload-app --type ios --file out/MimizanLab.ipa \
+            --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MimizanLab-ios-signed
+          path: mimizan-lab-mobile/ios/out/MimizanLab.ipa
+          if-no-files-found: error
+      - name: Logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: testflight-logs
+          path: |
+            mimizan-lab-mobile/ios/archive.log
+            mimizan-lab-mobile/ios/export.log
+            mimizan-lab-mobile/ios/out/*.log
+            mimizan-lab-mobile/ios/out/*.plist
+          if-no-files-found: ignore

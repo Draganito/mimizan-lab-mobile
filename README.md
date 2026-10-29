@@ -141,6 +141,14 @@ identity: a free Apple ID signs for seven days, the Developer Program for a
 year and for TestFlight / the App Store. The unsigned CI artifact is for
 re-signing tools.
 
+The `TestFlight` workflow (manual, or on a `v*` tag) signs and uploads
+without any certificate on the runner: the archive is built unsigned and
+`xcodebuild -exportArchive` signs it with Apple's cloud-managed
+distribution certificate through an App Store Connect API key (Admin
+role). It needs the repository secrets `APPLE_TEAM_ID`, `ASC_KEY_ID`,
+`ASC_ISSUER_ID`, `ASC_API_KEY_P8` (the `.p8`, base64) and an app record
+with the bundle ID `ch.bojovic.mimizanlab` in App Store Connect.
+
 Requirements: iOS 17, a device whose camera offers Bayer RAW (iPhone 12 and
 later; the iPad Pro / Air cameras do, older iPads do not — those can still
 import and develop files). iPhones from the 14 Pro on deliver 48 MP DNGs
