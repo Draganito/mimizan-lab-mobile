@@ -71,9 +71,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: mimizan-lab-mobile/rust/mimizan-mobile
-      - name: Select Xcode
+      - name: Xcode
+        # The runner's default Xcode: its simulator runtime matches its
+        # SDK, which the asset-catalog compiler insists on even for a
+        # device build.
         run: |
-          sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s "$(ls -d /Applications/Xcode_16*.app | tail -1)"
+          xcode-select -p
           xcodebuild -version
       - name: Core, bindings, xcframework
         working-directory: mimizan-lab-mobile
@@ -94,7 +97,8 @@ jobs:
             -destination 'generic/platform=iOS' \
             -derivedDataPath DerivedData \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            build | tee build.log | grep -E "error:|warning: unre|\*\* BUILD" || true
+            -IDEBuildingContinueBuildingAfterErrors=YES \
+            build | tee build.log | grep -E "error:|\*\* BUILD" || true
           grep -q "\*\* BUILD SUCCEEDED \*\*" build.log
       - name: Package
         working-directory: mimizan-lab-mobile/ios
