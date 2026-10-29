@@ -35,9 +35,8 @@ in the algorithm is duplicated in the mobile crate.
    the characteristics and the capture result used for metadata are the
    physical ones (`physicalCameraTotalResults`).
 2. The repeating request carries the user's controls: `CONTROL_AE_MODE_ON`
-   + EV compensation (the viewfinder's EV slider plus the standing
-   compensation from the settings, `Prefs.compensationThirds`, summed in
-   the HAL's steps by `aeCompensationSteps`), or `CONTROL_AE_MODE_OFF` with `SENSOR_SENSITIVITY` /
+   + EV compensation (the viewfinder's EV slider, in the HAL's steps,
+   clamped by `aeCompensationSteps`), or `CONTROL_AE_MODE_OFF` with `SENSOR_SENSITIVITY` /
    `SENSOR_EXPOSURE_TIME`; AF continuous-picture, or AUTO plus a trigger
    after a tap (regions set for AF and AE); AWB auto. Flash stays off on
    this request, so the viewfinder never lights the LED.

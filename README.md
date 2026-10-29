@@ -103,10 +103,7 @@ cargo ndk -t arm64-v8a --platform 34 build --release --lib
    Auto / On; the viewfinder stays dark and the flash fires only on the
    still. The switch changes between automatic (with EV compensation) and
    manual ISO / shutter. With manual exposure, Auto does not fire and On
-   fires once. *comp* in the settings sheet (under *Exposure*) is a
-   standing compensation in thirds of a stop, ±3 EV, kept across starts
-   and added to the phone's auto-exposure; the EV slider on the viewfinder
-   comes on top of it for the single shot.
+   fires once.
 2. The process row, *Mono · Plate*, chooses the darkroom's process, kept
    across starts. In *Mono* the filter row (Pan, Y8, YG11, O16, R25, G58,
    B47) is the "film" for the shot; it can be changed afterwards in review
@@ -174,7 +171,8 @@ that on the host; 0.12.1 is on core 0.15.6, where a burnt-out green
 photosite takes the colour out of the plate around it, so clipped
 highlights print white instead of pink; 0.12.2 is on core 0.16.0, no
 change on the phone; 0.14.0 is on core 0.16.3 and replaces USM and
-deconvolution with the desktop's Peak), review with remix, the three-colour plate (viewfinder,
+deconvolution with the desktop's Peak; 0.14.1 is on core 0.16.4 and
+drops the standing exposure compensation from the settings), review with remix, the three-colour plate (viewfinder,
 review, exports; the plate's preview takes about 250 ms and the colour
 JPEG about three times the grey one on the host),
 the split-grade paper, sharpening and exports, roll with delete. The phone's negative

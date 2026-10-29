@@ -35,7 +35,6 @@ import java.util.concurrent.Executor
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.abs
-import kotlin.math.roundToInt
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -57,8 +56,6 @@ data class ExposureSettings(
     val exposureNs: Long? = null,
     /** The EV slider on the viewfinder, in the HAL's compensation steps. */
     val evSteps: Int = 0,
-    /** Standing compensation from the settings, in stops; added to [evSteps] on A. */
-    val compensationStops: Double = 0.0,
 ) {
     val manual: Boolean get() = iso != null && exposureNs != null
 }
@@ -675,11 +672,8 @@ class CameraController(context: Context) {
         private const val ANALYSIS_PERIOD_MS = 66L
         private val SRGB_LINEAR = FloatArray(256) { IspControls.decode(it / 255f) }
 
-        /** The EV slider plus the standing compensation, in the HAL's compensation steps, within its range. */
-        internal fun aeCompensationSteps(e: ExposureSettings, lens: LensInfo): Int {
-            val step = lens.evStep.toDouble()
-            val standing = if (step > 0) (e.compensationStops / step).roundToInt() else 0
-            return (e.evSteps + standing).coerceIn(lens.evRange.lower, lens.evRange.upper)
-        }
+        /** The EV slider, in the HAL's compensation steps, within its range. */
+        internal fun aeCompensationSteps(e: ExposureSettings, lens: LensInfo): Int =
+            e.evSteps.coerceIn(lens.evRange.lower, lens.evRange.upper)
     }
 }

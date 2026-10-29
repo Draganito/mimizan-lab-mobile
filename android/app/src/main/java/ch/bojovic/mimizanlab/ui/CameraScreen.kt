@@ -104,7 +104,6 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val soft by vm.darkroom.prefs.soft.collectAsStateWithLifecycle()
     val hard by vm.darkroom.prefs.hard.collectAsStateWithLifecycle()
     val peak by vm.darkroom.prefs.peak.collectAsStateWithLifecycle()
-    val compensation by vm.darkroom.prefs.compensationThirds.collectAsStateWithLifecycle()
     val lampRed by vm.darkroom.prefs.lampRed.collectAsStateWithLifecycle()
     val lampBlue by vm.darkroom.prefs.lampBlue.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
@@ -387,21 +386,6 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                     Text("JPEG quality", Modifier.weight(1f))
                     Text("100 (fixed)", color = Color.Gray)
                 }
-                Spacer(Modifier.height(16.dp))
-                Text("Exposure", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-                val compLimit = Prefs.COMP_LIMIT_THIRDS
-                LabeledSlider(
-                    label = "comp ${Format.ev(compensation, 1.0 / 3)}",
-                    value = (compensation + compLimit).toFloat() / (2 * compLimit),
-                    onChange = { vm.setCompensationThirds((it * 2 * compLimit).roundToInt() - compLimit) },
-                    steps = 2 * compLimit - 1,
-                )
-                Text(
-                    "Standing compensation on A, in thirds of a stop, added to the phone's auto-exposure " +
-                        "within the range the camera allows. The EV slider on the viewfinder comes on top of it.",
-                    style = MaterialTheme.typography.bodySmall, color = Color.Gray,
-                )
                 Spacer(Modifier.height(16.dp))
                 Text("Viewfinder", style = MaterialTheme.typography.titleMedium)
                 SettingRow("Zebra (highlights)", vf.zebra) { vm.toggleZebra() }

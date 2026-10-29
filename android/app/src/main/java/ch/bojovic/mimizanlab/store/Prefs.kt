@@ -50,20 +50,6 @@ class Prefs(context: Context) {
         sp.edit { putBoolean(KEY_PEAK, on) }
     }
 
-    private val _compensation = MutableStateFlow(sp.getInt(KEY_COMPENSATION, 0).coerceIn(-COMP_LIMIT_THIRDS, COMP_LIMIT_THIRDS))
-    /**
-     * Standing exposure compensation on A, in thirds of a stop (±3 EV),
-     * added to the phone's AE compensation. The EV slider on the viewfinder
-     * comes on top of it.
-     */
-    val compensationThirds: StateFlow<Int> = _compensation.asStateFlow()
-
-    fun setCompensationThirds(thirds: Int) {
-        val v = thirds.coerceIn(-COMP_LIMIT_THIRDS, COMP_LIMIT_THIRDS)
-        _compensation.value = v
-        sp.edit { putInt(KEY_COMPENSATION, v) }
-    }
-
     private val _process = MutableStateFlow(enumOr(sp.getString(KEY_PROCESS, null), Process.MONO))
     /** The darkroom's process: the monochrome negative, or the three-colour plate. The next shot opens in it. */
     val process: StateFlow<Process> = _process.asStateFlow()
@@ -146,13 +132,10 @@ class Prefs(context: Context) {
         private const val KEY_SOFT = "paper_soft"
         private const val KEY_HARD = "paper_hard"
         private const val KEY_PEAK = "peak_on"
-        private const val KEY_COMPENSATION = "compensation_thirds"
         private const val KEY_PROCESS = "process"
         private const val KEY_PLATE_FILTERS = "plate_filters"
         private const val KEY_PLATE_SPACE = "plate_space"
         private const val KEY_LAMP_RED = "lamp_red"
         private const val KEY_LAMP_BLUE = "lamp_blue"
-        /** ±3 EV in thirds. */
-        const val COMP_LIMIT_THIRDS = 9
     }
 }

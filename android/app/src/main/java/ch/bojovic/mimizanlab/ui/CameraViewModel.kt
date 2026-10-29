@@ -112,12 +112,6 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             combine(darkroom.prefs.process, darkroom.prefs.plateFilters, darkroom.prefs.plateSpace) { p, f, s -> Triple(p, f, s) }
                 .collect { (p, f, s) -> _develop.update { it.copy(process = p, plateFilters = f, plateSpace = s) } }
         }
-        viewModelScope.launch {
-            darkroom.prefs.compensationThirds.collect { thirds ->
-                _exposure.update { it.copy(compensationStops = thirds / 3.0) }
-                push()
-            }
-        }
     }
 
     private var surface: SurfaceTexture? = null
@@ -175,7 +169,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun selectLens(l: LensInfo) {
         if (_lens.value?.key == l.key) return
         _lens.value = l
-        _exposure.update { ExposureSettings(evSteps = it.evSteps, compensationStops = it.compensationStops) }
+        _exposure.update { ExposureSettings(evSteps = it.evSteps) }
         restart()
     }
 
@@ -285,7 +279,6 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun setSoft(stops: Double) = darkroom.prefs.setSoft(stops)
     fun setHard(stops: Double) = darkroom.prefs.setHard(stops)
     fun setPeak(on: Boolean) = darkroom.prefs.setPeak(on)
-    fun setCompensationThirds(thirds: Int) = darkroom.prefs.setCompensationThirds(thirds)
     fun toggleZebra() = _viewfinder.update { it.copy(zebra = !it.zebra) }
     fun toggleGrid() = _viewfinder.update { it.copy(grid = !it.grid) }
     fun toggleHistogram() = _viewfinder.update { it.copy(showHistogram = !it.showHistogram) }
