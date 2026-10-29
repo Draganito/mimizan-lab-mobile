@@ -7,6 +7,7 @@ import CoreVideo
 import Foundation
 import Observation
 import os
+import UIKit
 
 private let log = Logger(subsystem: "ch.bojovic.mimizanlab", category: "camera")
 
@@ -68,6 +69,11 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
 
     private let queue = DispatchQueue(label: "ch.bojovic.mimizanlab.camera", qos: .userInteractive)
     private let session = AVCaptureSession()
+    /// The rotation coordinator only follows the device while the app
+    /// subscribes to orientation notifications; started once, with the session.
+    private static let orientation = {
+        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
+    }()
     private let photoOutput = AVCapturePhotoOutput()
     private let videoOutput = AVCaptureVideoDataOutput()
     private var input: AVCaptureDeviceInput?
@@ -164,6 +170,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
             log.warning("finder configuration: \(error.localizedDescription)")
         }
 
+        _ = CaptureSession.orientation
         let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
         rotation = coordinator
         applyPreviewRotation(coordinator.videoRotationAngleForHorizonLevelPreview)

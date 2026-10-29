@@ -45,16 +45,17 @@ struct CaptureView: View {
                 FilterRow(selected: develop.filter, onSelect: vm.setFilter)
             }
 
-            // The finder takes the height the readout and the shutter row leave.
+            // The finder fills the height the readout and the shutter row
+            // leave, as wide as the picture's own aspect allows.
             GeometryReader { geo in
                 let aspect = state.frameAspect
-                let w = min(geo.size.width, geo.size.height * aspect)
-                let h = w / aspect
+                let h = min(geo.size.height, geo.size.width / aspect)
+                let w = h * aspect
                 ZStack {
                     finder(size: CGSize(width: w, height: h))
                 }
                 .frame(width: w, height: h)
-                .frame(maxWidth: .infinity, alignment: .top)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
             exposureControls
