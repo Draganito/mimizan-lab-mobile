@@ -1,0 +1,122 @@
+# Builds the iOS app on a macOS runner: the Rust core for arm64 iOS, the
+# UniFFI Swift bindings, the xcframework, the XcodeGen project, then an
+# unsigned Release build for a generic iOS device. The artifact is the
+# unsigned .app (and the same as a Payload/.ipa for re-signing tools);
+# nothing here needs an Apple developer account.
+#
+# The core is a path dependency on the sibling checkout of Draganito/mimizan,
+# as it is on the desktop (rust/mimizan-mobile/Cargo.toml).
+name: iOS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - "rust/**"
+      - "cameras/**"
+      - "scripts/build_ios.sh"
+      - ".github/workflows/ios.yml"
+  pull_request:
+    paths:
+      - "ios/**"
+      - "rust/**"
+      - "cameras/**"
+      - "scripts/build_ios.sh"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust core (host tests, iOS check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mimizan-lab-mobile
+      - uses: actions/checkout@v4
+        with:
+          repository: Draganito/mimizan
+          path: mimizan
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mimizan-lab-mobile/rust/mimizan-mobile
+      - name: Host tests (file decoder on)
+        working-directory: mimizan-lab-mobile/rust/mimizan-mobile
+        run: cargo test --release --features host-raw
+      - name: iOS static library (cross-check from Linux)
+        working-directory: mimizan-lab-mobile/rust/mimizan-mobile
+        run: IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo rustc --release --target aarch64-apple-ios --lib --features decode-files --crate-type staticlib
+
+  app:
+    name: Unsigned iOS app
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mimizan-lab-mobile
+      - uses: actions/checkout@v4
+        with:
+          repository: Draganito/mimizan
+          path: mimizan
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mimizan-lab-mobile/rust/mimizan-mobile
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s "$(ls -d /Applications/Xcode_16*.app | tail -1)"
+          xcodebuild -version
+      - name: Core, bindings, xcframework
+        working-directory: mimizan-lab-mobile
+        run: scripts/build_ios.sh --device-only
+      - name: XcodeGen
+        working-directory: mimizan-lab-mobile/ios
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Build (Release, generic iOS device, unsigned)
+        working-directory: mimizan-lab-mobile/ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project MimizanLab.xcodeproj \
+            -scheme MimizanLab \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath DerivedData \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tee build.log | grep -E "error:|warning: unre|\*\* BUILD" || true
+          grep -q "\*\* BUILD SUCCEEDED \*\*" build.log
+      - name: Package
+        working-directory: mimizan-lab-mobile/ios
+        run: |
+          app=$(find DerivedData/Build/Products -name "MimizanLab.app" -type d | head -1)
+          test -n "$app"
+          mkdir -p out/Payload
+          cp -R "$app" out/Payload/
+          (cd out && zip -qry MimizanLab-unsigned.ipa Payload)
+          (cd out && zip -qry MimizanLab-unsigned.app.zip Payload/MimizanLab.app)
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MimizanLab-ios-unsigned
+          path: |
+            mimizan-lab-mobile/ios/out/MimizanLab-unsigned.ipa
+            mimizan-lab-mobile/ios/out/MimizanLab-unsigned.app.zip
+          if-no-files-found: error
+      - name: Build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: mimizan-lab-mobile/ios/build.log
+          if-no-files-found: ignore

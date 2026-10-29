@@ -23,10 +23,15 @@ Camera2 RAW_SENSOR ──> RawInput (Kotlin bridge) ──> mimizan-core (Rust, 
 Only finished pictures reach the gallery: the raw frame stays in the app
 (and can be deleted there), the negative or the plate goes out.
 
-* `rust/mimizan-mobile` — the Rust cdylib around `mimizan-core`: `develop`,
-  `remix`, `preview`, `detail`, `export_*`, UniFFI bindings for Kotlin.
+* `rust/mimizan-mobile` — the Rust library around `mimizan-core`: `develop`,
+  `remix`, `preview`, `detail`, `export_*`, UniFFI bindings for Kotlin and
+  Swift. A cdylib for Android; a static library (plus `develop_file` /
+  `frame_info` through the desktop's RAW decoder) for iOS.
 * `android/` — Kotlin + Jetpack Compose app (Camera2, foreground service,
   review screen). Gradle runs `cargo ndk` and `uniffi-bindgen` itself.
+* `ios/` — SwiftUI app for iPhone and iPad (AVFoundation Bayer RAW as DNG,
+  Metal viewfinder, the same darkroom and review); `scripts/build_ios.sh`
+  builds the core into an xcframework. See [iOS](#ios) below.
 * `cameras/google_pixel_9.json` — camera file (schema 1 of Mimizan Lab),
   shipped in the APK as an asset.
 * `scripts/device_spike.sh` — timing / peak-RSS benchmark on the phone.
@@ -91,6 +96,56 @@ cargo test                                   # synthetic frames
 cargo test --features host-raw               # + bit-for-bit check against the desktop decoder (needs mimizan/testdata)
 cargo ndk -t arm64-v8a --platform 34 build --release --lib
 ```
+
+## iOS
+
+The same app for iPhone and iPad, from the same Rust crate. The route is
+different from Android's: AVFoundation hands over the Bayer RAW still as a
+**DNG** (`AVCapturePhoto.fileDataRepresentation()`), the app caches it as
+`<name>.dng` + `<name>.json`, and the core reads it with the desktop's
+decoder (`develop_file`, the `decode-files` feature) — which is what
+`mimizan` on the desktop does with the same file, so the negative is the
+desktop's bit for bit (test `develop_file_matches_develop_bit_for_bit`).
+The iPad also imports RAW files from Files or Photos into the roll.
+
+```
+AVCapturePhotoOutput (Bayer RAW) ──> DNG ──> mimizan-core (develop_file, via UniFFI Swift)
+                                 └─> Caches/raw (re-developable)   └─> Files › Mimizan Lab/ (+ Photos, add-only)
+```
+
+What is the same as on Android: the process (Mono / Plate), the contrast
+filters, the paper's two exposures, the lamps, Peak, the review with remix
+and 1:1 detail, the exports (JPEG, TIFF 16-bit, linear negative / plate +
+mask), the roll. What is different: the viewfinder's pull-back from the
+ISP's preview to the sensor goes through the sensor's XYZ → camera matrix
+(from the last DNG of that lens) instead of Camera2's per-frame colour
+matrix; no exposure compensation beyond the camera's own EV bias; no
+foreground service (iOS grants a few seconds past backgrounding, which is
+what one development takes).
+
+Building needs a Mac with Xcode 16 (or the `iOS` GitHub workflow, which
+builds an unsigned `.app` / `.ipa` on a macOS runner on every push that
+touches `ios/`, `rust/` or `cameras/`):
+
+```bash
+rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+scripts/build_ios.sh              # Rust static libs, Swift bindings, ios/MimizanCore/MimizanMobileFFI.xcframework
+brew install xcodegen
+cd ios && xcodegen generate       # ios/MimizanLab.xcodeproj (not committed)
+open MimizanLab.xcodeproj         # set your team, run on a device (the simulator has no RAW camera)
+```
+
+The Rust half of the script also runs on Linux (`--no-xcframework`); only
+the xcframework step needs `xcodebuild`. Running on a phone needs a signing
+identity: a free Apple ID signs for seven days, the Developer Program for a
+year and for TestFlight / the App Store. The unsigned CI artifact is for
+re-signing tools.
+
+Requirements: iOS 17, a device whose camera offers Bayer RAW (iPhone 12 and
+later; the iPad Pro / Air cameras do, older iPads do not — those can still
+import and develop files). iPhones from the 14 Pro on deliver 48 MP DNGs
+from the main camera; the entitlement
+`com.apple.developer.kernel.increased-memory-limit` is set for them.
 
 ## Using the app
 
@@ -184,13 +239,20 @@ Not yet done: a fitted camera file for the Pixel 9 (noise model and
 weights are the core defaults), and the `OTHER_SENSORS` / Android 17
 behaviour has only been checked on this one device.
 
+iOS: the app and the build are complete (0.14.1: Rust static library,
+Swift bindings, xcframework, SwiftUI app for iPhone and iPad, CI build of
+an unsigned `.app`), but it has not run on a device yet — there is no Mac
+or iPhone at hand. The first device run will show what the Bayer DNG of a
+given iPhone looks like to `rawler` and whether the finder's pull-back
+through the DNG's matrix is close enough.
+
 ## License
 
 Copyright (C) 2026 Dragan Bojovic.
 
 Mimizan Lab Mobile is free software under the GNU General Public License,
 version 3 or any later version. See [LICENSE](LICENSE). The APK ships that
-text and a short notice in its assets. Releases published before this change
+text and a short notice in its assets; the iOS app bundles the text. Releases published before this change
 stay under the MIT license they were shipped with.
 
 The phone runs the Mimizan separation only. AMaZE, RCD, DCB and LMMSE stay

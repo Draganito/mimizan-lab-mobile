@@ -6,6 +6,7 @@
 use crate::frame::{as_shot_from_gains, bin_cfa_2x, matrix_of, to_raw_frame};
 use crate::types::*;
 use mimizan_core::calib::CameraFile;
+use mimizan_core::decode::RawFrame;
 use mimizan_core::icc::GrayTrc;
 use mimizan_core::mix::{mix, Weights as CoreWeights};
 use mimizan_core::pipeline::{negative_from_frame, plate_base, NegativeInfo, NegativeParams};
@@ -100,12 +101,60 @@ fn lock_msg<T>(r: std::sync::LockResult<T>) -> T {
     }
 }
 
-/// Ingest, separate and mix one frame.
+/// Ingest, separate and mix one Camera2-style frame.
 pub fn develop_impl(input: RawInput, params: DevelopParams) -> Result<Developed> {
     let t_all = Instant::now();
     let frame = to_raw_frame(&input)?;
     // The input buffer is no longer needed; free the 2 bytes/px copy early.
     drop(input);
+    develop_frame(frame, params, t_all)
+}
+
+/// Ingest, separate and mix a frame decoded from a file by the desktop's
+/// decoder (a Bayer DNG from AVFoundation, or any RAW the iPad imports).
+#[cfg(feature = "decode-files")]
+pub fn develop_file_impl(path: &str, params: DevelopParams) -> Result<Developed> {
+    let t_all = Instant::now();
+    let frame = mimizan_core::pipeline::decode(Path::new(path))?;
+    develop_frame(frame, params, t_all)
+}
+
+/// What a RAW file is, before it is developed: for the roll and the camera
+/// file lookup.
+#[cfg(feature = "decode-files")]
+pub fn frame_info_impl(path: &str) -> Result<FrameInfo> {
+    use mimizan_core::decode::SensorKind;
+    let f = mimizan_core::pipeline::decode(Path::new(path))?;
+    let pattern = match f.kind {
+        SensorKind::Bayer(p) => BayerPattern::from_phase(p),
+        SensorKind::Mono => return Err(MimizanError::Unsupported { msg: "monochrome sensor".into() }),
+    };
+    let e = &f.exposure;
+    Ok(FrameInfo {
+        make: f.make.clone(),
+        model: f.model.clone(),
+        width: f.width as u32,
+        height: f.height as u32,
+        pattern,
+        orientation: f.orientation as u32,
+        wb_gains: f.wb_as_shot.map(|w| w.to_vec()),
+        xyz_to_cam: f.xyz_to_cam.map(|m| m.iter().flatten().copied().collect()),
+        exposure: ExposureInfo {
+            iso: e.iso,
+            exposure_ns: e
+                .time
+                .filter(|&(_, d)| d > 0)
+                .map(|(n, d)| (n as f64 / d as f64 * 1e9).round() as u64),
+            f_number: e.fnumber,
+            focal_mm: e.focal_mm,
+            lens: e.lens.clone(),
+        },
+        captured: e.captured.clone(),
+    })
+}
+
+/// The common part: optional binning, the negative, the separation kept.
+fn develop_frame(frame: RawFrame, params: DevelopParams, t_all: Instant) -> Result<Developed> {
     let (frame, binning) = match params.binning {
         0 | 1 => (frame, 1),
         2 => (bin_cfa_2x(&frame)?, 2),

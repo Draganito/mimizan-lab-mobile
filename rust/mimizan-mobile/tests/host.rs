@@ -429,3 +429,61 @@ fn camera2_style_input_matches_desktop_decoder_bit_for_bit() {
     assert_eq!(info.wb, desktop.info.wb.to_vec());
     assert_eq!(info.orientation as u16, desktop.orientation);
 }
+
+/// The iOS entrance: `develop_file` on the path (the DNG AVFoundation
+/// wrote, here any RAW) is the Camera2-style path bit for bit, and
+/// `frame_info` reads what the decoder reads.
+#[cfg(feature = "decode-files")]
+#[test]
+fn develop_file_matches_develop_bit_for_bit() {
+    use mimizan_core::decode::{RawData, SensorKind};
+
+    let path =
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../mimizan/testdata/nikon_zf_01.nef"));
+    if !path.exists() {
+        eprintln!("skipping: {} not present", path.display());
+        return;
+    }
+    assert!(reads_files());
+    let frame = mimizan_core::pipeline::decode(&path).expect("rawler decode");
+    let SensorKind::Bayer(phase) = frame.kind else { panic!("Bayer file expected") };
+    let RawData::Integer(samples) = &frame.data else { panic!("integer samples expected") };
+
+    let info = frame_info(path.to_string_lossy().into_owned()).unwrap();
+    assert_eq!((info.width, info.height), (frame.width as u32, frame.height as u32));
+    assert_eq!(info.pattern, BayerPattern::from_phase(phase));
+    assert_eq!(info.orientation, frame.orientation as u32);
+    assert_eq!(info.make, frame.make);
+    assert_eq!(info.exposure.iso, frame.exposure.iso);
+
+    let mut data = Vec::with_capacity(samples.len() * 2);
+    for &s in samples {
+        data.extend_from_slice(&s.to_le_bytes());
+    }
+    let input = RawInput {
+        make: frame.make.clone(),
+        model: frame.model.clone(),
+        width: frame.width as u32,
+        height: frame.height as u32,
+        pattern: BayerPattern::from_phase(phase),
+        black_tile: frame.black_tile.to_vec(),
+        white_level: frame.white_rgb[1],
+        crop: Some(RawRect {
+            x: frame.crop.x as u32,
+            y: frame.crop.y as u32,
+            width: frame.crop.w as u32,
+            height: frame.crop.h as u32,
+        }),
+        orientation: frame.orientation as u32,
+        wb_gains: frame.wb_as_shot.map(|w| w.to_vec()),
+        xyz_to_cam: frame.xyz_to_cam.map(|m| m.iter().flatten().copied().collect()),
+        exposure: None,
+        data,
+    };
+    let params = DevelopParams { preview_long_edge: 0, ..DevelopParams::default() };
+    let a = develop(input, params.clone()).unwrap().mix_plane();
+    let b = develop_file(path.to_string_lossy().into_owned(), params).unwrap().mix_plane();
+    assert_eq!((a.width, a.height), (b.width, b.height));
+    let diff = a.data.iter().zip(&b.data).filter(|(x, y)| x != y).count();
+    assert_eq!(diff, 0, "{diff} samples differ between develop and develop_file");
+}

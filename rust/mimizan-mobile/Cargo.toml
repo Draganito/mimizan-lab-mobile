@@ -4,12 +4,13 @@ version = "0.14.1"
 edition = "2021"
 license = "GPL-3.0-or-later"
 authors = ["Dragan Bojovic"]
-description = "Mimizan Lab core for Android: Camera2 RAW_SENSOR -> linear monochrome negative -> print, via UniFFI"
+description = "Mimizan Lab core for Android and iOS: a RAW_SENSOR buffer or a Bayer DNG -> linear monochrome negative -> print, via UniFFI"
 publish = false
 
 [lib]
 name = "mimizan_mobile"
-crate-type = ["cdylib", "rlib"]
+# cdylib for Android (loaded by the JVM), staticlib for iOS (linked into the app).
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [[bin]]
 name = "uniffi-bindgen"
@@ -20,9 +21,13 @@ required-features = ["bindgen"]
 default = []
 # `uniffi-bindgen` binary (Kotlin code generation on the host).
 bindgen = ["uniffi/cli"]
-# Host-only: decode RAW files through rawler for the round-trip tests
-# (Camera2-style `RawInput` vs. the file decoder must give the same negative).
-host-raw = ["mimizan-core/decode-rawler"]
+# RAW files through rawler: `develop_file` / `frame_info`. iOS builds turn
+# this on (AVFoundation hands over a Bayer DNG; the iPad imports files);
+# Android leaves it off and builds `RawInput` from Camera2.
+decode-files = ["mimizan-core/decode-rawler"]
+# Host-only alias for the round-trip tests (Camera2-style `RawInput` vs.
+# the file decoder must give the same negative).
+host-raw = ["decode-files"]
 
 [dependencies]
 mimizan-core = { path = "../../../mimizan/crates/mimizan-core", default-features = false }
@@ -35,6 +40,11 @@ tracing = "0.1"
 [target.'cfg(target_os = "android")'.dependencies]
 tracing-android = "0.2"
 tracing-subscriber = "0.3"
+
+# stderr, which Xcode's console shows; `tracing-oslog` would need clang and
+# the Apple SDK at build time and cannot be cross-checked from Linux.
+[target.'cfg(target_os = "ios")'.dependencies]
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 
 [dev-dependencies]
 

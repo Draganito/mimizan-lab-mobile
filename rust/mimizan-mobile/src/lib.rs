@@ -1,7 +1,9 @@
 //! mimizan-mobile: the Mimizan Lab core (`mimizan-core`) behind a UniFFI
-//! surface for the Android app. GPL-3.0-or-later, same as the core. The
-//! Kotlin side hands over one Camera2 `RAW_SENSOR` buffer with its metadata;
-//! this crate ingests, separates (Alleysson/Dubois, no demosaic), mixes,
+//! surface for the Android and iOS apps. GPL-3.0-or-later, same as the
+//! core. The Kotlin side hands over one Camera2 `RAW_SENSOR` buffer with
+//! its metadata (`develop`); the Swift side hands over the path of the
+//! Bayer DNG AVFoundation wrote (`develop_file`, feature `decode-files`).
+//! This crate ingests, separates (Alleysson/Dubois, no demosaic), mixes,
 //! previews and exports exactly as the desktop Mimizan path does.
 
 #![forbid(unsafe_code)]
@@ -29,7 +31,8 @@ pub fn core_version() -> String {
     env!("MIMIZAN_CORE_VERSION").to_string()
 }
 
-/// Route `tracing` output to logcat (tag `mimizan`). No-op off Android.
+/// Route `tracing` output to logcat (tag `mimizan`) on Android, to stderr
+/// (Xcode's console) on iOS. No-op elsewhere.
 #[uniffi::export]
 pub fn init_logging() {
     #[cfg(target_os = "android")]
@@ -37,6 +40,37 @@ pub fn init_logging() {
         use tracing_subscriber::prelude::*;
         let _ = tracing_subscriber::registry().with(tracing_android::layer("mimizan").ok()).try_init();
     }
+    #[cfg(target_os = "ios")]
+    {
+        let _ = tracing_subscriber::fmt()
+            .with_writer(std::io::stderr)
+            .with_ansi(false)
+            .without_time()
+            .with_target(false)
+            .try_init();
+    }
+}
+
+/// Whether this build reads RAW files (`develop_file`, `frame_info`).
+#[uniffi::export]
+pub fn reads_files() -> bool {
+    cfg!(feature = "decode-files")
+}
+
+/// Ingest, separate and mix the RAW file at `path` through the desktop's
+/// decoder: the Bayer DNG AVFoundation wrote, or a file the user imports.
+/// Same cost as `develop`.
+#[cfg(feature = "decode-files")]
+#[uniffi::export]
+pub fn develop_file(path: String, params: DevelopParams) -> Result<Arc<Developed>> {
+    session::develop_file_impl(&path, params).map(Arc::new)
+}
+
+/// What the RAW file at `path` is, without developing it.
+#[cfg(feature = "decode-files")]
+#[uniffi::export]
+pub fn frame_info(path: String) -> Result<FrameInfo> {
+    session::frame_info_impl(&path)
 }
 
 /// Number of worker threads the separation will use.

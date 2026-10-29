@@ -151,6 +151,27 @@ pub struct RawInput {
     pub data: Vec<u8>,
 }
 
+/// What a RAW file is (`frame_info`): the sensor and the metadata the roll
+/// shows and the camera file lookup needs, without the pixels.
+#[derive(Clone, Debug, PartialEq, uniffi::Record)]
+pub struct FrameInfo {
+    pub make: String,
+    pub model: String,
+    /// Sensor frame size, before the crop.
+    pub width: u32,
+    pub height: u32,
+    pub pattern: BayerPattern,
+    /// TIFF orientation (1..8) that makes the picture upright.
+    pub orientation: u32,
+    /// As-shot balance multipliers R,G,B, if the file carries them.
+    pub wb_gains: Option<Vec<f64>>,
+    /// XYZ → camera, 9 values row-major, if the file carries a matrix.
+    pub xyz_to_cam: Option<Vec<f64>>,
+    pub exposure: ExposureInfo,
+    /// EXIF `DateTimeOriginal`, `YYYY:MM:DD HH:MM:SS`, if present.
+    pub captured: Option<String>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum SeparationMode {
     /// Pixel-adaptive Dubois weighting (default, best measured).

@@ -207,3 +207,60 @@ The generated Kotlin directory is added to the `main` source set
 (`kotlin.directories`), the jniLibs directory likewise. `ndkVersion` is the
 NDK `cargo-ndk` links against so AGP strips the library. R8 keeps
 `com.sun.jna.**` and `ch.bojovic.mimizanlab.engine.**`.
+
+## iOS
+
+`ios/` is a second front end on the same crate. The layers mirror the
+Android ones file for file:
+
+| Android | iOS | Notes |
+| --- | --- | --- |
+| `CameraController.kt` + `Lenses.kt` | `Capture/CaptureSession.swift`, `Capture/LensCatalog.swift` | one physical back camera at a time (the virtual fusion cameras give no Bayer RAW); `AVCapturePhotoOutput` with the first `isBayerRAWPixelFormat` type; the still arrives as a DNG |
+| `RawFrameBridge.kt` (RAW_SENSOR → `RawInput`) | — | not needed: the DNG goes to `develop_file`, the core's `pipeline::decode` reads it with `rawler` as the desktop does |
+| `MonoViewfinder.kt` (AGSL) | `Capture/Finder.metal`, `Capture/FinderView.swift` | the same arithmetic as a Metal compute kernel on the BGRA preview frames; `CVMetalTextureCache`, `MTKView` |
+| `FinderTone.kt` + `IspControls.kt` | `Capture/FinderTone.swift` | AVFoundation has no per-frame ISP matrix; the pull-back uses the DNG's XYZ → camera matrix of the lens (`SrgbToCamera`), rows scaled so white stays white, identity until the first frame of that lens |
+| `CameraViewModel.kt` | `Capture/CaptureViewModel.swift` | `withObservationTracking` instead of `combine` for the tone |
+| `Darkroom.kt` + `DevelopService.kt` | `Darkroom/Darkroom.swift` | serial queue; `beginBackgroundTask` instead of a foreground service |
+| `RawCache.kt` | `Store/RawCache.swift` | `Caches/raw/<name>.dng` + `.json`, excluded from backup, 1.5 GB budget |
+| `MediaStoreWriter.kt` | `Store/Exporter.swift` | `Documents/Mimizan Lab` (visible in Files, `UIFileSharingEnabled`) plus `PHPhotoLibrary` add-only for JPEGs |
+| `Prefs.kt` | `Store/Prefs.swift` | same keys and defaults in `UserDefaults` |
+| `ReviewViewModel.kt` / `ReviewScreen.kt` | `Review/` | the `Developed` calls go through a serial actor (`Gate`); `MagnifyGesture` + `DragGesture` for the 1:1 viewer |
+| `RollScreen.kt` | `UI/RollView.swift` | plus import from Files / Photos (`fileImporter`, `photosPicker`) |
+| `MainActivity.kt` | `UI/RootView.swift` | `NavigationStack` on compact width, `NavigationSplitView` (roll beside camera / review) on the iPad |
+
+### Rust side for iOS
+
+`rust/mimizan-mobile` adds `crate-type = ["staticlib"]` and the feature
+`decode-files = ["mimizan-core/decode-rawler"]`, which exports
+
+* `develop_file(path, params) -> Developed` — the DNG through
+  `pipeline::decode`, then the same `develop_frame` the Android `develop`
+  uses after the bridge; `tests/host.rs` checks the two give the same
+  negative sample for sample on a NEF;
+* `frame_info(path) -> FrameInfo` — make, model, size, CFA, orientation,
+  WB gains, XYZ → camera, exposure, capture time — what the roll stores in
+  the `.json` sidecar without decoding again;
+* `reads_files() -> bool`.
+
+On iOS `init_logging` writes `tracing` to stderr (Xcode's console);
+`tracing-oslog` would need the Apple SDK at build time and could not be
+cross-checked from Linux.
+
+### Build wiring (iOS)
+
+`scripts/build_ios.sh`:
+
+1. `cargo rustc --target aarch64-apple-ios[-sim] --lib --features decode-files --crate-type staticlib --release`
+   with `IPHONEOS_DEPLOYMENT_TARGET=17.0`;
+2. a host release cdylib, from which `uniffi-bindgen generate --library … --language swift`
+   writes `mimizan_mobile.swift`, `mimizan_mobileFFI.h` and the modulemap;
+3. `xcodebuild -create-xcframework` with the static libraries and the
+   header → `ios/MimizanCore/MimizanMobileFFI.xcframework`.
+
+`ios/MimizanCore/Package.swift` is a local Swift package: a binary target
+on the xcframework and a Swift target with the generated file (both
+git-ignored). `ios/project.yml` (XcodeGen) builds the app target against
+it, with `../cameras` as a folder reference and `../LICENSE` as a
+resource. `.github/workflows/ios.yml` runs the script on a macOS runner,
+generates the project and builds an unsigned Release `.app` for a generic
+iOS device; the artifact is the `.app` and a `Payload/` `.ipa`.

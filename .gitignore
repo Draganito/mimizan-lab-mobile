@@ -7,3 +7,11 @@ android/.idea/
 android/.kotlin/
 *.apk
 *.aab
+
+# iOS: produced by scripts/build_ios.sh
+ios/MimizanCore/generated/
+ios/MimizanCore/Sources/MimizanCore/mimizan_mobile.swift
+ios/MimizanCore/MimizanMobileFFI.xcframework/
+ios/MimizanLab.xcodeproj/
+ios/build/
+ios/DerivedData/
