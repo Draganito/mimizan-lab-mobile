@@ -120,16 +120,6 @@ struct ReviewView: View {
         )
         if plate == nil {
             FilterRow(selected: vm.filter, onSelect: vm.setFilter)
-            let w = vm.weights
-            LabeledSlider(label: String(format: "R %.2f", w.r), value: Binding(get: { w.r }, set: { vm.setWeightsRB(r: $0, b: w.b) }))
-            LabeledSlider(label: String(format: "B %.2f", w.b), value: Binding(get: { w.b }, set: { vm.setWeightsRB(r: w.r, b: $0) }))
-            HStack(spacing: 12) {
-                let e = vm.effective
-                Text(String(format: "G %.2f", w.g) + (vm.filter != .none ? String(format: "  →  %.2f/%.2f/%.2f", e.r, e.g, e.b) : ""))
-                    .font(.caption.monospaced())
-                Button("Reset") { vm.resetWeights() }
-                Spacer()
-            }
         }
         PaperSliders(soft: vm.soft, hard: vm.hard, onSoft: vm.setSoft, onHard: vm.setHard)
         SettingRow(label: "Peak", on: Binding(get: { vm.peakOn }, set: { vm.darkroom.prefs.setPeak($0) }))

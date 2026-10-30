@@ -185,21 +185,6 @@ final class ReviewViewModel {
     /// The amount the exports and the 1:1 view apply: zero while the Peak checkbox is off.
     private var peakAmountApplied: Double { peakOn ? peakAmount : 0 }
 
-    /// Sliders give R and B; G takes the rest so the sum stays 1.
-    func setWeightsRB(r: Double, b: Double) {
-        let rr = min(max(r, 0), 1)
-        let bb = min(max(b, 0), 1 - rr)
-        weights = Weights(r: rr, g: 1 - rr - bb, b: bb)
-        remixAndRender()
-    }
-
-    func resetWeights() {
-        guard let d = info?.defaultWeights else { return }
-        weights = d
-        filter = .none
-        remixAndRender()
-    }
-
     func setSoft(_ stops: Double) {
         soft = Prefs.snapStops(stops)
         schedule { await self.renderNow() }

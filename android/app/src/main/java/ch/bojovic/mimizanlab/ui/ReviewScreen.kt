@@ -189,28 +189,6 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                 )
                 if (plate == null) {
                     FilterRow(selected = s.filter, onSelect = vm::setFilter)
-                    val w = s.weights
-                    LabeledSlider(
-                        label = String.format(Locale.US, "R %.2f", w.r),
-                        value = w.r.toFloat(),
-                        onChange = { vm.setWeightsRB(it.toDouble(), w.b) },
-                    )
-                    LabeledSlider(
-                        label = String.format(Locale.US, "B %.2f", w.b),
-                        value = w.b.toFloat(),
-                        onChange = { vm.setWeightsRB(w.r, it.toDouble()) },
-                    )
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        val e = s.effective
-                        Text(
-                            String.format(Locale.US, "G %.2f", w.g) +
-                                if (s.filter != Filter.NONE) String.format(Locale.US, "  →  %.2f/%.2f/%.2f", e.r, e.g, e.b) else "",
-                            fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        TextButton(onClick = vm::resetWeights) { Text("Reset") }
-                        Spacer(Modifier.weight(1f))
-                    }
                 }
                 PaperSliders(s.soft, s.hard, onSoft = vm::setSoft, onHard = vm::setHard)
                 SettingRow("Peak", peakOn) { darkroom.prefs.setPeak(it) }

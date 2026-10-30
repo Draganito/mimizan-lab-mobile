@@ -196,20 +196,6 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     /** The amount the exports and the 1:1 view apply: zero while the Peak checkbox is off. */
     private fun peakAmountApplied(s: ReviewState): Double = if (darkroom.prefs.peak.value) s.peakAmount else 0.0
 
-    /** Sliders give R and B; G takes the rest so the sum stays 1. */
-    fun setWeightsRB(r: Double, b: Double) {
-        val rr = r.coerceIn(0.0, 1.0)
-        val bb = b.coerceIn(0.0, 1.0 - rr)
-        _state.update { it.copy(weights = Weights(rr, 1.0 - rr - bb, bb)) }
-        remixAndRender()
-    }
-
-    fun resetWeights() {
-        val d = _state.value.info?.defaultWeights ?: return
-        _state.update { it.copy(weights = d, filter = Filter.NONE) }
-        remixAndRender()
-    }
-
     fun setSoft(stops: Double) = setPaper(soft = Prefs.snapStops(stops), hard = null)
 
     fun setHard(stops: Double) = setPaper(soft = null, hard = Prefs.snapStops(stops))
