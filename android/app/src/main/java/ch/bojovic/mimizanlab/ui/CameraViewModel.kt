@@ -35,13 +35,12 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlin.math.pow
 
 /** Viewfinder settings that are not camera state. */
 data class ViewfinderSettings(
-    val zebra: Boolean = true,
+    val zebra: Boolean = false,
     val grid: Boolean = false,
-    val showHistogram: Boolean = true,
+    val showHistogram: Boolean = false,
 )
 
 class CameraViewModel(app: Application) : AndroidViewModel(app) {
@@ -67,12 +66,10 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
 
-    /** The paper's two exposures and the plate's two lamps, the standing values. */
-    private data class PaperAndLamps(val soft: Double, val hard: Double, val lampRed: Double, val lampBlue: Double)
+    /** The paper's two exposures, the standing values. The lamps stay at zero for a new frame. */
+    private data class Paper(val soft: Double, val hard: Double)
 
-    private val paperAndLamps = combine(
-        darkroom.prefs.soft, darkroom.prefs.hard, darkroom.prefs.lampRed, darkroom.prefs.lampBlue,
-    ) { s, h, r, b -> PaperAndLamps(s, h, r, b) }
+    private val paper = combine(darkroom.prefs.soft, darkroom.prefs.hard) { s, h -> Paper(s, h) }
 
     /**
      * What the viewfinder shader applies to the camera preview: the still's
@@ -85,7 +82,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     val tone: StateFlow<FinderTone> = combine(
         controller.ispColor,
         _develop,
-        paperAndLamps,
+        paper,
         _viewfinder,
         _lens,
     ) { color, dev, pl, vf, lens ->
@@ -96,11 +93,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         buildTone(
             IspColor.IDENTITY,
             _develop.value,
-            PaperAndLamps(
-                darkroom.prefs.soft.value, darkroom.prefs.hard.value,
-                darkroom.prefs.lampRed.value, darkroom.prefs.lampBlue.value,
-            ),
-            true,
+            Paper(darkroom.prefs.soft.value, darkroom.prefs.hard.value),
+            false,
             _lens.value,
         ),
     )
@@ -120,7 +114,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private fun buildTone(
         color: IspColor,
         dev: DevelopSettings,
-        pl: PaperAndLamps,
+        pl: Paper,
         zebra: Boolean,
         lens: LensInfo?,
     ): FinderTone {
@@ -157,7 +151,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             invGamma = 1f,
             zebra = if (zebra) 0.985f else 2f,
             plate = plate,
-            lampGain = floatArrayOf(2.0.pow(pl.lampRed).toFloat(), 1f, 2.0.pow(pl.lampBlue).toFloat()),
+            lampGain = floatArrayOf(1f, 1f, 1f),
         )
     }
 
@@ -271,8 +265,6 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun setProcess(p: Process) = darkroom.prefs.setProcess(p)
     fun setPlateFilters(f: PlateFilters) = darkroom.prefs.setPlateFilters(f)
     fun setPlateSpace(s: PlateSpace) = darkroom.prefs.setPlateSpace(s)
-    fun setLampRed(stops: Double) = darkroom.prefs.setLampRed(stops)
-    fun setLampBlue(stops: Double) = darkroom.prefs.setLampBlue(stops)
     fun setSeparation(m: SeparationMode) = _develop.update { it.copy(separation = m) }
     fun setQuick(quick: Boolean) = _develop.update { it.copy(binning = if (quick) 2 else 1) }
     fun setAutoJpeg(on: Boolean) = _develop.update { it.copy(autoJpeg = on) }

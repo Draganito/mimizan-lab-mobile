@@ -7,6 +7,7 @@ import android.graphics.RectF
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -202,6 +204,7 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                     }
                 }
                 PaperSliders(s.soft, s.hard, onSoft = vm::setSoft, onHard = vm::setHard)
+                SettingRow("Peak", peakOn) { darkroom.prefs.setPeak(it) }
                 if (peakOn) {
                     // Peak's pair, started from the measurement on this
                     // negative; the 1:1 view shows the result, the preview
@@ -238,6 +241,33 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                         Spacer(Modifier.weight(1f))
                     }
                 }
+                val cur = vm.shotSettings()
+                if (cur != null) {
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        for (m in SeparationMode.entries) {
+                            FilterChip(
+                                selected = cur.separation == m,
+                                onClick = {
+                                    if (cur.separation != m) vm.develop(cur.copy(separation = m))
+                                },
+                                label = {
+                                    Text(when (m) {
+                                        SeparationMode.DUBOIS -> "Dubois"
+                                        SeparationMode.ADAPTIVE -> "Adaptive"
+                                        SeparationMode.OFF -> "Mask off"
+                                    })
+                                },
+                            )
+                        }
+                        if (cur.binning == 2) {
+                            TextButton(onClick = { vm.develop(cur.copy(binning = 1)) }) { Text("Full size") }
+                        }
+                    }
+                }
                 Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box {
                         FilledTonalButton(onClick = { exportMenu = true }, enabled = s.exporting == null) {
@@ -253,12 +283,6 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                                 onClick = { exportMenu = false; vm.exportNegative() },
                             )
                         }
-                    }
-                    val cur = vm.shotSettings()
-                    if (cur != null && cur.binning == 2) {
-                        TextButton(onClick = { vm.develop(cur.copy(binning = 1)) }) { Text("Develop full resolution") }
-                    } else if (cur != null && cur.separation != SeparationMode.DUBOIS) {
-                        TextButton(onClick = { vm.develop(cur.copy(separation = SeparationMode.DUBOIS)) }) { Text("Develop with Dubois") }
                     }
                 }
             }

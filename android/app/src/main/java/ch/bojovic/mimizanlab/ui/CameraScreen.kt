@@ -28,12 +28,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.FlashAuto
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Grid3x3
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -79,7 +80,6 @@ import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.PlateFilters
 import ch.bojovic.mimizanlab.engine.PlateSpace
 import ch.bojovic.mimizanlab.engine.Process
-import ch.bojovic.mimizanlab.engine.SeparationMode
 import ch.bojovic.mimizanlab.engine.ShotStatus
 import ch.bojovic.mimizanlab.engine.coreVersion
 import ch.bojovic.mimizanlab.engine.paperGrade
@@ -101,13 +101,9 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val tone by vm.tone.collectAsStateWithLifecycle()
     val shots by vm.darkroom.shots.collectAsStateWithLifecycle()
     val cacheBytes by vm.darkroom.cacheBytes.collectAsStateWithLifecycle()
-    val soft by vm.darkroom.prefs.soft.collectAsStateWithLifecycle()
-    val hard by vm.darkroom.prefs.hard.collectAsStateWithLifecycle()
-    val peak by vm.darkroom.prefs.peak.collectAsStateWithLifecycle()
-    val lampRed by vm.darkroom.prefs.lampRed.collectAsStateWithLifecycle()
-    val lampBlue by vm.darkroom.prefs.lampBlue.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
+    var exposureOpen by remember { mutableStateOf(false) }
     var confirmDeleteAll by remember { mutableStateOf(false) }
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
 
@@ -134,42 +130,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        // Top bar: lens, filter, settings.
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(onClick = { vm.nextLens() }, enabled = vm.lenses.size > 1) {
-                Icon(Icons.Default.Cameraswitch, contentDescription = "Lens")
-                Spacer(Modifier.width(6.dp))
-                Text(lens?.let { "${it.label} ${it.equivalentMm} mm" } ?: "—")
-            }
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = { vm.toggleGrid() }) {
-                Icon(Icons.Default.Grid3x3, contentDescription = "Grid", tint = if (vf.grid) Color.White else Color.Gray)
-            }
-            IconButton(onClick = { showSettings = true }) {
-                Icon(Icons.Default.Tune, contentDescription = "Settings")
-            }
-        }
-
-        // The process, then the "film": the contrast filter of the negative,
-        // or the plate's taking filters and primaries.
-        ProcessRow(
-            plate = develop.isPlate,
-            filters = develop.plateFilters,
-            space = develop.plateSpace,
-            hasMatrix = lens?.xyzToCam != null,
-            onProcess = vm::setProcess,
-            onFilters = vm::setPlateFilters,
-            onSpace = vm::setPlateSpace,
-        )
-        if (!develop.isPlate) FilterRow(selected = develop.filter, onSelect = vm::setFilter)
-
-        // Viewfinder with focus tap and overlays. It takes the height the
-        // readout and the shutter row leave over: on a short screen it is
-        // narrower than the display rather than pushing the controls into
-        // each other.
+        // The picture takes the height the line and the shutter row leave.
         Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.TopCenter) {
             Box(
                 Modifier
@@ -220,11 +181,31 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                     Histogram(
                         bins = histogram,
                         modifier = Modifier
-                            .align(Alignment.TopEnd)
+                            .align(Alignment.BottomStart)
                             .padding(8.dp)
                             .size(width = 120.dp, height = 56.dp)
                             .clickable { vm.toggleHistogram() },
                     )
+                }
+                Column(Modifier.matchParentSize().padding(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { vm.nextLens() }, enabled = vm.lenses.size > 1) {
+                            Text(lens?.let { "${it.label}  ${it.equivalentMm} mm" } ?: "", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Spacer(Modifier.weight(1f))
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Color.White)
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Row {
+                        Spacer(Modifier.weight(1f))
+                        Column {
+                            Aid(Icons.Default.Grid3x3, "Grid", vf.grid, vm::toggleGrid)
+                            Aid(Icons.Default.BarChart, "Histogram", vf.showHistogram, vm::toggleHistogram)
+                            Aid(Icons.Default.Contrast, "Zebra", vf.zebra, vm::toggleZebra)
+                        }
+                    }
                 }
 
                 if (stream.capturing) {
@@ -237,37 +218,43 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
             }
         }
 
-        // Exposure readout and controls, at their own height.
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = { vm.setProcess(if (develop.isPlate) Process.MONO else Process.PLATE) }) {
+                Text(if (develop.isPlate) "Color" else "Mono", fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = { exposureOpen = !exposureOpen }) {
                 Text(
-                    "${Format.iso(stream.iso)}   ${Format.shutter(stream.exposureNs)}",
+                    "${stream.iso?.toString() ?: "—"}  ·  ${Format.shutter(stream.exposureNs)}",
                     fontFamily = FontFamily.Monospace,
-                    style = MaterialTheme.typography.titleMedium,
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (lens?.hasFlash == true) {
-                        IconButton(onClick = vm::cycleFlash) {
-                            Icon(
-                                when (stream.flash) {
-                                    FlashMode.Off -> Icons.Filled.FlashOff
-                                    FlashMode.Auto -> Icons.Filled.FlashAuto
-                                    FlashMode.On -> Icons.Filled.FlashOn
-                                },
-                                contentDescription = "Flash",
-                                tint = if (stream.flash == FlashMode.Off) Color.Gray else Color.White,
-                            )
-                        }
-                    }
-                    Text(if (exposure.manual) "M" else "A", fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.width(8.dp))
-                    Switch(
-                        checked = exposure.manual,
-                        onCheckedChange = { if (it) vm.enterManual() else vm.setAuto() },
-                        enabled = lens?.hasManualSensor == true,
+            }
+            if (lens?.hasFlash == true) {
+                IconButton(onClick = vm::cycleFlash) {
+                    Icon(
+                        when (stream.flash) {
+                            FlashMode.Off -> Icons.Filled.FlashOff
+                            FlashMode.Auto -> Icons.Filled.FlashAuto
+                            FlashMode.On -> Icons.Filled.FlashOn
+                        },
+                        contentDescription = "Flash",
+                        tint = if (stream.flash == FlashMode.Off) Color.Gray else Color.White,
                     )
                 }
             }
+            TextButton(
+                onClick = {
+                    if (exposure.manual) vm.setAuto() else vm.enterManual()
+                    exposureOpen = true
+                },
+                enabled = lens?.hasManualSensor == true,
+            ) { Text(if (exposure.manual) "M" else "A", fontWeight = FontWeight.Bold) }
+        }
+        if (exposureOpen) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
             val l = lens
             if (l != null) {
                 if (exposure.manual) {
@@ -293,6 +280,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                     )
                 }
             }
+        }
         }
 
         // Shutter row.
@@ -331,66 +319,12 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     if (showSettings) {
         ModalBottomSheet(onDismissRequest = { showSettings = false }) {
             Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 8.dp).padding(bottom = 32.dp)) {
-                Text("Development", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-                Text("Separation", style = MaterialTheme.typography.labelLarge)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for (m in SeparationMode.entries) {
-                        FilterChip(
-                            selected = develop.separation == m,
-                            onClick = { vm.setSeparation(m) },
-                            label = { Text(when (m) { SeparationMode.DUBOIS -> "Dubois"; SeparationMode.ADAPTIVE -> "Adaptive"; SeparationMode.OFF -> "Mask off" }) },
-                        )
-                    }
-                }
-                SettingRow("Quick mode (2x binning, quarter time)", develop.binning == 2) { vm.setQuick(it) }
                 SettingRow("Save JPEG automatically", develop.autoJpeg) { vm.setAutoJpeg(it) }
-                Spacer(Modifier.height(8.dp))
-                Text("Paper", style = MaterialTheme.typography.titleMedium)
-                PaperSliders(soft, hard, onSoft = vm::setSoft, onHard = vm::setHard)
+                SettingRow("Quick development", develop.binning == 2) { vm.setQuick(it) }
                 Text(
-                    "Zero is the base print. These exposures drive the live viewfinder, the automatic JPEG, the roll thumbnail, and the starting values in review. Each picture can still be changed there.",
+                    "Quick development bins the frame and finishes in about a quarter of the time. Paper, filter and the mix are on each picture.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
-                if (develop.isPlate) {
-                    Spacer(Modifier.height(8.dp))
-                    Text("Lamps", style = MaterialTheme.typography.titleMedium)
-                    val lampLimit = Prefs.LAMP_LIMIT.toFloat()
-                    LabeledSlider(
-                        label = String.format(Locale.US, "red %+.2f", lampRed),
-                        value = lampRed.toFloat(),
-                        onChange = { vm.setLampRed(it.toDouble()) },
-                        range = -lampLimit..lampLimit,
-                    )
-                    LabeledSlider(
-                        label = String.format(Locale.US, "blue %+.2f", lampBlue),
-                        value = lampBlue.toFloat(),
-                        onChange = { vm.setLampBlue(it.toDouble()) },
-                        range = -lampLimit..lampLimit,
-                    )
-                    Text(
-                        "The projector's three lamps, green the reference: stops of exposure added to the red and the blue positive. " +
-                            "The only colour control of the plate; the paper's two exposures stay the same for all three.",
-                        style = MaterialTheme.typography.bodySmall, color = Color.Gray,
-                    )
-                }
-                SettingRow("Peak", peak) { vm.setPeak(it) }
-                Text(
-                    "Sharpens the automatic JPEG and the full-size JPEG / TIFF. Radius and amount are measured on each " +
-                        "negative: the smallest high-pass that brings its edges to the target, without a rim. " +
-                        "Review shows the measured pair and lets you move it; the 1:1 view shows the result.",
-                    style = MaterialTheme.typography.bodySmall, color = Color.Gray,
-                )
-                Spacer(Modifier.height(4.dp))
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("JPEG quality", Modifier.weight(1f))
-                    Text("100 (fixed)", color = Color.Gray)
-                }
-                Spacer(Modifier.height(16.dp))
-                Text("Viewfinder", style = MaterialTheme.typography.titleMedium)
-                SettingRow("Zebra (highlights)", vf.zebra) { vm.toggleZebra() }
-                SettingRow("Histogram", vf.showHistogram) { vm.toggleHistogram() }
-                SettingRow("Grid", vf.grid) { vm.toggleGrid() }
                 Spacer(Modifier.height(16.dp))
                 Text("Storage", style = MaterialTheme.typography.titleMedium)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -499,7 +433,14 @@ fun FilterRow(selected: Filter, onSelect: (Filter) -> Unit) {
 }
 
 @Composable
-private fun SettingRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun Aid(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, on: Boolean, toggle: () -> Unit) {
+    IconButton(onClick = toggle) {
+        Icon(icon, contentDescription = label, tint = if (on) Color.White else Color.White.copy(alpha = 0.45f))
+    }
+}
+
+@Composable
+fun SettingRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChange)

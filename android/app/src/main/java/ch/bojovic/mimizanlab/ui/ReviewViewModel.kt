@@ -115,8 +115,8 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
             name = name,
             soft = darkroom.prefs.soft.value,
             hard = darkroom.prefs.hard.value,
-            lampRed = darkroom.prefs.lampRed.value,
-            lampBlue = darkroom.prefs.lampBlue.value,
+            lampRed = 0.0,
+            lampBlue = 0.0,
         )
         openJob = viewModelScope.launch {
             darkroom.current.collect { neg ->

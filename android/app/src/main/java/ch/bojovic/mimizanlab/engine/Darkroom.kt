@@ -223,7 +223,7 @@ class Darkroom private constructor(private val context: Context) {
                     // The plate is a re-mix of the separation just made; the
                     // lamps start from the settings, as the paper does.
                     val w = developed.setPlate(shot.settings.plateFilters, shot.settings.plateSpace)
-                    developed.setLamps(prefs.lampRed.value, prefs.lampBlue.value)
+                    developed.setLamps(0.0, 0.0)
                     Log.i(TAG, "plate ${w.filters}: R ${w.red} G ${w.green} B ${w.blue}")
                 }
                 val info = developed.info()
