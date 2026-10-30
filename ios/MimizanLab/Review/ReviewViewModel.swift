@@ -1,6 +1,6 @@
 // One developed negative under the sliders: the mix, the filter, the
-// paper's two exposures, the plate's lamps, Peak's pair, the 1:1 window
-// and the exports. Mirrors `ReviewViewModel.kt`.
+// paper's two exposures, Peak's pair, the 1:1 window and the exports.
+// The plate's lamps stay at zero. Mirrors `ReviewViewModel.kt`.
 import CoreGraphics
 import Foundation
 import MimizanCore
@@ -32,8 +32,6 @@ final class ReviewViewModel {
     private(set) var hard = 0.0
     /// The plate process as the development stands; nil is the monochrome negative.
     private(set) var plate: PlateState?
-    private(set) var lampRed = 0.0
-    private(set) var lampBlue = 0.0
     private(set) var peakRadius = Prefs.peakLimits.radiusDefault
     private(set) var peakAmount = 0.0
     private(set) var peakMeasured: PeakMeasured?
@@ -80,8 +78,6 @@ final class ReviewViewModel {
         plate = nil
         soft = darkroom.prefs.soft
         hard = darkroom.prefs.hard
-        lampRed = 0
-        lampBlue = 0
         if !observing {
             observing = true
             observeCurrent()
@@ -120,15 +116,13 @@ final class ReviewViewModel {
             if developed === neg.developed { return }
             developed = neg.developed
             // info.weights already include the filter of the first mix; the
-            // sliders start from the camera's base weights. The plate (and
-            // its lamps) is the process the frame was developed in.
+            // sliders start from the camera's base weights. The plate is the
+            // process the frame was developed in. Lamps stay at zero.
             info = neg.info
             weights = neg.info.defaultWeights
             effective = neg.info.weights
             filter = neg.info.filter
             plate = neg.info.plate
-            lampRed = neg.info.plate?.lampRed ?? lampRed
-            lampBlue = neg.info.plate?.lampBlue ?? lampBlue
             peakMeasured = neg.peak
             peakRadius = neg.peak?.radius ?? Prefs.peakLimits.radiusDefault
             peakAmount = neg.peak?.amount ?? 0
@@ -174,15 +168,6 @@ final class ReviewViewModel {
         darkroom.prefs.setPlateSpace(s)
         if plate != nil { remixAndRender() }
     }
-
-    /// The two lamps, in twelfths of a stop; green is the reference.
-    func setLamps(red: Double, blue: Double) {
-        lampRed = Prefs.snapLamp(red)
-        lampBlue = Prefs.snapLamp(blue)
-        schedule { await self.renderNow(lamps: true) }
-    }
-
-    func resetLamps() { setLamps(red: 0, blue: 0) }
 
     /// Peak's radius and amount by hand; only the 1:1 view has to follow (the preview is never sharpened).
     func setPeak(radius: Double, amount: Double) {
@@ -254,11 +239,11 @@ final class ReviewViewModel {
 
     /// Draw the picture as it stands. `remix` applies the sliders and the
     /// standing process first (the mix, or the plate's filters and
-    /// primaries); `lamps` pushes the two lamps to the development.
-    private func renderNow(remix: Bool = false, lamps: Bool = false) async {
+    /// primaries). A plate is always shown with the lamps at zero.
+    private func renderNow(remix: Bool = false) async {
         guard let d = developed else { return }
         busy = true
-        let s = (soft: soft, hard: hard, lampRed: lampRed, lampBlue: lampBlue, weights: weights, filter: filter, plate: plate)
+        let s = (soft: soft, hard: hard, weights: weights, filter: filter, plate: plate)
         let standing = (process: darkroom.prefs.process, filters: darkroom.prefs.plateFilters, space: darkroom.prefs.plateSpace)
         let gate = self.gate
         let result: Result<Rendered, Error> = await Task.detached(priority: .userInitiated) {
@@ -268,13 +253,12 @@ final class ReviewViewModel {
                     if remix {
                         if standing.process == .plate {
                             _ = try d.setPlate(filters: standing.filters, space: standing.space)
-                            try d.setLamps(red: s.lampRed, blue: s.lampBlue)
+                            try d.setLamps(red: 0, blue: 0)
                         } else {
                             effective = try d.remix(weights: normaliseWeights(w: s.weights), space: .balanced, filter: s.filter)
                         }
-                    }
-                    if lamps, s.plate != nil {
-                        try d.setLamps(red: s.lampRed, blue: s.lampBlue)
+                    } else if s.plate != nil {
+                        try d.setLamps(red: 0, blue: 0)
                     }
                     let info = d.info()
                     let hist = Images.normalised(try d.histogram(soft: s.soft, hard: s.hard))

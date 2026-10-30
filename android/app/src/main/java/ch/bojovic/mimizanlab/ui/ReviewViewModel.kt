@@ -52,9 +52,6 @@ data class ReviewState(
     val hard: Double = 0.0,
     /** The plate process as the development stands; null is the monochrome negative. */
     val plate: PlateState? = null,
-    /** The lamps the sliders show (also while the picture is monochrome, so they survive a switch). */
-    val lampRed: Double = 0.0,
-    val lampBlue: Double = 0.0,
     /** Peak's radius (pixels of the negative) and amount the exports and the 1:1 view use. */
     val peakRadius: Double = Prefs.PEAK.radiusDefault,
     val peakAmount: Double = 0.0,
@@ -115,8 +112,6 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
             name = name,
             soft = darkroom.prefs.soft.value,
             hard = darkroom.prefs.hard.value,
-            lampRed = 0.0,
-            lampBlue = 0.0,
         )
         openJob = viewModelScope.launch {
             darkroom.current.collect { neg ->
@@ -124,8 +119,8 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                     developed = neg.developed
                     // info.weights already include the filter of the first
                     // mix; the sliders start from the camera's base weights.
-                    // The plate (and its lamps) is the process the frame
-                    // was developed in.
+                    // The plate is the process the frame was developed in.
+                    // Lamps stay at zero.
                     _state.update {
                         it.copy(
                             info = neg.info,
@@ -133,8 +128,6 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                             effective = neg.info.weights,
                             filter = neg.info.filter,
                             plate = neg.info.plate,
-                            lampRed = neg.info.plate?.lampRed ?: it.lampRed,
-                            lampBlue = neg.info.plate?.lampBlue ?: it.lampBlue,
                             // A (re)development has new pixels: the fields
                             // take the measured pair, as on the desktop.
                             peakMeasured = neg.peak,
@@ -187,18 +180,6 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
         darkroom.prefs.setPlateSpace(s)
         if (_state.value.plate != null) remixAndRender()
     }
-
-    /** The two lamps, in twelfths of a stop; green is the reference. */
-    fun setLamps(red: Double, blue: Double) {
-        _state.update { it.copy(lampRed = Prefs.snapLamp(red), lampBlue = Prefs.snapLamp(blue)) }
-        renderJob?.cancel()
-        renderJob = viewModelScope.launch {
-            delay(60)
-            render(lamps = true)
-        }
-    }
-
-    fun resetLamps() = setLamps(0.0, 0.0)
 
     /** Peak's radius and amount by hand; only the 1:1 view has to follow (the preview is never sharpened). */
     fun setPeak(radius: Double, amount: Double) {
@@ -253,9 +234,9 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * Draw the picture as it stands. `remix` applies the sliders and the
      * standing process first (the mix, or the plate's filters and
-     * primaries); `lamps` pushes the two lamps to the development.
+     * primaries). A plate is always shown with the lamps at zero.
      */
-    private fun render(remix: Boolean = false, lamps: Boolean = false) {
+    private fun render(remix: Boolean = false) {
         renderJob?.cancel()
         renderJob = viewModelScope.launch(Dispatchers.Default) {
             val d = developed ?: return@launch
@@ -266,14 +247,13 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                     if (remix) {
                         if (darkroom.prefs.process.value == Process.PLATE) {
                             d.setPlate(darkroom.prefs.plateFilters.value, darkroom.prefs.plateSpace.value)
-                            d.setLamps(s.lampRed, s.lampBlue)
+                            d.setLamps(0.0, 0.0)
                         } else {
                             val w = d.remix(normaliseWeights(s.weights), WeightSpace.BALANCED, s.filter)
                             _state.update { it.copy(effective = w) }
                         }
-                    }
-                    if (lamps && s.plate != null) {
-                        d.setLamps(s.lampRed, s.lampBlue)
+                    } else if (s.plate != null) {
+                        d.setLamps(0.0, 0.0)
                     }
                     val info = d.info()
                     val h = d.histogram(s.soft, s.hard)

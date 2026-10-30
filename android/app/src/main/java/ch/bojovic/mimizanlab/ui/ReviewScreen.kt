@@ -4,10 +4,12 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.RenderEffect
+import android.graphics.RenderNode
+import android.graphics.Shader
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -31,7 +34,6 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,7 +52,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
@@ -60,6 +64,7 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.IntOffset
@@ -68,7 +73,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.bojovic.mimizanlab.engine.Darkroom
 import ch.bojovic.mimizanlab.engine.Filter
-import ch.bojovic.mimizanlab.engine.SeparationMode
 import ch.bojovic.mimizanlab.engine.ShotStatus
 import ch.bojovic.mimizanlab.store.Prefs
 import java.util.Locale
@@ -91,9 +95,18 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
     val context = LocalContext.current
     var showInfo by remember { mutableStateOf(false) }
     var exportMenu by remember { mutableStateOf(false) }
+    var frostPx by remember { mutableStateOf(0) }
 
-    Column(Modifier.fillMaxSize().background(Color.Black).statusBarsPadding().navigationBarsPadding()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        Box(
+            Modifier.align(Alignment.TopCenter).fillMaxWidth().height(132.dp).background(
+                Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent)),
+            ),
+        )
+        Row(
+            Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
             Column(Modifier.weight(1f)) {
                 Text(name, style = MaterialTheme.typography.titleSmall, fontFamily = FontFamily.Monospace)
@@ -113,7 +126,7 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
             ) { Icon(Icons.Default.Share, contentDescription = "Share") }
         }
 
-        Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxSize().zIndex(-1f), contentAlignment = Alignment.Center) {
             val pv = s.preview
             val info = s.info
             when {
@@ -124,25 +137,46 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                     detail = s.detail,
                     onVisibleRegion = { x, y, w, h -> vm.requestDetail(x, y, w, h) },
                     onZoomedOut = vm::clearDetail,
+                    frostBottomPx = frostPx.toFloat(),
                     modifier = Modifier.fillMaxSize(),
                 )
                 s.needsDevelop -> DevelopPrompt(shot?.status, onDevelop = { vm.develop() })
                 else -> CircularProgressIndicator()
             }
-            if (s.busy || s.exporting != null) {
-                LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
-            }
-            if (s.histogram.isNotEmpty()) {
-                Histogram(
-                    bins = s.histogram,
-                    rgb = s.histogramRgb,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).size(width = 128.dp, height = 48.dp),
-                )
-            }
+        }
+        if (s.busy || s.exporting != null) {
+            LinearProgressIndicator(
+                Modifier.align(Alignment.TopCenter).fillMaxWidth().statusBarsPadding().padding(top = 64.dp),
+            )
+        }
+        if (s.histogram.isNotEmpty()) {
+            Histogram(
+                bins = s.histogram,
+                rgb = s.histogramRgb,
+                modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 72.dp, end = 8.dp).size(width = 128.dp, height = 48.dp),
+            )
         }
 
         if (s.info != null) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+            Column(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .heightIn(max = 360.dp)
+                    .background(Color(0x38000000))
+                    .drawBehind {
+                        drawLine(
+                            Color.White.copy(alpha = 0.14f),
+                            start = Offset(0f, 0.5f),
+                            end = Offset(size.width, 0.5f),
+                            strokeWidth = 1f,
+                        )
+                    }
+                    .onSizeChanged { frostPx = it.height }
+                    .verticalScroll(rememberScrollState())
+                    .navigationBarsPadding()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            ) {
                 val plate = s.plate
                 ProcessRow(
                     plate = plate != null,
@@ -175,31 +209,6 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                         )
                         Spacer(Modifier.width(12.dp))
                         TextButton(onClick = vm::resetWeights) { Text("Reset") }
-                        Spacer(Modifier.weight(1f))
-                    }
-                } else {
-                    // The projector's lamps: red and blue in stops, green the reference.
-                    val limit = Prefs.LAMP_LIMIT.toFloat()
-                    LabeledSlider(
-                        label = String.format(Locale.US, "lamp R %+.2f", s.lampRed),
-                        value = s.lampRed.toFloat(),
-                        onChange = { vm.setLamps(it.toDouble(), s.lampBlue) },
-                        range = -limit..limit,
-                    )
-                    LabeledSlider(
-                        label = String.format(Locale.US, "lamp B %+.2f", s.lampBlue),
-                        value = s.lampBlue.toFloat(),
-                        onChange = { vm.setLamps(s.lampRed, it.toDouble()) },
-                        range = -limit..limit,
-                    )
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        val w = plate.weights
-                        Text(
-                            "R ${Format.weights(w.red)}\nG ${Format.weights(w.green)}\nB ${Format.weights(w.blue)}",
-                            fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall, color = Color.Gray,
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        TextButton(onClick = vm::resetLamps, enabled = s.lampRed != 0.0 || s.lampBlue != 0.0) { Text("Lamps off") }
                         Spacer(Modifier.weight(1f))
                     }
                 }
@@ -242,31 +251,8 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                     }
                 }
                 val cur = vm.shotSettings()
-                if (cur != null) {
-                    Row(
-                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        for (m in SeparationMode.entries) {
-                            FilterChip(
-                                selected = cur.separation == m,
-                                onClick = {
-                                    if (cur.separation != m) vm.develop(cur.copy(separation = m))
-                                },
-                                label = {
-                                    Text(when (m) {
-                                        SeparationMode.DUBOIS -> "Dubois"
-                                        SeparationMode.ADAPTIVE -> "Adaptive"
-                                        SeparationMode.OFF -> "Mask off"
-                                    })
-                                },
-                            )
-                        }
-                        if (cur.binning == 2) {
-                            TextButton(onClick = { vm.develop(cur.copy(binning = 1)) }) { Text("Full size") }
-                        }
-                    }
+                if (cur != null && cur.binning == 2) {
+                    TextButton(onClick = { vm.develop(cur.copy(binning = 1)) }) { Text("Full size") }
                 }
                 Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box {
@@ -344,6 +330,7 @@ fun ZoomableNegative(
     detail: Detail?,
     onVisibleRegion: (x: Int, y: Int, w: Int, h: Int) -> Unit,
     onZoomedOut: () -> Unit,
+    frostBottomPx: Float = 0f,
     modifier: Modifier = Modifier,
 ) {
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
@@ -351,6 +338,8 @@ fun ZoomableNegative(
     var offset by remember { mutableStateOf(Offset.Zero) }
     val img = remember(preview) { preview.asImageBitmap() }
     val detailPaint = remember { Paint(Paint.FILTER_BITMAP_FLAG) }
+    val frostNode = remember { RenderNode("review-frost") }
+    val frostPaint = remember { Paint(Paint.FILTER_BITMAP_FLAG) }
 
     // Fit the full picture into the view at scale 1.
     val fit = if (viewSize.width == 0) 1f else min(viewSize.width.toFloat() / fullWidth, viewSize.height.toFloat() / fullHeight)
@@ -438,6 +427,38 @@ fun ZoomableNegative(
                         )
                     }
                 }
+            }
+        }
+        if (frostBottomPx > 1f && size.height > frostBottomPx) {
+            // The same picture, blurred, and only the strip under the panel:
+            // the panel's light black tint then reads as milky glass.
+            drawIntoCanvas { composeCanvas ->
+                val nc = composeCanvas.nativeCanvas
+                val w = size.width.toInt().coerceAtLeast(1)
+                val h = size.height.toInt().coerceAtLeast(1)
+                frostNode.setPosition(0, 0, w, h)
+                frostNode.setRenderEffect(RenderEffect.createBlurEffect(24f, 24f, Shader.TileMode.CLAMP))
+                val rec = frostNode.beginRecording()
+                rec.save()
+                rec.translate(offset.x, offset.y)
+                rec.scale(scale, scale)
+                rec.drawBitmap(preview, null, RectF(base.x, base.y, base.x + fitW, base.y + fitH), frostPaint)
+                if (detail != null) {
+                    val d = detail
+                    val dx = base.x + d.x * fit
+                    val dy = base.y + d.y * fit
+                    rec.drawBitmap(
+                        d.bitmap, null,
+                        RectF(dx, dy, dx + d.bitmap.width * fit, dy + d.bitmap.height * fit),
+                        frostPaint,
+                    )
+                }
+                rec.restore()
+                frostNode.endRecording()
+                nc.save()
+                nc.clipRect(0f, size.height - frostBottomPx, size.width, size.height)
+                nc.drawRenderNode(frostNode)
+                nc.restore()
             }
         }
     }

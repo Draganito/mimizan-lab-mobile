@@ -1,5 +1,5 @@
-// The review screen: the negative under pinch and drag, the process and
-// the film, the mix or the lamps, the paper, Peak, the exports. Mirrors
+// The review screen: the print fitted to the whole screen, and the
+// paper, Peak and the mix on a milky panel over it. Mirrors
 // `ReviewScreen.kt`.
 import MimizanCore
 import SwiftUI
@@ -8,11 +8,13 @@ struct ReviewView: View {
     let name: String
     @State private var vm = ReviewViewModel()
     @State private var showInfo = false
+    /// Height of the controls, so the panel wraps them and only scrolls past this cap.
+    @State private var panelHeight: CGFloat = 0
 
     var body: some View {
         let shot = vm.shot
         let prefs = vm.darkroom.prefs
-        VStack(spacing: 0) {
+        ZStack(alignment: .bottom) {
             ZStack {
                 if let pv = vm.preview, let info = vm.info {
                     ZoomableNegative(
@@ -39,22 +41,41 @@ struct ReviewView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea()
 
             if vm.info != nil {
                 ScrollView {
                     controls(prefs: prefs)
                         .padding(.horizontal, 12)
+                        .padding(.top, 12)
                         .padding(.bottom, 8)
+                        .background {
+                            GeometryReader { g in
+                                Color.clear.preference(key: PanelHeightKey.self, value: g.size.height)
+                            }
+                        }
                 }
-                .frame(maxHeight: 330)
+                .scrollIndicators(.hidden)
+                .frame(height: panelHeight > 0 ? min(panelHeight, 360) : 360)
+                .background {
+                    ZStack {
+                        Rectangle().fill(.ultraThinMaterial)
+                        Color.black.opacity(0.22)
+                    }
+                }
+                .overlay(alignment: .top) {
+                    Rectangle().fill(Color.white.opacity(0.14)).frame(height: 0.5)
+                }
             }
         }
+        .onPreferenceChange(PanelHeightKey.self) { panelHeight = $0 }
         .background(Color.black.ignoresSafeArea())
         .foregroundStyle(.white)
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(.dark, for: .navigationBar)
-        .toolbarBackground(Color.black, for: .navigationBar)
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 0) {
@@ -97,19 +118,7 @@ struct ReviewView: View {
             plate: plate != nil, filters: prefs.plateFilters, space: prefs.plateSpace, hasMatrix: vm.info?.hasColourMatrix ?? false,
             onProcess: vm.setProcess, onFilters: vm.setPlateFilters, onSpace: vm.setPlateSpace
         )
-        if let plate {
-            // The projector's lamps: red and blue in stops, green the reference.
-            let lim = Prefs.lampLimit
-            LabeledSlider(label: String(format: "lamp R %+.2f", vm.lampRed), value: Binding(get: { vm.lampRed }, set: { vm.setLamps(red: $0, blue: vm.lampBlue) }), range: -lim...lim, step: 1.0 / 12)
-            LabeledSlider(label: String(format: "lamp B %+.2f", vm.lampBlue), value: Binding(get: { vm.lampBlue }, set: { vm.setLamps(red: vm.lampRed, blue: $0) }), range: -lim...lim, step: 1.0 / 12)
-            HStack(spacing: 12) {
-                let w = plate.weights
-                Text("R \(Format.weights(w.red))\nG \(Format.weights(w.green))\nB \(Format.weights(w.blue))")
-                    .font(.caption.monospaced()).foregroundStyle(.gray)
-                Button("Lamps off") { vm.resetLamps() }.disabled(vm.lampRed == 0 && vm.lampBlue == 0)
-                Spacer()
-            }
-        } else {
+        if plate == nil {
             FilterRow(selected: vm.filter, onSelect: vm.setFilter)
             let w = vm.weights
             LabeledSlider(label: String(format: "R %.2f", w.r), value: Binding(get: { w.r }, set: { vm.setWeightsRB(r: $0, b: w.b) }))
@@ -143,19 +152,9 @@ struct ReviewView: View {
                 Spacer()
             }
         }
-        if let cur = vm.shotSettings {
-            HStack(spacing: 8) {
-                ForEach(SeparationMode.all, id: \.self) { m in
-                    Chip(label: Format.separation(m), selected: cur.separation == m) {
-                        guard cur.separation != m else { return }
-                        var s = cur
-                        s.separation = m
-                        vm.develop(s)
-                    }
-                }
-                if cur.binning == 2 {
-                    Button("Full size") { var s = cur; s.binning = 1; vm.develop(s) }
-                }
+        if let cur = vm.shotSettings, cur.binning == 2 {
+            HStack {
+                Button("Full size") { var s = cur; s.binning = 1; vm.develop(s) }
                 Spacer()
             }
         }
@@ -176,6 +175,11 @@ struct ReviewView: View {
         }
         .padding(.top, 4)
     }
+}
+
+private struct PanelHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 private struct DevelopPrompt: View {
