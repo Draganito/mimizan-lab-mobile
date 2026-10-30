@@ -118,7 +118,9 @@ class Darkroom private constructor(private val context: Context) {
         // they can be developed again.
         scope.launch {
             val restored = cache.names().mapNotNull { name ->
-                cache.loadMeta(name)?.let { Shot(name, it, DevelopSettings(), ShotStatus.Cached) }
+                cache.loadMeta(name)?.let {
+                    Shot(name, it, DevelopSettings(), ShotStatus.Cached, thumbnail = cache.loadThumb(name))
+                }
             }
             if (restored.isNotEmpty()) _shots.update { restored + it }
             refreshCacheSize()
@@ -229,6 +231,7 @@ class Darkroom private constructor(private val context: Context) {
                 val info = developed.info()
                 Log.i(TAG, "developed $name in ${(System.nanoTime() - t0) / 1_000_000} ms: ${info.timing}")
                 val thumb = thumbnail(developed)
+                cache.saveThumb(name, thumb)
                 // Peak's radius and amount for this negative, as the
                 // desktop measures them on opening a picture. Measured even
                 // with the checkbox off: review can turn it on without a

@@ -68,7 +68,9 @@ final class Darkroom {
         let cache = cache
         Task.detached(priority: .utility) {
             let restored: [Shot] = cache.names().compactMap { name in
-                cache.loadMeta(name).map { Shot(name: name, meta: $0, settings: DevelopSettings(), status: .cached) }
+                cache.loadMeta(name).map {
+                    Shot(name: name, meta: $0, settings: DevelopSettings(), status: .cached, thumbnail: cache.loadThumb(name))
+                }
             }
             let bytes = cache.sizeBytes()
             await MainActor.run {
@@ -228,6 +230,7 @@ final class Darkroom {
                 switch outcome {
                 case let .success(result):
                     self.current = result.negative
+                    if let thumb = result.thumbnail { self.cache.saveThumb(name, thumb) }
                     self.updateShot(name) {
                         $0.status = .ready(result.negative.info)
                         $0.thumbnail = result.thumbnail

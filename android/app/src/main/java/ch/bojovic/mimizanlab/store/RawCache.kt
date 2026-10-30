@@ -1,6 +1,8 @@
 package ch.bojovic.mimizanlab.store
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import ch.bojovic.mimizanlab.raw.RawMeta
 import java.io.File
 import org.json.JSONObject
@@ -16,6 +18,8 @@ class RawCache(context: Context, private val budgetBytes: Long = 1_500L shl 20) 
 
     fun rawFile(name: String) = File(dir, "$name.raw")
     fun metaFile(name: String) = File(dir, "$name.json")
+    /** The developed preview, already reduced, kept so the roll can show it without developing again. */
+    fun thumbFile(name: String) = File(dir, "$name.jpg")
 
     /**
      * Pixels first, metadata last and through a rename: a frame only counts
@@ -46,9 +50,21 @@ class RawCache(context: Context, private val budgetBytes: Long = 1_500L shl 20) 
         return meta to rawFile(name).readBytes()
     }
 
+    /** A JPEG of the thumbnail the development already made. Nothing is decoded from the raw. */
+    fun saveThumb(name: String, bitmap: Bitmap) {
+        thumbFile(name).outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 55, it) }
+    }
+
+    fun loadThumb(name: String): Bitmap? {
+        val f = thumbFile(name)
+        if (!f.exists()) return null
+        return BitmapFactory.decodeFile(f.absolutePath)
+    }
+
     fun remove(name: String) {
         rawFile(name).delete()
         metaFile(name).delete()
+        thumbFile(name).delete()
     }
 
     fun removeAll() {

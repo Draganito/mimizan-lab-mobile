@@ -1,7 +1,7 @@
 // Navigation. On a phone (compact width) a stack: viewfinder, then the
-// roll or a review pushed on it. On an iPad (regular width) a split view:
-// the roll on the side, the viewfinder or the selected review in the
-// detail column.
+// roll or a review pushed on it. On an iPad (regular width) the viewfinder
+// fills the screen; the roll opens beside it on request and closes again
+// once a frame is chosen.
 import SwiftUI
 
 private enum Route: Hashable {
@@ -50,7 +50,7 @@ private struct StackRoot: View {
 private struct SplitRoot: View {
     let capture: CaptureViewModel
     @State private var selection: String?
-    @State private var columns = NavigationSplitViewVisibility.all
+    @State private var columns = NavigationSplitViewVisibility.detailOnly
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columns) {
@@ -66,9 +66,14 @@ private struct SplitRoot: View {
                     }
                     .id(name)
             } else {
-                CaptureView(vm: capture, onOpenShot: { selection = $0 }, onOpenRoll: { columns = .all })
+                CaptureView(vm: capture, onOpenShot: { selection = $0 }, onOpenRoll: {
+                    columns = columns == .detailOnly ? .all : .detailOnly
+                })
                     .toolbar(.hidden, for: .navigationBar)
             }
+        }
+        .onChange(of: selection) { _, name in
+            if name != nil { columns = .detailOnly }
         }
         .navigationSplitViewStyle(.balanced)
         .preferredColorScheme(.dark)

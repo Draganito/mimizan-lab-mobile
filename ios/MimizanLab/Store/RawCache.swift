@@ -2,8 +2,11 @@
 // (or as the user imported it) and `<name>.json`, the metadata the roll
 // shows. A shot can be developed again later from the file alone. Oldest
 // frames go first when the cache exceeds the budget.
+import CoreGraphics
 import Foundation
+import ImageIO
 import MimizanCore
+import UniformTypeIdentifiers
 
 /// What the roll knows about a frame without decoding it again.
 struct ShotMeta: Codable, Equatable {
@@ -65,6 +68,8 @@ final class RawCache: @unchecked Sendable {
 
     func rawFile(_ name: String) -> URL { dir.appendingPathComponent("\(name).dng") }
     func metaFile(_ name: String) -> URL { dir.appendingPathComponent("\(name).json") }
+    /// The developed preview, already reduced, kept so the roll can show it without developing again.
+    func thumbFile(_ name: String) -> URL { dir.appendingPathComponent("\(name).jpg") }
 
     /// Pixels first (`putRaw`), metadata last (`commit`), each written
     /// atomically: a frame only counts (`has`, `names`) once both files
@@ -101,9 +106,26 @@ final class RawCache: @unchecked Sendable {
         return try? dec.decode(ShotMeta.self, from: data)
     }
 
+    /// A JPEG of the thumbnail the development already made. Nothing is decoded from the raw.
+    func saveThumb(_ name: String, _ image: CGImage) {
+        let url = thumbFile(name)
+        guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return }
+        CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.55] as CFDictionary)
+        CGImageDestinationFinalize(dest)
+    }
+
+    func loadThumb(_ name: String) -> CGImage? {
+        let url = thumbFile(name)
+        guard fm.fileExists(atPath: url.path),
+              let src = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary)
+        else { return nil }
+        return CGImageSourceCreateImageAtIndex(src, 0, nil)
+    }
+
     func remove(_ name: String) {
         try? fm.removeItem(at: rawFile(name))
         try? fm.removeItem(at: metaFile(name))
+        try? fm.removeItem(at: thumbFile(name))
     }
 
     func removeAll() {
