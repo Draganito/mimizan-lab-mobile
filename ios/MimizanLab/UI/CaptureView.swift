@@ -231,28 +231,6 @@ struct SettingsSheet: View {
     @Bindable var vm: CaptureViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var confirmDeleteAll = false
-    @State private var confirmClearLog = false
-
-    /// The preview-against-result log: a switch, the count, and a share of the file.
-    private var debugSection: some View {
-        let log = vm.darkroom.debugLog
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("Debug").font(.headline).padding(.top, 16)
-            SettingRow(label: "Log preview against result", on: Binding(get: { vm.prefs.debugLog }, set: vm.prefs.setDebugLog))
-            Text("With this on, every frame records what the viewfinder showed and what the development produced. The file is preview-debug.json in Files › Mimizan Lab, and can be mailed from here.")
-                .font(.caption).foregroundStyle(.gray)
-            HStack {
-                Text("\(log.entries.count) entries").foregroundStyle(.gray)
-                Spacer()
-                if log.entries.isEmpty {
-                    Text("Send log").foregroundStyle(.gray)
-                } else {
-                    ShareLink(item: log.url) { Text("Send log") }
-                }
-                Button("Delete log") { confirmClearLog = true }.disabled(log.entries.isEmpty)
-            }
-        }
-    }
 
     var body: some View {
         let prefs = vm.prefs
@@ -275,15 +253,6 @@ struct SettingsSheet: View {
                     PaperSliders(soft: prefs.soft, hard: prefs.hard, onSoft: prefs.setSoft, onHard: prefs.setHard)
                     Text("Zero is the base print. These exposures drive the live viewfinder, the automatic JPEG, the roll thumbnail, and the starting values in review. Each picture can still be changed there.")
                         .font(.caption).foregroundStyle(.gray)
-
-                    if develop.isPlate {
-                        Text("Lamps").font(.headline).padding(.top, 8)
-                        let lim = Prefs.lampLimit
-                        LabeledSlider(label: String(format: "red %+.2f", prefs.lampRed), value: Binding(get: { prefs.lampRed }, set: prefs.setLampRed), range: -lim...lim, step: 1.0 / 12)
-                        LabeledSlider(label: String(format: "blue %+.2f", prefs.lampBlue), value: Binding(get: { prefs.lampBlue }, set: prefs.setLampBlue), range: -lim...lim, step: 1.0 / 12)
-                        Text("The projector's three lamps, green the reference: stops of exposure added to the red and the blue positive. The only colour control of the plate; the paper's two exposures stay the same for all three.")
-                            .font(.caption).foregroundStyle(.gray)
-                    }
 
                     SettingRow(label: "Peak", on: Binding(get: { prefs.peak }, set: prefs.setPeak))
                     Text("Sharpens the automatic JPEG and the full-size JPEG / TIFF. Radius and amount are measured on each negative: the smallest high-pass that brings its edges to the target, without a rim. Review shows the measured pair and lets you move it; the 1:1 view shows the result.")
@@ -309,8 +278,6 @@ struct SettingsSheet: View {
                         Button("Delete all") { confirmDeleteAll = true }.disabled(shots.isEmpty)
                     }
 
-                    debugSection
-
                     Text("engine \(version()) · core \(coreVersion()) · \(workerThreads()) threads")
                         .font(.caption).foregroundStyle(.gray).padding(.top, 16)
                     Text("GPL-3.0 or any later version. Copyright (C) 2026 Dragan Bojovic. The license text is shipped in this app.")
@@ -322,12 +289,6 @@ struct SettingsSheet: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-            .alert("Delete the debug log?", isPresented: $confirmClearLog) {
-                Button("Delete", role: .destructive) { vm.darkroom.debugLog.clear() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("The \(vm.darkroom.debugLog.entries.count) recorded frames are removed. Pictures already taken stay.")
-            }
             .alert("Delete all \(shots.count) frames?", isPresented: $confirmDeleteAll) {
                 Button("Delete all", role: .destructive) { vm.darkroom.deleteAll() }
                 Button("Cancel", role: .cancel) {}

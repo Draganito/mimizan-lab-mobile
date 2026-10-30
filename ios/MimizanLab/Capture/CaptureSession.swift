@@ -7,7 +7,6 @@ import CoreVideo
 import Foundation
 import Observation
 import os
-import simd
 import UIKit
 
 private let log = Logger(subsystem: "ch.bojovic.mimizanlab", category: "camera")
@@ -96,12 +95,6 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
 
     // Histogram: on the camera queue, at most every 66 ms.
     private let toneLock = OSAllocatedUnfairLock<FinderTone?>(initialState: nil)
-    private let measurementLock = OSAllocatedUnfairLock<FinderMeasurement?>(initialState: nil)
-    /// Set from the main actor; the analysis reads it. A stale read costs one frame.
-    var debugLogging = false
-
-    /// The last measured finder frame, when debug logging is on.
-    func latestMeasurement() -> FinderMeasurement? { measurementLock.withLockUnchecked { $0 } }
     private var lastAnalysis = Date.distantPast
     private var grayTable: [Float] = []
     private var grayTableFor: FinderTone?
@@ -436,28 +429,15 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         var bins = [Int](repeating: 0, count: 64)
         let step = max(1, max(w, h) / 240)
         let t = tone
-        let logging = debugLogging
         if let t {
             if grayTableFor != t { grayTable = t.grayTable(); grayTableFor = t }
             let lin = CaptureSession.srgbLinear
             let v = t.v
             let table = grayTable
             let scale = Float(table.count - 1)
-            let plate = t.plate
-            let measure = logging
-            var linear = [Int](repeating: 0, count: 64)
-            var channel = SIMD3<Float>(repeating: 0)
-            var plateR = [Int](repeating: 0, count: 64)
-            var plateG = [Int](repeating: 0, count: 64)
-            var plateB = [Int](repeating: 0, count: 64)
-            let cols = FinderMeasurement.spatialWidth, rows = FinderMeasurement.spatialHeight
-            var spatialSum = [Float](repeating: 0, count: cols * rows)
-            var spatialCount = [Int](repeating: 0, count: cols * rows)
-            var count = 0
             var y = 0
             while y < h {
                 let row = y * stride
-                let by = min(y * rows / h, rows - 1)
                 var x = 0
                 while x < w {
                     let i = row + x * 4
@@ -465,35 +445,9 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                     let l = min(max(v.x * r + v.y * g + v.z * b, 0), 1)
                     let d = table[min(Int(l * scale + 0.5), table.count - 1)]
                     bins[min(max(Int(d * 63.999), 0), 63)] += 1
-                    if measure {
-                        linear[min(Int(l * 63.999), 63)] += 1
-                        channel += SIMD3(r, g, b)
-                        if let plate {
-                            let dr = min(max(plate.0.x * r + plate.0.y * g + plate.0.z * b, 0), 1)
-                            let dg = min(max(plate.1.x * r + plate.1.y * g + plate.1.z * b, 0), 1)
-                            let db = min(max(plate.2.x * r + plate.2.y * g + plate.2.z * b, 0), 1)
-                            plateR[min(Int(dr * 63.999), 63)] += 1
-                            plateG[min(Int(dg * 63.999), 63)] += 1
-                            plateB[min(Int(db * 63.999), 63)] += 1
-                        }
-                        let bx = min(x * cols / w, cols - 1)
-                        spatialSum[by * cols + bx] += l
-                        spatialCount[by * cols + bx] += 1
-                        count += 1
-                    }
                     x += step
                 }
                 y += step
-            }
-            if measure, count > 0 {
-                let m = FinderMeasurement(
-                    linearCounts: linear, displayCounts: bins,
-                    channelSum: channel, count: count,
-                    spatialSum: spatialSum, spatialCount: spatialCount,
-                    plateCounts: plate == nil ? nil : [plateR, plateG, plateB],
-                    frameWidth: w, frameHeight: h
-                )
-                measurementLock.withLockUnchecked { $0 = m }
             }
         } else {
             var y = 0
@@ -513,26 +467,6 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         let out = bins.map { Float($0) / m }
         Task { @MainActor in self.state.histogram = out }
     }
-}
-
-/// One measured finder frame, in the sensor's orientation: the linear mix
-/// before the paper, the display value after it, the three channels, and a
-/// coarse spatial map. Raw counts; the debug log turns them into shares.
-struct FinderMeasurement: Sendable {
-    static let spatialWidth = 16
-    static let spatialHeight = 12
-
-    var linearCounts: [Int]
-    var displayCounts: [Int]
-    var channelSum: SIMD3<Float>
-    var count: Int
-    var spatialSum: [Float]
-    var spatialCount: [Int]
-    /// Three 64-bin histograms of the plate's taking filters, before the
-    /// lamps; nil for the monochrome negative.
-    var plateCounts: [[Int]]?
-    var frameWidth: Int
-    var frameHeight: Int
 }
 
 /// Keeps one capture's delegate alive until the DNG is in hand.

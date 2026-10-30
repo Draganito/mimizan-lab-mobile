@@ -59,11 +59,10 @@ final class CaptureViewModel {
     private func observeTone() {
         withObservationTracking {
             _ = session.state.wbGains
-            _ = prefs.soft; _ = prefs.hard; _ = prefs.lampRed; _ = prefs.lampBlue
+            _ = prefs.soft; _ = prefs.hard
             _ = prefs.process; _ = prefs.plateFilters; _ = prefs.plateSpace
             _ = local; _ = viewfinder.zebra; _ = lens
             _ = session.state.rotationQuarters
-            _ = prefs.debugLog
             _ = darkroom.shots.first?.meta.xyzToCam
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
@@ -112,7 +111,7 @@ final class CaptureViewModel {
             lut: lut,
             zebra: viewfinder.zebra ? 0.985 : 2,
             plate: plate,
-            lampGain: SIMD3(Float(pow(2.0, prefs.lampRed)), 1, Float(pow(2.0, prefs.lampBlue)))
+            lampGain: SIMD3(1, 1, 1)
         )
         if t != tone {
             tone = t
@@ -120,7 +119,6 @@ final class CaptureViewModel {
             renderer?.set(tone: t)
         }
         renderer?.set(rotationQuarters: session.state.rotationQuarters)
-        session.debugLogging = prefs.debugLog
     }
 
     /// The sensor's XYZ → camera matrix as the last DNG of this lens
@@ -246,27 +244,13 @@ final class CaptureViewModel {
 
     // MARK: the shot
 
-    /// The finder frame as the log wants it, or nil when nothing has been measured yet.
-    private func debugPreview() -> DebugPreview? {
-        guard let m = session.latestMeasurement(), let tone else { return nil }
-        return DebugPreview(
-            measurement: m, iso: state.iso, exposureSeconds: state.exposureSeconds, biasStops: exposure.bias,
-            wbGains: state.wbGains, rotationQuarters: state.rotationQuarters, process: develop.process.rawValue,
-            filter: develop.filter.name, paperSoft: prefs.soft, paperHard: prefs.hard, tone: tone,
-            xyzToCam: lens.flatMap { lensMatrix(for: $0) }
-        )
-    }
-
     func capture() {
         guard let l = lens, !state.capturing else { return }
         let settings = develop
-        let logging = prefs.debugLog
         Task {
             do {
                 let dng = try await session.capture()
-                let when = Date()
-                let debug = logging ? self.debugPreview() : nil
-                darkroom.submit(dng: dng, lens: l.label, capturedAt: when, settings: settings, debug: debug)
+                darkroom.submit(dng: dng, lens: l.label, capturedAt: Date(), settings: settings)
             } catch {
                 log.error("capture: \(error.localizedDescription)")
                 message = error.localizedDescription

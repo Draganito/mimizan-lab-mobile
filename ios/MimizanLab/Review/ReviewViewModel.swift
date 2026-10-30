@@ -80,8 +80,8 @@ final class ReviewViewModel {
         plate = nil
         soft = darkroom.prefs.soft
         hard = darkroom.prefs.hard
-        lampRed = darkroom.prefs.lampRed
-        lampBlue = darkroom.prefs.lampBlue
+        lampRed = 0
+        lampBlue = 0
         if !observing {
             observing = true
             observeCurrent()

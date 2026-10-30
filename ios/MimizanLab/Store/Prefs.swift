@@ -33,13 +33,6 @@ final class Prefs {
     /// The plate's projection primaries, the colour space of the file.
     /// sRGB on the phone: Photos shows it as it is.
     private(set) var plateSpace: PlateSpace
-    /// The red lamp of the plate's projector, stops; the start value in
-    /// review and the automatic JPEG's.
-    private(set) var lampRed: Double
-    /// The blue lamp.
-    private(set) var lampBlue: Double
-    /// Record a preview-against-result entry for every frame. Off until asked.
-    private(set) var debugLog: Bool
 
     init() {
         soft = Prefs.snapStops(store.double(forKey: Keys.soft))
@@ -48,9 +41,6 @@ final class Prefs {
         process = Process(rawValue: store.string(forKey: Keys.process) ?? "") ?? .mono
         plateFilters = PlateFilters.fromName(store.string(forKey: Keys.plateFilters)) ?? .camera
         plateSpace = PlateSpace.fromName(store.string(forKey: Keys.plateSpace)) ?? .srgb
-        lampRed = Prefs.snapLamp(store.double(forKey: Keys.lampRed))
-        lampBlue = Prefs.snapLamp(store.double(forKey: Keys.lampBlue))
-        debugLog = store.bool(forKey: Keys.debugLog)
     }
 
     func setSoft(_ stops: Double) {
@@ -81,21 +71,6 @@ final class Prefs {
     func setPlateSpace(_ s: PlateSpace) {
         plateSpace = s
         store.set(s.name, forKey: Keys.plateSpace)
-    }
-
-    func setLampRed(_ stops: Double) {
-        lampRed = Prefs.snapLamp(stops)
-        store.set(lampRed, forKey: Keys.lampRed)
-    }
-
-    func setDebugLog(_ on: Bool) {
-        debugLog = on
-        store.set(on, forKey: Keys.debugLog)
-    }
-
-    func setLampBlue(_ stops: Double) {
-        lampBlue = Prefs.snapLamp(stops)
-        store.set(lampBlue, forKey: Keys.lampBlue)
     }
 
     // MARK: limits, asked of the core once
@@ -137,9 +112,6 @@ final class Prefs {
         static let process = "process"
         static let plateFilters = "plate_filters"
         static let plateSpace = "plate_space"
-        static let lampRed = "lamp_red"
-        static let lampBlue = "lamp_blue"
-        static let debugLog = "debug_log"
     }
 }
 
