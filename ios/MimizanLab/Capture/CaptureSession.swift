@@ -467,7 +467,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                     bins[min(max(Int(d * 63.999), 0), 63)] += 1
                     if measure {
                         linear[min(Int(l * 63.999), 63)] += 1
-                        channel &+= SIMD3(r, g, b)
+                        channel += SIMD3(r, g, b)
                         if let plate {
                             let dr = min(max(plate.0.x * r + plate.0.y * g + plate.0.z * b, 0), 1)
                             let dg = min(max(plate.1.x * r + plate.1.y * g + plate.1.z * b, 0), 1)

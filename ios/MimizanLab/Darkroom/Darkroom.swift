@@ -320,7 +320,7 @@ final class Darkroom {
                     )
                 }
             }
-            return .success(DevelopResult(negative: negative, thumbnail: thumb, jpeg: jpeg, debug: debug))
+            return .success(DevelopResult(negative: negative, thumbnail: thumb, debug: debug, jpeg: jpeg))
         } catch {
             log.error("develop \(name): \(error.localizedDescription)")
             return .failure(error)
