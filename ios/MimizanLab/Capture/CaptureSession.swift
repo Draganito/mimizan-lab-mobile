@@ -83,8 +83,12 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     private var device: AVCaptureDevice?
     private var lens: LensInfo?
     private var rawFormat: OSType = 0
-    private var rotation: AVCaptureDevice.RotationCoordinator?
+    /// Clockwise quarter-turns that bring the sensor buffer upright for the
+    /// device's current orientation. The shader applies them; the video
+    /// connection is kept at 0 so the frames are never rotated twice.
+    private var shownQuarters = 1
     private var observers: [NSKeyValueObservation] = []
+    private var orientationObserver: (any NSObjectProtocol)?
     private var exposure = ExposureSettings()
     private var flash: FlashMode = .off
     private var processor: PhotoProcessor?
@@ -117,9 +121,11 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     /// Open `lens` with a Bayer RAW photo output. Throws when the lens
     /// offers no Bayer RAW (the caller tries the next one).
     func start(_ lens: LensInfo) async throws {
+        let q = await MainActor.run { CaptureSession.currentQuarters() }
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             queue.async {
                 do {
+                    self.shownQuarters = q
                     try self.configure(lens)
                     if !self.session.isRunning { self.session.startRunning() }
                     cont.resume()
@@ -174,13 +180,21 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         }
 
         _ = CaptureSession.orientation
-        let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
-        rotation = coordinator
-        applyPreviewRotation(coordinator.videoRotationAngleForHorizonLevelPreview)
+        if orientationObserver == nil {
+            orientationObserver = NotificationCenter.default.addObserver(
+                forName: UIDevice.orientationDidChangeNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    let q = CaptureSession.currentQuarters()
+                    self?.queue.async {
+                        self?.shownQuarters = q
+                        self?.applyOrientation()
+                    }
+                }
+            }
+        }
+        applyOrientation()
         observers = [
-            coordinator.observe(\.videoRotationAngleForHorizonLevelPreview, options: [.new]) { [weak self] c, _ in
-                self?.queue.async { self?.applyPreviewRotation(c.videoRotationAngleForHorizonLevelPreview) }
-            },
             device.observe(\.iso, options: [.new]) { [weak self] d, _ in
                 let iso = Int(d.iso.rounded())
                 Task { @MainActor in self?.state.iso = iso }
@@ -216,7 +230,6 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
 
     private func teardown() {
         observers = []
-        rotation = nil
         session.beginConfiguration()
         for i in session.inputs { session.removeInput(i) }
         for o in session.outputs { session.removeOutput(o) }
@@ -226,25 +239,52 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         lens = nil
     }
 
-    private func applyPreviewRotation(_ angle: CGFloat) {
-        // Ask the connection first. It only honours the angle when the
-        // bundle opted in; when it refuses, the frames stay in the sensor's
-        // orientation and the shader turns them (`FinderUniforms.rotation`).
-        var applied = false
-        if let c = videoOutput.connection(with: .video), c.isVideoRotationAngleSupported(angle) {
-            c.videoRotationAngle = angle
-            applied = true
+    /// Clockwise quarter-turns that stand the back camera's sensor buffer
+    /// upright. The buffer arrives in the sensor's own orientation (the
+    /// video connection is pinned at 0 below), so this is the whole rotation.
+    /// `.landscapeLeft` needs none: that is the orientation the sensor
+    /// already scans in.
+    static func quarters(for o: UIDeviceOrientation) -> Int? {
+        switch o {
+        case .landscapeLeft: return 0
+        case .portrait, .faceUp: return 1
+        case .landscapeRight: return 2
+        case .portraitUpsideDown: return 3
+        default: return nil
+        }
+    }
+
+    /// The quarter-turns to show now. The device orientation wins once the
+    /// device has reported one; before the first movement it reads
+    /// `.unknown`, so the window's orientation fills in. The interface
+    /// landscapes are mirrored against the device's.
+    @MainActor
+    static func currentQuarters() -> Int {
+        if let q = quarters(for: UIDevice.current.orientation) { return q }
+        let iface = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.interfaceOrientation
+        switch iface {
+        case .landscapeRight: return 0
+        case .portraitUpsideDown: return 3
+        case .landscapeLeft: return 2
+        default: return 1
+        }
+    }
+
+    private func applyOrientation() {
+        // Keep the frames unrotated. Turning them here and in the shader
+        // would rotate twice, and this connection does not reliably honour
+        // the angle on every device.
+        if let c = videoOutput.connection(with: .video), c.isVideoRotationAngleSupported(0) {
+            c.videoRotationAngle = 0
         }
         let d = device?.activeFormat.formatDescription.dimensions
         let w = CGFloat(d?.width ?? 4), h = CGFloat(d?.height ?? 3)
-        let quarter = Int(angle.rounded()) / 90
-        let turned = quarter % 2 != 0
+        let turned = shownQuarters % 2 != 0
         let aspect = turned ? h / w : w / h
-        // What the shader still has to turn, in quarter-turns clockwise.
-        let shaderTurns = applied ? 0 : ((4 - (quarter % 4 + 4) % 4) % 4)
+        let q = shownQuarters
         Task { @MainActor in
             self.state.frameAspect = aspect
-            self.state.rotationQuarters = shaderTurns
+            self.state.rotationQuarters = q
         }
     }
 
@@ -286,8 +326,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     func focus(at p: CGPoint) {
         queue.async {
             guard let d = self.device else { return }
-            let angle = self.rotation?.videoRotationAngleForHorizonLevelPreview ?? 0
-            let dp = CaptureSession.devicePoint(p, previewAngle: angle, shaderQuarters: self.state.rotationQuarters)
+            let dp = CaptureSession.devicePoint(p, shaderQuarters: self.shownQuarters)
             do {
                 try d.lockForConfiguration()
                 defer { d.unlockForConfiguration() }
@@ -320,16 +359,14 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         }
     }
 
-    /// A point of the upright finder picture (0..1) in the device's own
-    /// frame (landscape sensor, origin top-left), undoing the rotation the
-    /// picture was shown with: the connection's angle, or the shader's
-    /// quarter-turns when the connection refused.
-    static func devicePoint(_ p: CGPoint, previewAngle: CGFloat, shaderQuarters: Int) -> CGPoint {
-        let shown = shaderQuarters == 0 ? Int(previewAngle.rounded()) : (360 - shaderQuarters * 90)
-        switch (shown % 360 + 360) % 360 {
-        case 90: return CGPoint(x: p.y, y: 1 - p.x)
-        case 180: return CGPoint(x: 1 - p.x, y: 1 - p.y)
-        case 270: return CGPoint(x: 1 - p.y, y: p.x)
+    /// A point of the upright finder picture (0..1) in the sensor buffer,
+    /// undoing the clockwise quarter-turns the shader applied. The same
+    /// transform as `Finder.metal`, so a tap focuses where it landed.
+    static func devicePoint(_ p: CGPoint, shaderQuarters q: Int) -> CGPoint {
+        switch (q % 4 + 4) % 4 {
+        case 1: return CGPoint(x: p.y, y: 1 - p.x)
+        case 2: return CGPoint(x: 1 - p.x, y: 1 - p.y)
+        case 3: return CGPoint(x: 1 - p.y, y: p.x)
         default: return p
         }
     }
@@ -354,8 +391,8 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                 case .on: wanted = .on
                 }
                 settings.flashMode = (!self.exposure.manual && self.photoOutput.supportedFlashModes.contains(wanted)) ? wanted : .off
-                if let c = self.photoOutput.connection(with: .video), let r = self.rotation {
-                    let a = r.videoRotationAngleForHorizonLevelCapture
+                if let c = self.photoOutput.connection(with: .video) {
+                    let a = CGFloat(self.shownQuarters * 90)
                     if c.isVideoRotationAngleSupported(a) { c.videoRotationAngle = a }
                 }
                 let processor = PhotoProcessor { [weak self] result in
