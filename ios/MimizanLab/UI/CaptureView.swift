@@ -1,6 +1,7 @@
 // The viewfinder screen: the picture fills it. One line names the process
 // and the exposure, the shutter sits below, and the aids live on the
 // picture itself. Paper, filter and separation belong to the open frame.
+import MimizanCore
 import SwiftUI
 
 struct CaptureView: View {
