@@ -46,6 +46,7 @@ final class Darkroom {
 
     let cache = RawCache()
     let exporter = Exporter()
+    let debugLog = DebugLog()
     let cameraFiles = CameraFiles()
     let prefs = Prefs()
 
@@ -86,8 +87,14 @@ final class Darkroom {
 
     /// Called from the camera: persists the DNG, reads what it is, then
     /// queues the development.
-    func submit(dng: Data, lens: String, capturedAt: Date, settings: DevelopSettings) {
+    func submit(dng: Data, lens: String, capturedAt: Date, settings: DevelopSettings, debug: DebugPreview? = nil) {
         let name = Darkroom.nameFor(capturedAt)
+        if let debug {
+            debugLog.add(DebugEntry(
+                name: name, capturedAt: DebugLog.stamp(capturedAt), device: CaptureViewModel.deviceModel,
+                lens: lens, preview: debug, result: nil
+            ))
+        }
         let provisional = ShotMeta(info: FrameInfo.empty, lens: lens, capturedAt: capturedAt, imported: false)
         shots.insert(Shot(name: name, meta: provisional, settings: settings, status: .saving), at: 0)
         let cache = cache
@@ -236,6 +243,14 @@ final class Darkroom {
                     if let url = result.jpeg {
                         Task { _ = await exporter.addToPhotos(url) }
                     }
+                    var dbg = result.debug
+                    if let m = self.shots.first(where: { $0.name == name })?.meta {
+                        dbg.fileIso = m.iso
+                        dbg.fileExposureNs = m.exposureNs
+                        dbg.fileFNumber = m.fNumber
+                        dbg.fileWbGains = m.wbGains
+                    }
+                    self.debugLog.complete(name: name, result: dbg)
                 case let .failure(error):
                     self.updateShot(name) { $0.status = .failed(error.localizedDescription) }
                 }
@@ -250,6 +265,7 @@ final class Darkroom {
     private struct DevelopResult {
         var negative: Negative
         var thumbnail: CGImage?
+        var debug: DebugResult
         var jpeg: URL?
     }
 
@@ -290,6 +306,9 @@ final class Darkroom {
                 peak = nil
             }
             let negative = Negative(name: name, developed: developed, info: info, settings: settings, peak: peak)
+            let display = (try? developed.histogram(soft: paper.soft, hard: paper.hard)) ?? []
+            let rgb = info.plate != nil ? try? developed.histogramRgb(soft: paper.soft, hard: paper.hard) : nil
+            let debug = DebugResult.build(info: info, paper: paper, display: display, rgb: rgb)
             var jpeg: URL?
             if wantJpeg {
                 let suffix = suffix(for: settings, info: info)
@@ -301,7 +320,7 @@ final class Darkroom {
                     )
                 }
             }
-            return .success(DevelopResult(negative: negative, thumbnail: thumb, jpeg: jpeg))
+            return .success(DevelopResult(negative: negative, thumbnail: thumb, jpeg: jpeg, debug: debug))
         } catch {
             log.error("develop \(name): \(error.localizedDescription)")
             return .failure(error)

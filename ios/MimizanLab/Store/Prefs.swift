@@ -38,6 +38,8 @@ final class Prefs {
     private(set) var lampRed: Double
     /// The blue lamp.
     private(set) var lampBlue: Double
+    /// Record a preview-against-result entry for every frame. Off until asked.
+    private(set) var debugLog: Bool
 
     init() {
         soft = Prefs.snapStops(store.double(forKey: Keys.soft))
@@ -48,6 +50,7 @@ final class Prefs {
         plateSpace = PlateSpace.fromName(store.string(forKey: Keys.plateSpace)) ?? .srgb
         lampRed = Prefs.snapLamp(store.double(forKey: Keys.lampRed))
         lampBlue = Prefs.snapLamp(store.double(forKey: Keys.lampBlue))
+        debugLog = store.bool(forKey: Keys.debugLog)
     }
 
     func setSoft(_ stops: Double) {
@@ -83,6 +86,11 @@ final class Prefs {
     func setLampRed(_ stops: Double) {
         lampRed = Prefs.snapLamp(stops)
         store.set(lampRed, forKey: Keys.lampRed)
+    }
+
+    func setDebugLog(_ on: Bool) {
+        debugLog = on
+        store.set(on, forKey: Keys.debugLog)
     }
 
     func setLampBlue(_ stops: Double) {
@@ -131,6 +139,7 @@ final class Prefs {
         static let plateSpace = "plate_space"
         static let lampRed = "lamp_red"
         static let lampBlue = "lamp_blue"
+        static let debugLog = "debug_log"
     }
 }
 

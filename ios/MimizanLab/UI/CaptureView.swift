@@ -231,6 +231,28 @@ struct SettingsSheet: View {
     @Bindable var vm: CaptureViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var confirmDeleteAll = false
+    @State private var confirmClearLog = false
+
+    /// The preview-against-result log: a switch, the count, and a share of the file.
+    private var debugSection: some View {
+        let log = vm.darkroom.debugLog
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Debug").font(.headline).padding(.top, 16)
+            SettingRow(label: "Log preview against result", on: Binding(get: { vm.prefs.debugLog }, set: vm.prefs.setDebugLog))
+            Text("With this on, every frame records what the viewfinder showed and what the development produced. The file is preview-debug.json in Files › Mimizan Lab, and can be mailed from here.")
+                .font(.caption).foregroundStyle(.gray)
+            HStack {
+                Text("\(log.entries.count) entries").foregroundStyle(.gray)
+                Spacer()
+                if log.entries.isEmpty {
+                    Text("Send log").foregroundStyle(.gray)
+                } else {
+                    ShareLink(item: log.url) { Text("Send log") }
+                }
+                Button("Delete log") { confirmClearLog = true }.disabled(log.entries.isEmpty)
+            }
+        }
+    }
 
     var body: some View {
         let prefs = vm.prefs
@@ -287,6 +309,8 @@ struct SettingsSheet: View {
                         Button("Delete all") { confirmDeleteAll = true }.disabled(shots.isEmpty)
                     }
 
+                    debugSection
+
                     Text("engine \(version()) · core \(coreVersion()) · \(workerThreads()) threads")
                         .font(.caption).foregroundStyle(.gray).padding(.top, 16)
                     Text("GPL-3.0 or any later version. Copyright (C) 2026 Dragan Bojovic. The license text is shipped in this app.")
@@ -298,6 +322,12 @@ struct SettingsSheet: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .alert("Delete the debug log?", isPresented: $confirmClearLog) {
+                Button("Delete", role: .destructive) { vm.darkroom.debugLog.clear() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("The \(vm.darkroom.debugLog.entries.count) recorded frames are removed. Pictures already taken stay.")
+            }
             .alert("Delete all \(shots.count) frames?", isPresented: $confirmDeleteAll) {
                 Button("Delete all", role: .destructive) { vm.darkroom.deleteAll() }
                 Button("Cancel", role: .cancel) {}
