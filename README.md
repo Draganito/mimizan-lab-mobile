@@ -260,7 +260,8 @@ Copyright (C) 2026 Dragan Bojovic.
 
 Mimizan Lab Mobile is free software under the GNU General Public License,
 version 3 or any later version. See [LICENSE](LICENSE). The APK ships that
-text and a short notice in its assets; the iOS app bundles the text. Releases published before this change
+text and a short notice in its assets. The iOS App Store build does not:
+that copy keeps the copyright line and leaves this license out of the bundle. Releases published before this change
 stay under the MIT license they were shipped with.
 
 The phone runs the Mimizan separation only. AMaZE, RCD, DCB and LMMSE stay

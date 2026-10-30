@@ -300,7 +300,7 @@ struct SettingsSheet: View {
 
                     Text("engine \(version()) · core \(coreVersion()) · \(workerThreads()) threads")
                         .font(.caption).foregroundStyle(.gray).padding(.top, 16)
-                    Text("GPL-3.0 or any later version. Copyright (C) 2026 Dragan Bojovic. The license text is shipped in this app.")
+                    Text("Copyright (C) 2026 Dragan Bojovic. All rights reserved.")
                         .font(.caption).foregroundStyle(.gray)
                 }
                 .padding(.horizontal, 24)

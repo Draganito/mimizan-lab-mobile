@@ -260,7 +260,7 @@ cross-checked from Linux.
 `ios/MimizanCore/Package.swift` is a local Swift package: a binary target
 on the xcframework and a Swift target with the generated file (both
 git-ignored). `ios/project.yml` (XcodeGen) builds the app target against
-it, with `../cameras` as a folder reference and `../LICENSE` as a
-resource. `.github/workflows/ios.yml` runs the script on a macOS runner,
+it, with `../cameras` as a folder reference. The App Store build
+does not bundle `../LICENSE`. `.github/workflows/ios.yml` runs the script on a macOS runner,
 generates the project and builds an unsigned Release `.app` for a generic
 iOS device; the artifact is the `.app` and a `Payload/` `.ipa`.

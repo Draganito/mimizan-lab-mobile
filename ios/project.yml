@@ -13,7 +13,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.14.3"
+    MARKETING_VERSION: "0.14.4"
     CURRENT_PROJECT_VERSION: "27"
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     ENABLE_USER_SCRIPT_SANDBOXING: NO
@@ -34,8 +34,6 @@ targets:
           - "MimizanLab.entitlements"
       - path: ../cameras
         type: folder
-        buildPhase: resources
-      - path: ../LICENSE
         buildPhase: resources
     dependencies:
       - package: MimizanCore
