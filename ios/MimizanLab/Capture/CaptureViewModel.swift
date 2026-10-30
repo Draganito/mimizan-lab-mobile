@@ -12,9 +12,9 @@ private let log = Logger(subsystem: "ch.bojovic.mimizanlab", category: "capture"
 
 /// Viewfinder settings that are not camera state.
 struct ViewfinderSettings: Equatable {
-    var zebra = true
+    var zebra = false
     var grid = false
-    var showHistogram = true
+    var showHistogram = false
 }
 
 @MainActor

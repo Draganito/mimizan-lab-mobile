@@ -123,6 +123,7 @@ struct ReviewView: View {
             }
         }
         PaperSliders(soft: vm.soft, hard: vm.hard, onSoft: vm.setSoft, onHard: vm.setHard)
+        SettingRow(label: "Peak", on: Binding(get: { vm.peakOn }, set: { vm.darkroom.prefs.setPeak($0) }))
         if vm.peakOn {
             // Peak's pair, started from the measurement on this negative; the
             // 1:1 view shows the result, the preview is never sharpened.
@@ -142,6 +143,22 @@ struct ReviewView: View {
                 Spacer()
             }
         }
+        if let cur = vm.shotSettings {
+            HStack(spacing: 8) {
+                ForEach(SeparationMode.all, id: \.self) { m in
+                    Chip(label: Format.separation(m), selected: cur.separation == m) {
+                        guard cur.separation != m else { return }
+                        var s = cur
+                        s.separation = m
+                        vm.develop(s)
+                    }
+                }
+                if cur.binning == 2 {
+                    Button("Full size") { var s = cur; s.binning = 1; vm.develop(s) }
+                }
+                Spacer()
+            }
+        }
         HStack(spacing: 8) {
             Menu {
                 let peak = vm.peakOn && vm.peakAmount > 0 ? ", peak" : ""
@@ -155,13 +172,6 @@ struct ReviewView: View {
                     .background(Color(white: 0.2), in: Capsule())
             }
             .disabled(vm.exporting != nil)
-            if let cur = vm.shotSettings {
-                if cur.binning == 2 {
-                    Button("Develop full resolution") { var s = cur; s.binning = 1; vm.develop(s) }
-                } else if cur.separation != .dubois {
-                    Button("Develop with Dubois") { var s = cur; s.separation = .dubois; vm.develop(s) }
-                }
-            }
             Spacer()
         }
         .padding(.top, 4)
