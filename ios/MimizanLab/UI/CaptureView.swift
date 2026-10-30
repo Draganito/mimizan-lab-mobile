@@ -174,19 +174,20 @@ struct CaptureView: View {
                 Spacer()
                 Button { showSettings = true } label: {
                     Image(systemName: "gearshape")
-                        .font(.caption)
-                        .padding(8)
+                        .font(pad ? .title2 : .caption)
+                        .frame(width: pad ? 64 : 32, height: pad ? 64 : 32)
+                        .contentShape(Rectangle())
                 }
             }
             Spacer()
             HStack {
                 Spacer()
-                VStack(spacing: 4) {
+                VStack(spacing: pad ? 8 : 4) {
                     aid("grid", on: vm.viewfinder.grid) { vm.viewfinder.grid.toggle() }
                     aid("chart.bar.xaxis", on: vm.viewfinder.showHistogram) { vm.viewfinder.showHistogram.toggle() }
                     aid("circle.lefthalf.filled", on: vm.viewfinder.zebra) { vm.viewfinder.zebra.toggle() }
                 }
-                .padding(6)
+                .padding(pad ? 12 : 6)
             }
         }
         .foregroundStyle(.white)
@@ -215,11 +216,15 @@ struct CaptureView: View {
         return "\(iso)  ·  \(Format.shutter(seconds: state.exposureSeconds ?? 0))"
     }
 
+    /// iPad targets are twice the phone's. A 32 pt symbol is too small to hit on the mini.
+    private var pad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+
     private func aid(_ symbol: String, on: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.caption)
-                .frame(width: 32, height: 32)
+                .font(pad ? .title2 : .caption)
+                .frame(width: pad ? 64 : 32, height: pad ? 64 : 32)
+                .contentShape(Rectangle())
                 .foregroundStyle(on ? .white : .white.opacity(0.45))
         }
         .buttonStyle(.plain)

@@ -209,8 +209,14 @@ struct ZoomableNegative: View {
 
     @State private var scale: CGFloat = 1
     @State private var offset: CGPoint = .zero
+    /// Scale and offset at the moment the pinch began. The live values must
+    /// not be the baseline, or a later drag starts from where the pinch began.
     @State private var gestureScale: CGFloat = 1
-    @State private var gestureOffset: CGPoint = .zero
+    @State private var magnifyOrigin: CGPoint = .zero
+    @State private var pinching = false
+    /// Offset when this drag began, and how much translation the pinch already used.
+    @State private var dragOrigin: CGPoint?
+    @State private var dragBias: CGSize = .zero
 
     var body: some View {
         GeometryReader { geo in
@@ -235,19 +241,44 @@ struct ZoomableNegative: View {
             .gesture(
                 MagnifyGesture()
                     .onChanged { g in
+                        if !pinching {
+                            pinching = true
+                            gestureScale = scale
+                            magnifyOrigin = offset
+                            dragOrigin = nil
+                        }
                         let new = min(max(gestureScale * g.magnification, 1), maxScale)
-                        let k = new / scale
+                        let k = gestureScale > 0 ? new / gestureScale : 1
                         let c = g.startLocation
-                        offset = clamp(CGPoint(x: c.x - k * (c.x - offset.x), y: c.y - k * (c.y - offset.y)), new, view: view, fitW: fitW, fitH: fitH, base: base)
+                        let o0 = magnifyOrigin
+                        offset = clamp(CGPoint(x: c.x - k * (c.x - o0.x), y: c.y - k * (c.y - o0.y)), new, view: view, fitW: fitW, fitH: fitH, base: base)
                         scale = new
                     }
-                    .onEnded { _ in gestureScale = scale }
+                    .onEnded { _ in
+                        pinching = false
+                        gestureScale = scale
+                    }
                     .simultaneously(with:
                         DragGesture()
                             .onChanged { g in
-                                offset = clamp(CGPoint(x: gestureOffset.x + g.translation.width, y: gestureOffset.y + g.translation.height), scale, view: view, fitW: fitW, fitH: fitH, base: base)
+                                // A pinch also moves the fingers. That translation belongs
+                                // to the pinch; the next one-finger drag starts from here.
+                                if pinching {
+                                    dragBias = g.translation
+                                    dragOrigin = nil
+                                    return
+                                }
+                                if dragOrigin == nil { dragOrigin = offset }
+                                let o = dragOrigin ?? offset
+                                offset = clamp(
+                                    CGPoint(x: o.x + g.translation.width - dragBias.width, y: o.y + g.translation.height - dragBias.height),
+                                    scale, view: view, fitW: fitW, fitH: fitH, base: base
+                                )
                             }
-                            .onEnded { _ in gestureOffset = offset }
+                            .onEnded { _ in
+                                dragOrigin = nil
+                                dragBias = .zero
+                            }
                     )
             )
             .onTapGesture(count: 2) { p in
@@ -259,12 +290,14 @@ struct ZoomableNegative: View {
                     offset = clamp(CGPoint(x: p.x - s2 * p.x, y: p.y - s2 * p.y), s2, view: view, fitW: fitW, fitH: fitH, base: base)
                 }
                 gestureScale = scale
-                gestureOffset = offset
+                pinching = false
+                dragOrigin = nil
+                dragBias = .zero
             }
             .onChange(of: ZoomKey(scale: scale, offset: offset, view: view)) { _, _ in
                 report(view: view, fit: fit, base: base)
             }
-            .onAppear { gestureScale = 1; gestureOffset = .zero }
+            .onAppear { gestureScale = 1; pinching = false; dragOrigin = nil; dragBias = .zero }
         }
     }
 
