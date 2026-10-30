@@ -238,6 +238,10 @@ final class CaptureViewModel {
     func setSeparation(_ m: SeparationMode) { local.separation = m }
     func setQuick(_ on: Bool) { local.binning = on ? 2 : 1 }
     func setAutoJpeg(_ on: Bool) { local.autoJpeg = on }
+    /// The standing grade: viewfinder, automatic JPEG, and where a picture opens.
+    func setSoft(_ stops: Double) { prefs.setSoft(stops) }
+    func setHard(_ stops: Double) { prefs.setHard(stops) }
+    func setPeak(_ on: Bool) { prefs.setPeak(on) }
     func setProcess(_ p: Process) { prefs.setProcess(p) }
     func setPlateFilters(_ f: PlateFilters) { prefs.setPlateFilters(f) }
     func setPlateSpace(_ s: PlateSpace) { prefs.setPlateSpace(s) }

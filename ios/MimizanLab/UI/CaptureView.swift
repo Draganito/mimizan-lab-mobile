@@ -275,7 +275,12 @@ struct SettingsSheet: View {
                 VStack(alignment: .leading, spacing: 8) {
                     SettingRow(label: "Save JPEG automatically", on: Binding(get: { develop.autoJpeg }, set: vm.setAutoJpeg))
                     SettingRow(label: "Quick development", on: Binding(get: { develop.binning == 2 }, set: vm.setQuick))
-                    Text("Quick development bins the frame and finishes in about a quarter of the time. Paper, filter and the mix are on each picture.")
+                    Text("Quick development bins the frame and finishes in about a quarter of the time.")
+                        .font(.caption).foregroundStyle(.gray)
+                    PaperSliders(soft: vm.prefs.soft, hard: vm.prefs.hard, onSoft: vm.setSoft, onHard: vm.setHard)
+                        .padding(.top, 8)
+                    SettingRow(label: "Peak", on: Binding(get: { vm.prefs.peak }, set: vm.setPeak))
+                    Text("The grade and Peak are the preset: the viewfinder, the automatic JPEG, and where each picture starts.")
                         .font(.caption).foregroundStyle(.gray)
 
                     Text("Storage").font(.headline).padding(.top, 16)

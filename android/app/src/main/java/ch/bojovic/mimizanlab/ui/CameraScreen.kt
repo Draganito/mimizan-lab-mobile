@@ -101,6 +101,9 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val tone by vm.tone.collectAsStateWithLifecycle()
     val shots by vm.darkroom.shots.collectAsStateWithLifecycle()
     val cacheBytes by vm.darkroom.cacheBytes.collectAsStateWithLifecycle()
+    val soft by vm.darkroom.prefs.soft.collectAsStateWithLifecycle()
+    val hard by vm.darkroom.prefs.hard.collectAsStateWithLifecycle()
+    val peak by vm.darkroom.prefs.peak.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
     var exposureOpen by remember { mutableStateOf(false) }
@@ -322,7 +325,14 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 SettingRow("Save JPEG automatically", develop.autoJpeg) { vm.setAutoJpeg(it) }
                 SettingRow("Quick development", develop.binning == 2) { vm.setQuick(it) }
                 Text(
-                    "Quick development bins the frame and finishes in about a quarter of the time. Paper, filter and the mix are on each picture.",
+                    "Quick development bins the frame and finishes in about a quarter of the time.",
+                    style = MaterialTheme.typography.bodySmall, color = Color.Gray,
+                )
+                Spacer(Modifier.height(8.dp))
+                PaperSliders(soft, hard, onSoft = vm::setSoft, onHard = vm::setHard)
+                SettingRow("Peak", peak) { vm.setPeak(it) }
+                Text(
+                    "The grade and Peak are the preset: the viewfinder, the automatic JPEG, and where each picture starts.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 Spacer(Modifier.height(16.dp))
