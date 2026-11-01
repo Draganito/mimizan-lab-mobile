@@ -13,7 +13,7 @@ filters, the same paper, one RGB file.
 </p>
 
 The Android app is a general Camera2 app, not a Pixel-9-only build. It
-runs on Android 14 and later (API 34), arm64-v8a, on any phone whose
+runs on Android 13 and later (API 33), arm64-v8a, on any phone whose
 camera offers `RAW_SENSOR`. It does not use Google Play services. It is
 tested on a **Pixel 9 running GrapheneOS (Android 17, API 37)**; a
 ready-to-install APK is on the
@@ -113,7 +113,7 @@ Rust alone:
 cd rust/mimizan-mobile
 cargo test                        # synthetic frames
 cargo test --features host-raw    # bit-for-bit against the desktop decoder (needs mimizan/testdata)
-cargo ndk -t arm64-v8a --platform 34 build --release --lib
+cargo ndk -t arm64-v8a --platform 33 build --release --lib
 ```
 
 ## iOS
@@ -250,7 +250,7 @@ settings. Android keeps packed samples plus metadata. iOS keeps the DNG.
 
 ## Status
 
-Android 0.14.15 runs on the Pixel 9: main and ultrawide (the ultrawide
+Android 0.14.16 runs on the Pixel 9: main and ultrawide (the ultrawide
 through its physical camera id), RAW capture, gallery JPEG, review,
 the plate, the split-grade paper, Peak, the zone strip, the roll.
 Development of a 12.5 MP frame was measured at 2.3–4.5 s before core
@@ -261,7 +261,7 @@ still wrote DNGs). The fitted camera file for the Pixel 9 is still the
 core defaults for noise and weights. `OTHER_SENSORS` and Android 17
 have been checked on this one device.
 
-iOS 0.14.15 is the same darkroom, built for device and uploaded to
+iOS 0.14.16 is the same darkroom, built for device and uploaded to
 TestFlight from a `v*` tag. The finder is the camera preview. Import
 of a RAW from Files or Photos is switched off.
 

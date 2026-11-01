@@ -44,6 +44,7 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
     inputs.dir(mimizanCoreDir.resolve("src"))
     inputs.file(mimizanCoreDir.resolve("Cargo.toml"))
     inputs.property("profile", rustProfile)
+    inputs.property("platform", androidPlatform)
     outputs.dir(rustJniLibs)
     environment("ANDROID_NDK_HOME", ndkHome())
     val args = mutableListOf(
@@ -84,8 +85,8 @@ android {
         applicationId = "ch.bojovic.mimizanlab"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 42
-        versionName = "0.14.15"
+        versionCode = 43
+        versionName = "0.14.16"
         ndk { abiFilters += rustAbi }
     }
 
