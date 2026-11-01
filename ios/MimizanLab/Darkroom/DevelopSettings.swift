@@ -9,8 +9,9 @@ struct DevelopSettings: Equatable {
     var binning: Int = 1
     var filter: Filter = .none
     var whiteBalance: WhiteBalanceMode = .asShot
-    /// Save a finished JPEG (the paper at the settings exposures, full size) as soon as the frame is developed.
-    var autoJpeg: Bool = true
+    /// Save a finished JPEG when this development was started by a JPEG shot.
+    /// A frame opened from the roll develops for the screen and waits for Export.
+    var autoJpeg: Bool = false
     var process: Process = .mono
     /// The plate's taking filters (only read in the plate process).
     var plateFilters: PlateFilters = .camera

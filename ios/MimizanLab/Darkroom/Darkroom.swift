@@ -105,7 +105,7 @@ final class Darkroom {
     /// Called from the camera: persists the DNG, reads what it is, then
     /// queues the development. The name is ready at once, before the file is written.
     @discardableResult
-    func submit(dng: Data, lens: String, capturedAt: Date, settings: DevelopSettings) -> String {
+    func submit(dng: Data, lens: String, capturedAt: Date, settings: DevelopSettings, developNow: Bool = true) -> String {
         let name = Darkroom.nameFor(capturedAt)
         let provisional = ShotMeta(info: FrameInfo.empty, lens: lens, capturedAt: capturedAt, imported: false)
         shots.insert(Shot(name: name, meta: provisional, settings: settings, status: .saving), at: 0)
@@ -119,7 +119,11 @@ final class Darkroom {
                 await MainActor.run {
                     self.updateShot(name) { $0.meta = meta }
                     self.syncWithCache()
-                    self.enqueue(name, settings)
+                    if developNow {
+                        self.enqueue(name, settings)
+                    } else {
+                        self.updateShot(name) { $0.status = .cached }
+                    }
                 }
             } catch {
                 log.error("save \(name): \(error.localizedDescription)")

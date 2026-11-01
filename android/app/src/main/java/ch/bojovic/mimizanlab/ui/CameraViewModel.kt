@@ -24,6 +24,7 @@ import ch.bojovic.mimizanlab.engine.mixWeights
 import ch.bojovic.mimizanlab.engine.paperLut
 import ch.bojovic.mimizanlab.engine.plateWeights
 import ch.bojovic.mimizanlab.store.PeakMode
+import ch.bojovic.mimizanlab.store.ShotMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -287,7 +288,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun setZoneAuto(on: Boolean) = darkroom.prefs.setZoneAuto(on)
     fun setPeakMode(mode: PeakMode) = darkroom.prefs.setPeakMode(mode)
     fun setPeak(radius: Double, amount: Double) = darkroom.prefs.setPeak(radius, amount)
-    fun setStayOnFinder(on: Boolean) = darkroom.prefs.setStayOnFinder(on)
+    fun setShotMode(mode: ShotMode) = darkroom.prefs.setShotMode(mode)
     fun toggleZebra() = _viewfinder.update {
         val on = !it.zebra
         darkroom.prefs.setZebra(on)
@@ -307,13 +308,13 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun capture() {
         val l = _lens.value ?: return
         if (stream.value.capturing) return
-        val stay = darkroom.prefs.stayOnFinder.value
-        val settings = _develop.value.copy(autoJpeg = stay)
+        val mode = darkroom.prefs.shotMode.value
+        val settings = _develop.value.copy(autoJpeg = mode == ShotMode.JPEG)
         viewModelScope.launch {
             try {
                 val frame = controller.capture(l.label)
-                val name = darkroom.submit(frame, settings)
-                if (!stay) _pendingReview.value = name
+                val name = darkroom.submit(frame, settings, developNow = mode != ShotMode.RAW)
+                if (mode == ShotMode.DEVELOPER) _pendingReview.value = name
             } catch (t: Throwable) {
                 Log.e(TAG, "capture", t)
                 _message.value = t.message ?: "Capture failed"

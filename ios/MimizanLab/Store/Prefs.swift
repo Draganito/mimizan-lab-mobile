@@ -12,6 +12,21 @@ enum Process: String, CaseIterable, Codable {
     case plate = "PLATE"
 }
 
+/// What a shot does. JPEG writes the picture and stays. Developer opens it. Raw keeps the frame.
+enum ShotMode: String, CaseIterable {
+    case jpeg = "JPEG"
+    case developer = "DEVELOPER"
+    case raw = "RAW"
+
+    var label: String {
+        switch self {
+        case .jpeg: return "JPEG"
+        case .developer: return "Developer"
+        case .raw: return "Raw"
+        }
+    }
+}
+
 /// Peak on a print: off, the measurement of this negative, or a hand pair.
 enum PeakMode: String, CaseIterable {
     case off = "OFF"
@@ -51,9 +66,9 @@ final class Prefs {
     /// The plate's projection primaries, the colour space of the file.
     /// sRGB on the phone: Photos shows it as it is.
     private(set) var plateSpace: PlateSpace
-    /// iOS only. On, a shot saves the JPEG at the standing grade and stays
-    /// on the finder. Off for a fresh install: the developer opens.
-    private(set) var stayOnFinder: Bool
+    /// What the shutter does. Developer on a fresh install: the finder is
+    /// the camera's picture, so a shot opens to be graded.
+    private(set) var shotMode: ShotMode
     /// Overexposure marks on the finder. Off for a fresh install.
     private(set) var zebra: Bool
     /// The rule of thirds on the finder. Off for a fresh install.
@@ -80,7 +95,14 @@ final class Prefs {
         process = Process(rawValue: store.string(forKey: Keys.process) ?? "") ?? .mono
         plateFilters = PlateFilters.fromName(store.string(forKey: Keys.plateFilters)) ?? .camera
         plateSpace = PlateSpace.fromName(store.string(forKey: Keys.plateSpace)) ?? .srgb
-        stayOnFinder = store.bool(forKey: Keys.stayOnFinder)
+        if let raw = store.string(forKey: Keys.shotMode), let mode = ShotMode(rawValue: raw) {
+            shotMode = mode
+        } else if store.object(forKey: Keys.stayOnFinder) != nil {
+            // The old switch: on was JPEG, off was Developer.
+            shotMode = store.bool(forKey: Keys.stayOnFinder) ? .jpeg : .developer
+        } else {
+            shotMode = .developer
+        }
         zebra = store.bool(forKey: Keys.zebra)
         grid = store.bool(forKey: Keys.grid)
         histogram = store.bool(forKey: Keys.histogram)
@@ -133,9 +155,9 @@ final class Prefs {
         store.set(s.name, forKey: Keys.plateSpace)
     }
 
-    func setStayOnFinder(_ on: Bool) {
-        stayOnFinder = on
-        store.set(on, forKey: Keys.stayOnFinder)
+    func setShotMode(_ mode: ShotMode) {
+        shotMode = mode
+        store.set(mode.rawValue, forKey: Keys.shotMode)
     }
 
     func setZebra(_ on: Bool) {
@@ -210,6 +232,7 @@ final class Prefs {
         static let plateFilters = "plate_filters"
         static let plateSpace = "plate_space"
         static let stayOnFinder = "stay_on_finder"
+        static let shotMode = "shot_mode"
         static let zebra = "finder_zebra"
         static let grid = "finder_grid"
         static let histogram = "finder_histogram"

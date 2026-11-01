@@ -44,6 +44,22 @@ struct LabeledSlider: View {
     }
 }
 
+/// A shot: JPEG, Developer, or Raw.
+struct ShotRow: View {
+    let mode: ShotMode
+    let onMode: (ShotMode) -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("A shot")
+            Spacer(minLength: 8)
+            ForEach(ShotMode.allCases, id: \.self) { m in
+                Chip(label: m.label, selected: mode == m) { onMode(m) }
+            }
+        }
+    }
+}
+
 /// Peak: Off, Auto, or Custom. The two sliders appear only for Custom.
 struct PeakRow: View {
     let mode: PeakMode

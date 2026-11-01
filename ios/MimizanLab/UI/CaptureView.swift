@@ -302,8 +302,8 @@ struct SettingsSheet: View {
                     }
                     Text("The grade and Peak are where a picture opens, and what the automatic JPEG uses. The viewfinder does not follow them.")
                         .font(.caption).foregroundStyle(.gray)
-                    SettingRow(label: "Stay on the finder", on: Binding(get: { vm.prefs.stayOnFinder }, set: vm.setStayOnFinder))
-                    Text("On, a shot saves the JPEG at this grade and Peak and stays here. Off, the developer opens and the JPEG waits for Export.")
+                    ShotRow(mode: vm.prefs.shotMode, onMode: vm.setShotMode)
+                    Text("JPEG writes the picture and stays here. Developer opens it. Raw keeps the frame for later, and the picture waits for Export.")
                         .font(.caption).foregroundStyle(.gray)
                     Text("Plate colour space").font(.subheadline).padding(.top, 8)
                     HStack(spacing: 6) {

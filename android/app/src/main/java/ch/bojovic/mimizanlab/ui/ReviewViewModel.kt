@@ -144,7 +144,7 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     /** Develop (again) from the cache, in the process the darkroom stands in now. */
     fun develop(settings: DevelopSettings = shotSettings() ?: DevelopSettings()) {
         val shot = darkroom.shots.value.firstOrNull { it.name == _state.value.name } ?: return
-        darkroom.redevelop(shot.name, darkroom.withStandingProcess(settings))
+        darkroom.redevelop(shot.name, darkroom.withStandingProcess(settings).copy(autoJpeg = false))
     }
 
     fun shotSettings(): DevelopSettings? = darkroom.shots.value.firstOrNull { it.name == _state.value.name }?.settings

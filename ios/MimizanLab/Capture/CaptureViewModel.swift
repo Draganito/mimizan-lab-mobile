@@ -193,20 +193,20 @@ final class CaptureViewModel {
     func setProcess(_ p: Process) { prefs.setProcess(p) }
     func setPlateFilters(_ f: PlateFilters) { prefs.setPlateFilters(f) }
     func setPlateSpace(_ s: PlateSpace) { prefs.setPlateSpace(s) }
-    func setStayOnFinder(_ on: Bool) { prefs.setStayOnFinder(on) }
+    func setShotMode(_ mode: ShotMode) { prefs.setShotMode(mode) }
 
     // MARK: the shot
 
     func capture() {
         guard let l = lens, !state.capturing else { return }
         var settings = develop
-        let stay = prefs.stayOnFinder
-        settings.autoJpeg = stay
+        let mode = prefs.shotMode
+        settings.autoJpeg = mode == .jpeg
         Task {
             do {
                 let dng = try await session.capture()
-                let name = darkroom.submit(dng: dng, lens: l.label, capturedAt: Date(), settings: settings)
-                if !stay { pendingReview = name }
+                let name = darkroom.submit(dng: dng, lens: l.label, capturedAt: Date(), settings: settings, developNow: mode != .raw)
+                if mode == .developer { pendingReview = name }
             } catch {
                 log.error("capture: \(error.localizedDescription)")
                 message = error.localizedDescription

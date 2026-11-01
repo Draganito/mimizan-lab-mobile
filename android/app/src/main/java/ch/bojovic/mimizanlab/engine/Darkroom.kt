@@ -42,8 +42,8 @@ data class DevelopSettings(
     val binning: Int = 1,
     val filter: Filter = Filter.NONE,
     val whiteBalance: WhiteBalanceMode = WhiteBalanceMode.AsShot,
-    /** Save a finished JPEG (the paper at the settings exposures, full size) as soon as the frame is developed. */
-    val autoJpeg: Boolean = true,
+    /** A JPEG shot writes the picture as soon as this development finishes. A frame opened from the roll leaves it for Export. */
+    val autoJpeg: Boolean = false,
     val process: Process = Process.MONO,
     /** The plate's taking filters (only read in the plate process). */
     val plateFilters: PlateFilters = PlateFilters.CAMERA,
@@ -128,7 +128,7 @@ class Darkroom private constructor(private val context: Context) {
     }
 
     /** Called from the camera: persists the frame, then queues the development. The name is ready at once. */
-    fun submit(capture: RawCapture, settings: DevelopSettings): String {
+    fun submit(capture: RawCapture, settings: DevelopSettings, developNow: Boolean = true): String {
         val name = nameFor(capture.capturedAtEpochMs)
         val meta = capture.meta()
         _shots.update { listOf(Shot(name, meta, settings, ShotStatus.Saving)) + it }
@@ -142,7 +142,8 @@ class Darkroom private constructor(private val context: Context) {
             }
             // The cache may have dropped old frames to stay in budget.
             syncWithCache()
-            enqueue(name, settings)
+            if (developNow) enqueue(name, settings)
+            else updateShot(name) { it.copy(status = ShotStatus.Cached) }
         }
         return name
     }

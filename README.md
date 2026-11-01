@@ -207,18 +207,21 @@ The darkroom is the same on both phones. The finder is not.
    each negative. Custom shows the two sliders and remembers them. Off
    leaves the exports unsharpened. The 1:1 view shows the result. The
    preview is never sharpened.
-5. **Stay on the finder.** On, a shot writes the JPEG at this grade and
-   Peak and stays on the finder. Off, the developer opens and the JPEG
-   waits for Export. The negative stays on the roll either way. A fresh
-   Android install starts with this on, because the finder is already
-   the paper. A fresh iOS install starts with it off, so the developer
-   opens.
-6. **The shutter** records one RAW frame into the app cache. On Android
-   the development runs in a foreground service, one frame at a time,
-   and the JPEG lands in `Pictures/Mimizan Lab` when Stay on the finder
-   is on. On iOS the JPEG goes to Files and, add-only, to Photos.
-7. **Review** opens from the thumbnail, or on its own when Stay on the
-   finder is off. Mono and Plate sit at the left, Export at the right.
+5. **A shot** is JPEG, Developer, or Raw. JPEG writes the picture at
+   this grade and Peak and stays on the finder. Developer opens the
+   picture, and the JPEG waits for Export. Raw keeps the frame on the
+   roll and stays on the finder: nothing is developed and nothing is
+   written until you open it and export. A fresh Android install starts
+   on JPEG, because the finder is already the paper. A fresh iOS
+   install starts on Developer, so the picture opens to be graded.
+6. **The shutter** records one RAW frame into the app cache. In JPEG
+   and Developer the development runs at once (on Android, in a
+   foreground service, one frame at a time). The JPEG lands in
+   `Pictures/Mimizan Lab` on Android, and in Files and, add-only, Photos
+   on iOS, only for a JPEG shot. Opening a frame from the roll develops
+   it for the screen and waits for Export.
+7. **Review** opens from the thumbnail, or on its own after a Developer
+   shot. Mono and Plate sit at the left, Export at the right.
    The filters are the row under them. Pinch to zoom; past the 2048 px
    preview the visible window is rendered 1:1 from the negative. Soft,
    hard and the zone strip change the preview, the histogram, the 1:1
@@ -242,7 +245,7 @@ developed again, also with other settings.
 
 ## Status
 
-Android 0.14.12 runs on the Pixel 9: main and ultrawide (the ultrawide
+Android 0.14.13 runs on the Pixel 9: main and ultrawide (the ultrawide
 through its physical camera id), RAW capture, gallery JPEG, review,
 the plate, the split-grade paper, Peak, the zone strip, the roll.
 Development of a 12.5 MP frame was measured at 2.3–4.5 s before core
@@ -253,7 +256,7 @@ still wrote DNGs). The fitted camera file for the Pixel 9 is still the
 core defaults for noise and weights. `OTHER_SENSORS` and Android 17
 have been checked on this one device.
 
-iOS 0.14.12 is the same darkroom, built for device and uploaded to
+iOS 0.14.13 is the same darkroom, built for device and uploaded to
 TestFlight from a `v*` tag. The finder is the camera preview. Import
 of a RAW from Files or Photos is switched off.
 

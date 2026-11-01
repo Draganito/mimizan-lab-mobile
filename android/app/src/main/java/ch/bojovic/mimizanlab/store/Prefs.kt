@@ -14,6 +14,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+/** What a shot does. JPEG writes the picture and stays. Developer opens it. Raw keeps the frame. */
+enum class ShotMode {
+    JPEG, DEVELOPER, RAW;
+
+    val label: String
+        get() = when (this) {
+            JPEG -> "JPEG"
+            DEVELOPER -> "Developer"
+            RAW -> "Raw"
+        }
+}
+
 /** Peak on a print: off, the measurement of this negative, or a hand pair. */
 enum class PeakMode {
     OFF, AUTO, CUSTOM;
@@ -116,16 +128,24 @@ class Prefs(context: Context) {
         sp.edit { putString(KEY_PLATE_SPACE, s.name) }
     }
 
-    private val _stayOnFinder = MutableStateFlow(sp.getBoolean(KEY_STAY_ON_FINDER, true))
+    private val _shotMode = MutableStateFlow(loadShotMode())
     /**
-     * On, a shot saves the JPEG at the standing grade and stays on the finder.
-     * On for a fresh install: the viewfinder is already the paper.
+     * What the shutter does. JPEG on a fresh install: the viewfinder is
+     * already the paper, so the picture is written and the finder stays.
      */
-    val stayOnFinder: StateFlow<Boolean> = _stayOnFinder.asStateFlow()
+    val shotMode: StateFlow<ShotMode> = _shotMode.asStateFlow()
 
-    fun setStayOnFinder(on: Boolean) {
-        _stayOnFinder.value = on
-        sp.edit { putBoolean(KEY_STAY_ON_FINDER, on) }
+    fun setShotMode(mode: ShotMode) {
+        _shotMode.value = mode
+        sp.edit { putString(KEY_SHOT_MODE, mode.name) }
+    }
+
+    /** The old stay-on-finder switch: on was JPEG, off was Developer. */
+    private fun loadShotMode(): ShotMode {
+        val named = sp.getString(KEY_SHOT_MODE, null)
+        if (named != null) return enumOr(named, ShotMode.JPEG)
+        if (!sp.contains(KEY_STAY_ON_FINDER)) return ShotMode.JPEG
+        return if (sp.getBoolean(KEY_STAY_ON_FINDER, true)) ShotMode.JPEG else ShotMode.DEVELOPER
     }
 
     private val _zebra = MutableStateFlow(sp.getBoolean(KEY_ZEBRA, false))
@@ -245,6 +265,7 @@ class Prefs(context: Context) {
         private const val KEY_LAMP_RED = "lamp_red"
         private const val KEY_LAMP_BLUE = "lamp_blue"
         private const val KEY_STAY_ON_FINDER = "stay_on_finder"
+        private const val KEY_SHOT_MODE = "shot_mode"
         private const val KEY_ZEBRA = "finder_zebra"
         private const val KEY_GRID = "finder_grid"
         private const val KEY_HISTOGRAM = "finder_histogram"

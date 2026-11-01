@@ -141,7 +141,9 @@ final class ReviewViewModel {
     /// Develop (again) from the cache, in the process the darkroom stands in now.
     func develop(_ settings: DevelopSettings? = nil) {
         guard let shot else { return }
-        darkroom.redevelop(shot.name, settings: darkroom.withStandingProcess(settings ?? shot.settings))
+        var s = darkroom.withStandingProcess(settings ?? shot.settings)
+        s.autoJpeg = false
+        darkroom.redevelop(shot.name, settings: s)
     }
 
     // MARK: controls

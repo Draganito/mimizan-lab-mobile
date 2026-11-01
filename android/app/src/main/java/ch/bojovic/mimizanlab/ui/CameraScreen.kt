@@ -90,6 +90,7 @@ import ch.bojovic.mimizanlab.engine.version
 import ch.bojovic.mimizanlab.engine.workerThreads
 import ch.bojovic.mimizanlab.store.PeakMode
 import ch.bojovic.mimizanlab.store.Prefs
+import ch.bojovic.mimizanlab.store.ShotMode
 import java.util.Locale
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
@@ -110,7 +111,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val peakMode by vm.darkroom.prefs.peakMode.collectAsStateWithLifecycle()
     val peakRadius by vm.darkroom.prefs.peakRadius.collectAsStateWithLifecycle()
     val peakAmount by vm.darkroom.prefs.peakAmount.collectAsStateWithLifecycle()
-    val stayOnFinder by vm.darkroom.prefs.stayOnFinder.collectAsStateWithLifecycle()
+    val shotMode by vm.darkroom.prefs.shotMode.collectAsStateWithLifecycle()
     val zoneAuto by vm.darkroom.prefs.zoneAuto.collectAsStateWithLifecycle()
     val plateSpace by vm.darkroom.prefs.plateSpace.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
@@ -371,9 +372,9 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                     "The grade and Peak are the viewfinder, the automatic JPEG, and where a picture opens.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
-                SettingRow("Stay on the finder", stayOnFinder) { vm.setStayOnFinder(it) }
+                ShotRow(shotMode, vm::setShotMode)
                 Text(
-                    "On, a shot saves the JPEG at this grade and Peak and stays here. Off, the developer opens and the JPEG waits for Export.",
+                    "JPEG writes the picture and stays here. Developer opens it. Raw keeps the frame for later, and the picture waits for Export.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -470,6 +471,23 @@ fun FilterRow(selected: Filter, onSelect: (Filter) -> Unit) {
 private fun Aid(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, on: Boolean, toggle: () -> Unit) {
     IconButton(onClick = toggle) {
         Icon(icon, contentDescription = label, tint = if (on) Color.White else Color.White.copy(alpha = 0.45f))
+    }
+}
+
+@Composable
+fun ShotRow(mode: ShotMode, onMode: (ShotMode) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text("A shot", Modifier.weight(1f))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (m in ShotMode.entries) {
+                FilterChip(
+                    selected = m == mode,
+                    onClick = { onMode(m) },
+                    label = { Text(m.label) },
+                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF3A3A3A)),
+                )
+            }
+        }
     }
 }
 
