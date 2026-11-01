@@ -184,8 +184,9 @@ sRGB, the same small difference the grey preview has had all along.
 `MonoViewfinder` wraps the preview `TextureView` in a Compose
 `graphicsLayer` whose `renderEffect` is a `RuntimeShader` (a `RenderEffect`
 on the `TextureView` itself blacked out the UI above it on the Pixel 9).
-The AGSL program linearises the preview as sRGB (pinned on devices that
-have that preset, assumed otherwise), mixes with the
+The AGSL program linearises the preview as sRGB (the device preset, or
+the fixed curve where the meter allows it; assumed sRGB on the old
+Qualcomm meter), mixes with the
 development's weights pulled back through the frame's ISP matrix, and
 indexes `paper_lut` (the print curve over linear grey, no second gamma).
 In the plate process it mixes three times with the taking filters
