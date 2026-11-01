@@ -17,8 +17,8 @@ enum Process: String, CaseIterable, Codable {
 final class Prefs {
     private let store = UserDefaults.standard
 
-    /// Soft-pass time in stops from the base exposure, for the viewfinder,
-    /// the automatic JPEG and the start of review.
+    /// Soft-pass time in stops from the base exposure. The developer
+    /// opens here, and the automatic JPEG is printed here.
     private(set) var soft: Double
     /// Hard-pass time in stops from the base exposure.
     private(set) var hard: Double

@@ -1,24 +1,18 @@
-// MTKView that runs the `finder` kernel on the latest camera frame with
-// the current tone. The frame arrives on the camera queue; the draw runs
-// on the display link. Both touch `latest` under a lock.
+// MTKView that shows the latest camera frame. The frame arrives on the
+// camera queue; the draw runs on the display link. Both touch `latest`
+// under a lock.
 import CoreVideo
 import Metal
 import MetalKit
 import os
-import simd
 import SwiftUI
 
-/// Mirrors `FinderUniforms` in Finder.metal (float3 = 16 bytes).
+/// Mirrors `FinderUniforms` in Finder.metal.
 private struct FinderUniforms {
-    var v: SIMD3<Float>
-    var vR: SIMD3<Float>
-    var vG: SIMD3<Float>
-    var vB: SIMD3<Float>
-    var lampGain: SIMD3<Float>
-    var plate: Float
-    var lutLast: Float
+    var mono: Float
     var zebra: Float
     var rotation: Float
+    var pad: Float = 0
 }
 
 final class FinderRenderer: NSObject, MTKViewDelegate {
@@ -27,8 +21,6 @@ final class FinderRenderer: NSObject, MTKViewDelegate {
     private let pipeline: MTLComputePipelineState
     private var textureCache: CVMetalTextureCache?
     private let lock = OSAllocatedUnfairLock<(CVPixelBuffer?, FinderTone?, Int)>(initialState: (nil, nil, 0))
-    private var lutBuffer: MTLBuffer?
-    private var lutFor: [Float] = []
 
     /// nil without a Metal device or the `finder` kernel in the bundle.
     static func make() -> FinderRenderer? {
@@ -76,26 +68,12 @@ final class FinderRenderer: NSObject, MTKViewDelegate {
         )
         guard status == kCVReturnSuccess, let cvTex, let src = CVMetalTextureGetTexture(cvTex) else { return }
 
-        if lutFor != tone.lut || lutBuffer == nil {
-            lutBuffer = device.makeBuffer(bytes: tone.lut, length: tone.lut.count * MemoryLayout<Float>.stride, options: .storageModeShared)
-            lutFor = tone.lut
-        }
-        guard let lutBuffer else { return }
-        var u = FinderUniforms(
-            v: tone.v,
-            vR: tone.plate?.0 ?? .zero, vG: tone.plate?.1 ?? .zero, vB: tone.plate?.2 ?? .zero,
-            lampGain: tone.lampGain,
-            plate: tone.plate == nil ? 0 : 1,
-            lutLast: Float(tone.lut.count - 1),
-            zebra: tone.zebra,
-            rotation: Float(turns)
-        )
+        var u = FinderUniforms(mono: tone.mono ? 1 : 0, zebra: tone.zebra, rotation: Float(turns))
         guard let cmd = queue.makeCommandBuffer(), let enc = cmd.makeComputeCommandEncoder() else { return }
         enc.setComputePipelineState(pipeline)
         enc.setTexture(src, index: 0)
         enc.setTexture(drawable.texture, index: 1)
         enc.setBytes(&u, length: MemoryLayout<FinderUniforms>.stride, index: 0)
-        enc.setBuffer(lutBuffer, offset: 0, index: 1)
         let tw = pipeline.threadExecutionWidth
         let th = max(1, pipeline.maxTotalThreadsPerThreadgroup / tw)
         let groups = MTLSize(
@@ -110,7 +88,7 @@ final class FinderRenderer: NSObject, MTKViewDelegate {
     }
 }
 
-/// The live negative. `renderer` is shared with the camera, which feeds it frames.
+/// The live picture. `renderer` is shared with the camera, which feeds it frames.
 struct FinderView: UIViewRepresentable {
     let renderer: FinderRenderer
 

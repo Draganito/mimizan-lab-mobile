@@ -186,12 +186,14 @@ final class ReviewViewModel {
     private var peakAmountApplied: Double { peakOn ? peakAmount : 0 }
 
     func setSoft(_ stops: Double) {
-        soft = Prefs.snapStops(stops)
+        darkroom.prefs.setSoft(stops)
+        soft = darkroom.prefs.soft
         schedule { await self.renderNow() }
     }
 
     func setHard(_ stops: Double) {
-        hard = Prefs.snapStops(stops)
+        darkroom.prefs.setHard(stops)
+        hard = darkroom.prefs.hard
         schedule { await self.renderNow() }
     }
 

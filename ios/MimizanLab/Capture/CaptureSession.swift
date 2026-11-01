@@ -49,15 +49,13 @@ final class CaptureState {
     var flash: FlashMode = .off
     var capturing = false
     var error: String?
-    /// 64 bins of the viewfinder picture, normalised to the largest.
+    /// 64 bins of the viewfinder's luminance, normalised to the largest.
     var histogram: [Float] = Array(repeating: 0, count: 64)
     /// Width / height of the finder picture as shown (after rotation).
     var frameAspect: CGFloat = 3.0 / 4.0
     /// Quarter-turns clockwise the shader applies when the camera refused to
     /// rotate the frames itself. 0 once the connection honours the angle.
     var rotationQuarters: Int = 0
-    /// The camera's white-balance gains R, G, B of the moment.
-    var wbGains: [Double]?
 }
 
 struct CaptureError: LocalizedError {
@@ -94,20 +92,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     private var processor: PhotoProcessor?
 
     // Histogram: on the camera queue, at most every 66 ms.
-    private let toneLock = OSAllocatedUnfairLock<FinderTone?>(initialState: nil)
     private var lastAnalysis = Date.distantPast
-    private var grayTable: [Float] = []
-    private var grayTableFor: FinderTone?
-    private static let srgbLinear: [Float] = (0..<256).map { i in
-        let c = Float(i) / 255
-        return c <= 0.04045 ? c / 12.92 : powf((c + 0.055) / 1.055, 2.4)
-    }
-
-    /// Set by the screen's owner; the histogram follows it.
-    var tone: FinderTone? {
-        get { toneLock.withLockUnchecked { $0 } }
-        set { toneLock.withLockUnchecked { $0 = newValue } }
-    }
 
     override init() {
         super.init()
@@ -206,16 +191,6 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
             device.observe(\.isAdjustingFocus, options: [.new]) { [weak self] d, _ in
                 let a = d.isAdjustingFocus
                 Task { @MainActor in self?.state.adjustingFocus = a }
-            },
-            device.observe(\.deviceWhiteBalanceGains, options: [.new]) { [weak self] d, _ in
-                let g = d.deviceWhiteBalanceGains
-                guard g.redGain.isFinite, g.greenGain.isFinite, g.blueGain.isFinite, g.greenGain > 0 else { return }
-                let gains = [Double(g.redGain), Double(g.greenGain), Double(g.blueGain)]
-                Task { @MainActor in
-                    guard let s = self?.state else { return }
-                    if let old = s.wbGains, zip(old, gains).allSatisfy({ abs($0 - $1) < 1e-3 }) { return }
-                    s.wbGains = gains
-                }
             },
         ]
         applyExposure()
@@ -417,8 +392,8 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         }
     }
 
-    /// 64-bin histogram of the finder picture: the negative's display
-    /// values when a tone is set, else the ISP's luma.
+    /// 64-bin histogram of the viewfinder's luminance, the same weights
+    /// the monochrome finder uses.
     private func analyse(_ pb: CVPixelBuffer) {
         CVPixelBufferLockBaseAddress(pb, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
@@ -428,40 +403,17 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         let p = base.assumingMemoryBound(to: UInt8.self)
         var bins = [Int](repeating: 0, count: 64)
         let step = max(1, max(w, h) / 240)
-        let t = tone
-        if let t {
-            if grayTableFor != t { grayTable = t.grayTable(); grayTableFor = t }
-            let lin = CaptureSession.srgbLinear
-            let v = t.v
-            let table = grayTable
-            let scale = Float(table.count - 1)
-            var y = 0
-            while y < h {
-                let row = y * stride
-                var x = 0
-                while x < w {
-                    let i = row + x * 4
-                    let b = lin[Int(p[i])], g = lin[Int(p[i + 1])], r = lin[Int(p[i + 2])]
-                    let l = min(max(v.x * r + v.y * g + v.z * b, 0), 1)
-                    let d = table[min(Int(l * scale + 0.5), table.count - 1)]
-                    bins[min(max(Int(d * 63.999), 0), 63)] += 1
-                    x += step
-                }
-                y += step
+        var y = 0
+        while y < h {
+            let row = y * stride
+            var x = 0
+            while x < w {
+                let i = row + x * 4
+                let luma = (Int(p[i + 2]) * 54 + Int(p[i + 1]) * 183 + Int(p[i]) * 19) >> 8
+                bins[min(luma >> 2, 63)] += 1
+                x += step
             }
-        } else {
-            var y = 0
-            while y < h {
-                let row = y * stride
-                var x = 0
-                while x < w {
-                    let i = row + x * 4
-                    let luma = (Int(p[i + 2]) * 54 + Int(p[i + 1]) * 183 + Int(p[i]) * 19) >> 8
-                    bins[min(luma >> 2, 63)] += 1
-                    x += step
-                }
-                y += step
-            }
+            y += step
         }
         let m = Float(max(bins.max() ?? 1, 1))
         let out = bins.map { Float($0) / m }

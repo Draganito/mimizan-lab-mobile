@@ -1,12 +1,10 @@
-// The viewfinder's state: which lens, which exposure, which development
-// the next frame gets, and the tone the finder shows. Mirrors
-// `CameraViewModel.kt`.
+// The viewfinder's state: which lens, which exposure, and which development
+// the next frame gets. The finder itself is the camera's picture.
 import AVFoundation
 import Foundation
 import MimizanCore
 import Observation
 import os
-import UIKit
 
 private let log = Logger(subsystem: "ch.bojovic.mimizanlab", category: "capture")
 
@@ -33,6 +31,8 @@ final class CaptureViewModel {
     var message: String?
     private(set) var permissionDenied = false
     private(set) var tone: FinderTone?
+    /// Set when a frame has been taken, so the screen can open the developer.
+    private(set) var pendingReview: String?
 
     private var startTask: Task<Void, Never>?
     private var observing = false
@@ -55,15 +55,12 @@ final class CaptureViewModel {
 
     // MARK: tone
 
-    /// Re-run `rebuildTone` whenever an input it read changes.
+    /// Re-run `rebuildTone` whenever an input it reads changes.
     private func observeTone() {
         withObservationTracking {
-            _ = session.state.wbGains
-            _ = prefs.soft; _ = prefs.hard
-            _ = prefs.process; _ = prefs.plateFilters; _ = prefs.plateSpace
-            _ = local; _ = viewfinder.zebra; _ = lens
+            _ = prefs.process
+            _ = viewfinder.zebra
             _ = session.state.rotationQuarters
-            _ = darkroom.shots.first?.meta.xyzToCam
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -73,75 +70,16 @@ final class CaptureViewModel {
         }
     }
 
-    /// What the finder kernel applies to the camera's preview: the still's
-    /// mix weights for the current filter and this frame's balance, pulled
-    /// back to linear sRGB, and the paper the automatic JPEG uses; in the
-    /// plate process the three taking filters the same way, and the lamps.
+    /// Monochrome is the camera's preview with the colour taken out.
+    /// Colour is the preview itself. The grade never reaches the finder.
     private func rebuildTone() {
-        let dev = develop
-        let gains = session.state.wbGains
-        let matrix = lens.flatMap { lensMatrix(for: $0) }
-        let back = SrgbToCamera(xyzToCam: matrix) ?? .identity
-        let params = darkroom.developParams(make: "Apple", model: CaptureViewModel.deviceModel, pattern: .rggb, dev)
-        let w: Weights
-        do {
-            w = try mixWeights(params: params, wbGains: gains)
-        } catch {
-            log.warning("mix weights: \(error.localizedDescription)")
-            w = .native
-        }
-        var plate: (SIMD3<Float>, SIMD3<Float>, SIMD3<Float>)?
-        if dev.isPlate {
-            do {
-                let pw = try plateWeights(params: params, wbGains: gains, xyzToCam: matrix, filters: dev.plateFilters, space: dev.plateSpace)
-                plate = (back.pullBack(pw.red.simd), back.pullBack(pw.green.simd), back.pullBack(pw.blue.simd))
-            } catch {
-                log.warning("plate weights: \(error.localizedDescription)")
-            }
-        }
-        let lut: [Float]
-        do {
-            lut = try paperLut(soft: prefs.soft, hard: prefs.hard, n: 4096)
-        } catch {
-            log.warning("paper lut: \(error.localizedDescription)")
-            lut = (0...4096).map { Float($0) / 4096 }
-        }
-        let t = FinderTone(
-            v: back.pullBack(w.simd),
-            lut: lut,
-            zebra: viewfinder.zebra ? 0.985 : 2,
-            plate: plate,
-            lampGain: SIMD3(1, 1, 1)
-        )
+        let t = FinderTone(mono: !develop.isPlate, zebra: viewfinder.zebra ? 0.985 : 2)
         if t != tone {
             tone = t
-            session.tone = t
             renderer?.set(tone: t)
         }
         renderer?.set(rotationQuarters: session.state.rotationQuarters)
     }
-
-    /// The sensor's XYZ → camera matrix as the last DNG of this lens
-    /// carried it; remembered across runs so the first finder frame has it.
-    private func lensMatrix(for lens: LensInfo) -> [Double]? {
-        let key = "xyz_to_cam_" + lens.label
-        if let m = darkroom.shots.first(where: { $0.meta.lens == lens.label && $0.meta.xyzToCam != nil })?.meta.xyzToCam {
-            UserDefaults.standard.set(m, forKey: key)
-            return m
-        }
-        return UserDefaults.standard.array(forKey: key) as? [Double]
-    }
-
-    var hasMatrix: Bool { lens.flatMap { lensMatrix(for: $0) } != nil }
-
-    nonisolated static let deviceModel: String = {
-        var u = utsname()
-        uname(&u)
-        let s = withUnsafePointer(to: &u.machine) { p in
-            p.withMemoryRebound(to: CChar.self, capacity: Int(_SYS_NAMELEN)) { String(cString: $0) }
-        }
-        return s.isEmpty ? "iPhone" : s
-    }()
 
     // MARK: lifecycle
 
@@ -238,7 +176,7 @@ final class CaptureViewModel {
     func setSeparation(_ m: SeparationMode) { local.separation = m }
     func setQuick(_ on: Bool) { local.binning = on ? 2 : 1 }
     func setAutoJpeg(_ on: Bool) { local.autoJpeg = on }
-    /// The standing grade: viewfinder, automatic JPEG, and where a picture opens.
+    /// The standing grade: the automatic JPEG, and where a picture opens.
     func setSoft(_ stops: Double) { prefs.setSoft(stops) }
     func setHard(_ stops: Double) { prefs.setHard(stops) }
     func setPeak(_ on: Bool) { prefs.setPeak(on) }
@@ -254,15 +192,14 @@ final class CaptureViewModel {
         Task {
             do {
                 let dng = try await session.capture()
-                darkroom.submit(dng: dng, lens: l.label, capturedAt: Date(), settings: settings)
+                pendingReview = darkroom.submit(dng: dng, lens: l.label, capturedAt: Date(), settings: settings)
             } catch {
                 log.error("capture: \(error.localizedDescription)")
                 message = error.localizedDescription
             }
         }
     }
-}
 
-extension Weights {
-    var simd: SIMD3<Float> { SIMD3(Float(r), Float(g), Float(b)) }
+    /// The screen calls this once it has opened the developer.
+    func clearPendingReview() { pendingReview = nil }
 }

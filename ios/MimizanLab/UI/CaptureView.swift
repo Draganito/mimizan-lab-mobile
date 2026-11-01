@@ -1,6 +1,7 @@
-// The viewfinder screen: the picture fills it. One line names the process
-// and the exposure, the shutter sits below, and the aids live on the
-// picture itself. Paper, filter and separation belong to the open frame.
+// The viewfinder screen. The picture is the camera's own preview:
+// desaturated in monochrome, untouched in colour. One line names the
+// process and the exposure, the shutter sits below. The print is made
+// afterwards, in the developer.
 import MimizanCore
 import SwiftUI
 
@@ -104,6 +105,12 @@ struct CaptureView: View {
         .sheet(isPresented: $showSettings) { SettingsSheet(vm: vm) }
         .onAppear { vm.resume() }
         .onDisappear { vm.stop() }
+        .onChange(of: vm.pendingReview) { _, name in
+            if let name {
+                onOpenShot(name)
+                vm.clearPendingReview()
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active: vm.resume()
@@ -285,7 +292,7 @@ struct SettingsSheet: View {
                     PaperSliders(soft: vm.prefs.soft, hard: vm.prefs.hard, onSoft: vm.setSoft, onHard: vm.setHard)
                         .padding(.top, 8)
                     SettingRow(label: "Peak", on: Binding(get: { vm.prefs.peak }, set: vm.setPeak))
-                    Text("The grade and Peak are the preset: the viewfinder, the automatic JPEG, and where each picture starts.")
+                    Text("The grade and Peak are where a picture opens, and what the automatic JPEG uses. The viewfinder does not follow them.")
                         .font(.caption).foregroundStyle(.gray)
 
                     Text("Storage").font(.headline).padding(.top, 16)

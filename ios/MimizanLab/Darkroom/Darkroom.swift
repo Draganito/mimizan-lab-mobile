@@ -87,8 +87,9 @@ final class Darkroom {
     // MARK: intake
 
     /// Called from the camera: persists the DNG, reads what it is, then
-    /// queues the development.
-    func submit(dng: Data, lens: String, capturedAt: Date, settings: DevelopSettings) {
+    /// queues the development. The name is ready at once, before the file is written.
+    @discardableResult
+    func submit(dng: Data, lens: String, capturedAt: Date, settings: DevelopSettings) -> String {
         let name = Darkroom.nameFor(capturedAt)
         let provisional = ShotMeta(info: FrameInfo.empty, lens: lens, capturedAt: capturedAt, imported: false)
         shots.insert(Shot(name: name, meta: provisional, settings: settings, status: .saving), at: 0)
@@ -111,6 +112,7 @@ final class Darkroom {
                 }
             }
         }
+        return name
     }
 
     /// A RAW file from Files or Photos: copied into the cache under a
