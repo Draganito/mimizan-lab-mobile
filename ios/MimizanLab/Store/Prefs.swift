@@ -33,6 +33,9 @@ final class Prefs {
     /// The plate's projection primaries, the colour space of the file.
     /// sRGB on the phone: Photos shows it as it is.
     private(set) var plateSpace: PlateSpace
+    /// iOS only. On, a shot saves the JPEG at the standing grade and stays
+    /// on the finder. Off for a fresh install: the developer opens.
+    private(set) var stayOnFinder: Bool
 
     init() {
         soft = Prefs.snapStops(store.double(forKey: Keys.soft))
@@ -41,6 +44,7 @@ final class Prefs {
         process = Process(rawValue: store.string(forKey: Keys.process) ?? "") ?? .mono
         plateFilters = PlateFilters.fromName(store.string(forKey: Keys.plateFilters)) ?? .camera
         plateSpace = PlateSpace.fromName(store.string(forKey: Keys.plateSpace)) ?? .srgb
+        stayOnFinder = store.bool(forKey: Keys.stayOnFinder)
     }
 
     func setSoft(_ stops: Double) {
@@ -71,6 +75,11 @@ final class Prefs {
     func setPlateSpace(_ s: PlateSpace) {
         plateSpace = s
         store.set(s.name, forKey: Keys.plateSpace)
+    }
+
+    func setStayOnFinder(_ on: Bool) {
+        stayOnFinder = on
+        store.set(on, forKey: Keys.stayOnFinder)
     }
 
     // MARK: limits, asked of the core once
@@ -112,6 +121,7 @@ final class Prefs {
         static let process = "process"
         static let plateFilters = "plate_filters"
         static let plateSpace = "plate_space"
+        static let stayOnFinder = "stay_on_finder"
     }
 }
 
