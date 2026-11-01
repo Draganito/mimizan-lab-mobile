@@ -424,7 +424,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
 @Composable
 fun PlateFilterRow(selected: PlateFilters, hasMatrix: Boolean, onSelect: (PlateFilters) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         for (f in PlateFilters.entries) {
@@ -441,7 +441,7 @@ fun PlateFilterRow(selected: PlateFilters, hasMatrix: Boolean, onSelect: (PlateF
 @Composable
 fun FilterRow(selected: Filter, onSelect: (Filter) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         for (f in Filter.entries) {

@@ -93,7 +93,6 @@ struct FilterRow: View {
                     Chip(label: Format.filterShort(f), selected: f == selected) { onSelect(f) }
                 }
             }
-            .padding(.horizontal, 8)
             .padding(.vertical, 4)
         }
     }
@@ -111,7 +110,6 @@ struct PlateFilterRow: View {
                     Chip(label: f == .camera && !hasMatrix ? "Camera (no matrix)" : Format.plateFilters(f), selected: f == selected) { onSelect(f) }
                 }
             }
-            .padding(.horizontal, 8)
             .padding(.vertical, 4)
         }
     }

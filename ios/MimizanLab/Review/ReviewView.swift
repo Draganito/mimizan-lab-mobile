@@ -48,7 +48,7 @@ struct ReviewView: View {
                     panelHeader
                     ScrollView {
                         controls(prefs: prefs)
-                            .padding(.horizontal, 16)
+                            .padding(.horizontal, 12)
                             .padding(.top, 4)
                             .padding(.bottom, 10)
                             .background {
