@@ -176,10 +176,13 @@ The darkroom is the same on both phones. The finder is not.
 
 1. **Finder.** On Android the preview is linearised, mixed with the
    filter's channel weights, then printed through the paper at the
-   standing exposures. The grade and Peak are the finder, the automatic
-   JPEG, and where a picture opens. On iOS the picture is the camera's
-   own preview: desaturated in mono, untouched in colour. Zebra marks
-   the highlights, a histogram sits in the corner, a grid draws thirds.
+   standing exposures. That is the stored grade. The automatic JPEG, and
+   the picture when it opens, start there; with Balance the zone on they
+   also take this negative's shift and the compensation. Peak is on the
+   JPEG and on the opened picture, not on the finder. On iOS the picture
+   is the camera's own preview: desaturated in mono, untouched in colour.
+   Zebra marks the highlights, a histogram sits in the corner, a grid
+   draws thirds.
    The three are remembered across launches and start off. Tap sets
    focus and metering; a long press clears it. The flash icon cycles
    Off / Auto / On. The viewfinder stays dark and the flash fires on
@@ -241,9 +244,9 @@ The darkroom is the same on both phones. The finder is not.
 
 Only the most recent developed negative stays in memory (about 0.5 GB
 with its preview planes; a colour export holds about 50 MB more while
-it runs). Every frame is kept in the cache as packed samples plus
-metadata (1.5 GB budget, oldest first), so a shot on the roll can be
-developed again, also with other settings.
+it runs). Every frame stays in the cache (1.5 GB budget, oldest
+first), so a shot on the roll can be developed again, also with other
+settings. Android keeps packed samples plus metadata. iOS keeps the DNG.
 
 ## Status
 
