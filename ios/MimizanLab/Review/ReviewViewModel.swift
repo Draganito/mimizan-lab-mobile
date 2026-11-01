@@ -64,8 +64,7 @@ final class ReviewViewModel {
     /// Bind to a shot; follows `Darkroom.current` so a (re)development shows up.
     func open(_ name: String) {
         if self.name == name, observing {
-            soft = darkroom.prefs.soft
-            hard = darkroom.prefs.hard
+            showStandingPaper()
             render()
             return
         }
@@ -129,6 +128,7 @@ final class ReviewViewModel {
             peakMeasured = neg.peak
             needsDevelop = false
             detail = nil
+            showStandingPaper()
             render()
         } else {
             developed = nil
@@ -185,15 +185,31 @@ final class ReviewViewModel {
         if let r = detailRegion { requestDetail(x: r.0, y: r.1, w: r.2, h: r.3) }
     }
 
-    func setSoft(_ stops: Double) {
-        darkroom.prefs.setSoft(stops)
+    /// The stored grade, then the zone shift when balance is on. The shift is not written back.
+    private func showStandingPaper() {
         soft = darkroom.prefs.soft
-        schedule { await self.renderNow() }
+        hard = darkroom.prefs.hard
+        if darkroom.prefs.zoneAuto, let d = developed, let shift = try? d.zoneShift(soft: soft, hard: hard) {
+            let pair = Prefs.shiftGrade(soft: soft, hard: hard, by: shift)
+            soft = pair.0
+            hard = pair.1
+        }
+    }
+
+    func setSoft(_ stops: Double) {
+        setGrade(soft: stops, hard: hard)
     }
 
     func setHard(_ stops: Double) {
-        darkroom.prefs.setHard(stops)
-        hard = darkroom.prefs.hard
+        setGrade(soft: soft, hard: stops)
+    }
+
+    /// Both exposures, as they stand on the screen. A zone drag and a grade slider write the pair, so the next picture starts here.
+    func setGrade(soft: Double, hard: Double) {
+        darkroom.prefs.setSoft(soft)
+        darkroom.prefs.setHard(hard)
+        self.soft = darkroom.prefs.soft
+        self.hard = darkroom.prefs.hard
         schedule { await self.renderNow() }
     }
 

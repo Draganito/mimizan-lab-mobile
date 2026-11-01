@@ -46,6 +46,7 @@ final class CaptureViewModel {
     init() {
         lenses = LensCatalog.enumerate()
         lens = lenses.first
+        viewfinder = ViewfinderSettings(zebra: prefs.zebra, grid: prefs.grid, showHistogram: prefs.histogram)
         if let renderer {
             session.onFrame = { [renderer] frame in renderer.submit(frame: frame) }
         }
@@ -179,6 +180,14 @@ final class CaptureViewModel {
     /// The standing grade: the automatic JPEG, and where a picture opens.
     func setSoft(_ stops: Double) { prefs.setSoft(stops) }
     func setHard(_ stops: Double) { prefs.setHard(stops) }
+    func setGrade(soft: Double, hard: Double) {
+        prefs.setSoft(soft)
+        prefs.setHard(hard)
+    }
+    func setZoneAuto(_ on: Bool) { prefs.setZoneAuto(on) }
+    func toggleZebra() { viewfinder.zebra.toggle(); prefs.setZebra(viewfinder.zebra) }
+    func toggleGrid() { viewfinder.grid.toggle(); prefs.setGrid(viewfinder.grid) }
+    func toggleHistogram() { viewfinder.showHistogram.toggle(); prefs.setHistogram(viewfinder.showHistogram) }
     func setPeakMode(_ mode: PeakMode) { prefs.setPeakMode(mode) }
     func setPeak(radius: Double, amount: Double) { prefs.setPeak(radius: radius, amount: amount) }
     func setProcess(_ p: Process) { prefs.setProcess(p) }

@@ -61,7 +61,13 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private val _develop = MutableStateFlow(darkroom.standingSettings())
     val develop: StateFlow<DevelopSettings> = _develop.asStateFlow()
 
-    private val _viewfinder = MutableStateFlow(ViewfinderSettings())
+    private val _viewfinder = MutableStateFlow(
+        ViewfinderSettings(
+            zebra = darkroom.prefs.zebra.value,
+            grid = darkroom.prefs.grid.value,
+            showHistogram = darkroom.prefs.histogram.value,
+        ),
+    )
     val viewfinder: StateFlow<ViewfinderSettings> = _viewfinder.asStateFlow()
 
     private val _message = MutableStateFlow<String?>(null)
@@ -274,12 +280,29 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun setAutoJpeg(on: Boolean) = _develop.update { it.copy(autoJpeg = on) }
     fun setSoft(stops: Double) = darkroom.prefs.setSoft(stops)
     fun setHard(stops: Double) = darkroom.prefs.setHard(stops)
+    fun setGrade(soft: Double, hard: Double) {
+        darkroom.prefs.setSoft(soft)
+        darkroom.prefs.setHard(hard)
+    }
+    fun setZoneAuto(on: Boolean) = darkroom.prefs.setZoneAuto(on)
     fun setPeakMode(mode: PeakMode) = darkroom.prefs.setPeakMode(mode)
     fun setPeak(radius: Double, amount: Double) = darkroom.prefs.setPeak(radius, amount)
     fun setStayOnFinder(on: Boolean) = darkroom.prefs.setStayOnFinder(on)
-    fun toggleZebra() = _viewfinder.update { it.copy(zebra = !it.zebra) }
-    fun toggleGrid() = _viewfinder.update { it.copy(grid = !it.grid) }
-    fun toggleHistogram() = _viewfinder.update { it.copy(showHistogram = !it.showHistogram) }
+    fun toggleZebra() = _viewfinder.update {
+        val on = !it.zebra
+        darkroom.prefs.setZebra(on)
+        it.copy(zebra = on)
+    }
+    fun toggleGrid() = _viewfinder.update {
+        val on = !it.grid
+        darkroom.prefs.setGrid(on)
+        it.copy(grid = on)
+    }
+    fun toggleHistogram() = _viewfinder.update {
+        val on = !it.showHistogram
+        darkroom.prefs.setHistogram(on)
+        it.copy(showHistogram = on)
+    }
 
     fun capture() {
         val l = _lens.value ?: return

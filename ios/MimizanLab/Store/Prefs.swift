@@ -54,6 +54,15 @@ final class Prefs {
     /// iOS only. On, a shot saves the JPEG at the standing grade and stays
     /// on the finder. Off for a fresh install: the developer opens.
     private(set) var stayOnFinder: Bool
+    /// Overexposure marks on the finder. Off for a fresh install.
+    private(set) var zebra: Bool
+    /// The rule of thirds on the finder. Off for a fresh install.
+    private(set) var grid: Bool
+    /// The finder's histogram. Off for a fresh install.
+    private(set) var histogram: Bool
+    /// On, a picture places its middle on the grey card. The grade stays.
+    /// Off for a fresh install.
+    private(set) var zoneAuto: Bool
 
     init() {
         soft = Prefs.snapStops(store.double(forKey: Keys.soft))
@@ -72,6 +81,10 @@ final class Prefs {
         plateFilters = PlateFilters.fromName(store.string(forKey: Keys.plateFilters)) ?? .camera
         plateSpace = PlateSpace.fromName(store.string(forKey: Keys.plateSpace)) ?? .srgb
         stayOnFinder = store.bool(forKey: Keys.stayOnFinder)
+        zebra = store.bool(forKey: Keys.zebra)
+        grid = store.bool(forKey: Keys.grid)
+        histogram = store.bool(forKey: Keys.histogram)
+        zoneAuto = store.bool(forKey: Keys.zoneAuto)
     }
 
     func setSoft(_ stops: Double) {
@@ -125,6 +138,35 @@ final class Prefs {
         store.set(on, forKey: Keys.stayOnFinder)
     }
 
+    func setZebra(_ on: Bool) {
+        zebra = on
+        store.set(on, forKey: Keys.zebra)
+    }
+
+    func setGrid(_ on: Bool) {
+        grid = on
+        store.set(on, forKey: Keys.grid)
+    }
+
+    func setHistogram(_ on: Bool) {
+        histogram = on
+        store.set(on, forKey: Keys.histogram)
+    }
+
+    func setZoneAuto(_ on: Bool) {
+        zoneAuto = on
+        store.set(on, forKey: Keys.zoneAuto)
+    }
+
+    /// Add `delta` stops to both exposures, snapped to a twelfth, and stop
+    /// at the limit so the gap between them stays.
+    nonisolated static func shiftGrade(soft: Double, hard: Double, by delta: Double) -> (Double, Double) {
+        let lo = -stopLimit - min(soft, hard)
+        let hi = stopLimit - max(soft, hard)
+        let d = min(max((delta * 12).rounded() / 12, lo), hi)
+        return (soft + d, hard + d)
+    }
+
     // MARK: limits, asked of the core once
 
     /// How far either paper exposure may move, in stops: the core's `paper::STOP_LIMIT`.
@@ -168,6 +210,10 @@ final class Prefs {
         static let plateFilters = "plate_filters"
         static let plateSpace = "plate_space"
         static let stayOnFinder = "stay_on_finder"
+        static let zebra = "finder_zebra"
+        static let grid = "finder_grid"
+        static let histogram = "finder_histogram"
+        static let zoneAuto = "zone_auto"
     }
 }
 

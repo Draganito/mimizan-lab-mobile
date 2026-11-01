@@ -40,6 +40,7 @@ struct PaperSettings: Sendable {
     var peakMode: PeakMode
     var peakRadius: Double
     var peakAmount: Double
+    var zoneAuto: Bool
 }
 
 @MainActor
@@ -86,8 +87,17 @@ final class Darkroom {
     var paperSettings: PaperSettings {
         PaperSettings(
             soft: prefs.soft, hard: prefs.hard, lampRed: 0, lampBlue: 0,
-            peakMode: prefs.peakMode, peakRadius: prefs.peakRadius, peakAmount: prefs.peakAmount
+            peakMode: prefs.peakMode, peakRadius: prefs.peakRadius, peakAmount: prefs.peakAmount,
+            zoneAuto: prefs.zoneAuto
         )
+    }
+
+    /// The standing grade, plus the zone shift when balance is on. The shift is not stored.
+    nonisolated static func placed(_ developed: Developed, _ paper: PaperSettings) -> (soft: Double, hard: Double) {
+        if paper.zoneAuto, let shift = try? developed.zoneShift(soft: paper.soft, hard: paper.hard) {
+            return Prefs.shiftGrade(soft: paper.soft, hard: paper.hard, by: shift)
+        }
+        return (paper.soft, paper.hard)
     }
 
     // MARK: intake
@@ -282,18 +292,19 @@ final class Darkroom {
             }
             let info = developed.info()
             log.info("developed \(name) in \(Int(Date().timeIntervalSince(t0) * 1000)) ms: total \(info.timing.totalMs) ms")
+            let placed = Darkroom.placed(developed, paper)
             let thumb: CGImage?
             if info.plate != nil {
-                thumb = Images.thumbnail(try developed.previewRgb(soft: paper.soft, hard: paper.hard, extraQuarterTurns: 0))
+                thumb = Images.thumbnail(try developed.previewRgb(soft: placed.soft, hard: placed.hard, extraQuarterTurns: 0))
             } else {
-                thumb = Images.thumbnail(try developed.preview(soft: paper.soft, hard: paper.hard, extraQuarterTurns: 0))
+                thumb = Images.thumbnail(try developed.preview(soft: placed.soft, hard: placed.hard, extraQuarterTurns: 0))
             }
             // Peak's radius and amount for this negative, as the desktop
             // measures them on opening a picture. Measured even with the
             // checkbox off: review can turn it on without a second pass.
             let peak: PeakMeasured?
             do {
-                let m = try developed.measurePeak(soft: paper.soft, hard: paper.hard)
+                let m = try developed.measurePeak(soft: placed.soft, hard: placed.hard)
                 log.info("peak \(name): radius \(m.radius) px, amount \(m.amount), found \(m.found)")
                 peak = m
             } catch {
@@ -307,7 +318,7 @@ final class Darkroom {
                 jpeg = try exporter.place(fileName: "\(name)\(suffix).jpg") { p in
                     let peakPair = Prefs.peakApplied(mode: paper.peakMode, radius: paper.peakRadius, amount: paper.peakAmount, measured: peak)
                     _ = try developed.exportJpeg(
-                        path: p, soft: paper.soft, hard: paper.hard, extraQuarterTurns: 0,
+                        path: p, soft: placed.soft, hard: placed.hard, extraQuarterTurns: 0,
                         peakRadius: peakPair.radius, peakAmount: peakPair.amount
                     )
                 }

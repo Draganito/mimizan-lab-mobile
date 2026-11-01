@@ -6,6 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -53,15 +54,18 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -107,6 +111,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val peakRadius by vm.darkroom.prefs.peakRadius.collectAsStateWithLifecycle()
     val peakAmount by vm.darkroom.prefs.peakAmount.collectAsStateWithLifecycle()
     val stayOnFinder by vm.darkroom.prefs.stayOnFinder.collectAsStateWithLifecycle()
+    val zoneAuto by vm.darkroom.prefs.zoneAuto.collectAsStateWithLifecycle()
     val plateSpace by vm.darkroom.prefs.plateSpace.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     val pendingReview by vm.pendingReview.collectAsStateWithLifecycle()
@@ -340,6 +345,12 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 )
                 Spacer(Modifier.height(8.dp))
                 PaperSliders(soft, hard, onSoft = vm::setSoft, onHard = vm::setHard)
+                ZoneStrip(soft, hard, onBoth = vm::setGrade)
+                SettingRow("Balance the zone", zoneAuto, vm::setZoneAuto)
+                Text(
+                    "On, a picture places its middle on the grey card and leaves the grade. Moving the strip or a grade slider keeps what you set.",
+                    style = MaterialTheme.typography.bodySmall, color = Color.Gray,
+                )
                 PeakRow(peakMode, onMode = vm::setPeakMode)
                 if (peakMode == PeakMode.CUSTOM) {
                     val lim = Prefs.PEAK
@@ -501,6 +512,40 @@ fun PaperSliders(soft: Double, hard: Double, onSoft: (Double) -> Unit, onHard: (
         value = hard.toFloat(),
         onChange = { onHard(it.toDouble()) },
         range = range,
+    )
+}
+
+/** Drag left to print darker, right to print lighter. Both exposures move by the same stops, so the grade stays. */
+@Composable
+fun ZoneStrip(soft: Double, hard: Double, onBoth: (Double, Double) -> Unit) {
+    val latest = rememberUpdatedState(soft to hard)
+    var origin by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var dx by remember { mutableStateOf(0f) }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(28.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(Brush.horizontalGradient(listOf(Color.Black, Color.White)))
+            .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragStart = {
+                        origin = latest.value
+                        dx = 0f
+                    },
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        val base = origin ?: return@detectHorizontalDragGestures
+                        dx += dragAmount
+                        val delta = -dx.toDouble() / size.width.coerceAtLeast(1).toDouble() * Prefs.STOP_LIMIT
+                        val pair = Prefs.shiftGrade(base.first, base.second, delta)
+                        onBoth(pair.first, pair.second)
+                    },
+                    onDragEnd = { origin = null },
+                    onDragCancel = { origin = null },
+                )
+            },
     )
 }
 

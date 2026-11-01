@@ -168,6 +168,17 @@ fn paper_lut_is_the_print_curve() {
 }
 
 #[test]
+fn zone_shift_places_the_middle_without_a_preview_it_refuses() {
+    let dev = develop(synthetic_input(160, 120, 1), DevelopParams { preview_long_edge: 96, ..DevelopParams::default() }).unwrap();
+    let shift = dev.zone_shift(0.0, 0.0).unwrap();
+    assert!(shift.is_finite() && shift.abs() <= 3.0, "{shift}");
+    let again = dev.zone_shift(0.0, 0.0).unwrap();
+    assert!((shift - again).abs() < 1e-9, "the same negative places once");
+    let bare = develop(synthetic_input(80, 60, 1), DevelopParams { preview_long_edge: 0, separation: SeparationMode::Off, ..DevelopParams::default() }).unwrap();
+    assert!(bare.zone_shift(0.0, 0.0).is_err());
+}
+
+#[test]
 fn binning_halves_the_frame() {
     let input = synthetic_input(320, 240, 1);
     let params = DevelopParams {

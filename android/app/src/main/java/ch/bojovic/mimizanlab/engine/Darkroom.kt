@@ -231,13 +231,14 @@ class Darkroom private constructor(private val context: Context) {
                 }
                 val info = developed.info()
                 Log.i(TAG, "developed $name in ${(System.nanoTime() - t0) / 1_000_000} ms: ${info.timing}")
-                val thumb = thumbnail(developed)
+                val paper = placed(developed)
+                val thumb = thumbnail(developed, paper.first, paper.second)
                 cache.saveThumb(name, thumb)
                 // Peak's radius and amount for this negative, as the
                 // desktop measures them on opening a picture. Measured even
                 // with the checkbox off: review can turn it on without a
                 // second pass.
-                val peak = measurePeak(developed, name)
+                val peak = measurePeak(developed, name, paper.first, paper.second)
                 // Replace the negative kept in memory.
                 _current.getAndUpdate { Negative(name, developed, info, shot.settings, peak) }?.developed?.close()
                 updateShot(name) { it.copy(status = ShotStatus.Ready(info), thumbnail = thumb) }
@@ -246,7 +247,7 @@ class Darkroom private constructor(private val context: Context) {
                     val applied = Prefs.peakApplied(prefs.peakMode.value, prefs.peakRadius.value, prefs.peakAmount.value, peak)
                     val uri = exportJpeg(
                         developed, name, suffixFor(shot.settings, info),
-                        soft = prefs.soft.value, hard = prefs.hard.value,
+                        soft = paper.first, hard = paper.second,
                         peakRadius = applied.first, peakAmount = applied.second,
                     )
                     updateShot(name) { it.copy(jpegUri = uri) }
@@ -274,10 +275,17 @@ class Darkroom private constructor(private val context: Context) {
     private fun paramsFor(meta: RawMeta, s: DevelopSettings): DevelopParams =
         developParamsFor(meta.make, meta.model, meta.cfa, s)
 
-    /** 256 px box of the preview, grey or, in the plate process, colour. */
-    private fun thumbnail(d: Developed): Bitmap {
+    /** The standing grade, plus the zone shift when balance is on. The shift is not stored. */
+    private fun placed(d: Developed): Pair<Double, Double> {
         val soft = prefs.soft.value
         val hard = prefs.hard.value
+        if (!prefs.zoneAuto.value) return soft to hard
+        val shift = runCatching { d.zoneShift(soft, hard) }.getOrDefault(0.0)
+        return Prefs.shiftGrade(soft, hard, shift)
+    }
+
+    /** 256 px box of the preview, grey or, in the plate process, colour. */
+    private fun thumbnail(d: Developed, soft: Double, hard: Double): Bitmap {
         return if (d.info().plate != null) {
             val g = d.previewRgb(soft, hard, 0u)
             subsampled(g.width.toInt(), g.height.toInt()) { i ->
@@ -314,9 +322,9 @@ class Darkroom private constructor(private val context: Context) {
      * a log line) when the measurement throws, so a development never
      * fails on its sharpening.
      */
-    private fun measurePeak(d: Developed, name: String): PeakMeasured? = try {
+    private fun measurePeak(d: Developed, name: String, soft: Double, hard: Double): PeakMeasured? = try {
         val t0 = System.nanoTime()
-        val m = d.measurePeak(prefs.soft.value, prefs.hard.value)
+        val m = d.measurePeak(soft, hard)
         Log.i(TAG, "peak $name: radius ${m.radius} px, amount ${m.amount}, found ${m.found}, ${(System.nanoTime() - t0) / 1_000_000} ms")
         m
     } catch (t: Throwable) {

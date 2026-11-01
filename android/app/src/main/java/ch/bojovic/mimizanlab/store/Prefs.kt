@@ -128,6 +128,45 @@ class Prefs(context: Context) {
         sp.edit { putBoolean(KEY_STAY_ON_FINDER, on) }
     }
 
+    private val _zebra = MutableStateFlow(sp.getBoolean(KEY_ZEBRA, false))
+    /** Overexposure marks on the finder. Off for a fresh install. */
+    val zebra: StateFlow<Boolean> = _zebra.asStateFlow()
+
+    fun setZebra(on: Boolean) {
+        _zebra.value = on
+        sp.edit { putBoolean(KEY_ZEBRA, on) }
+    }
+
+    private val _grid = MutableStateFlow(sp.getBoolean(KEY_GRID, false))
+    /** The rule of thirds on the finder. Off for a fresh install. */
+    val grid: StateFlow<Boolean> = _grid.asStateFlow()
+
+    fun setGrid(on: Boolean) {
+        _grid.value = on
+        sp.edit { putBoolean(KEY_GRID, on) }
+    }
+
+    private val _histogram = MutableStateFlow(sp.getBoolean(KEY_HISTOGRAM, false))
+    /** The finder's histogram. Off for a fresh install. */
+    val histogram: StateFlow<Boolean> = _histogram.asStateFlow()
+
+    fun setHistogram(on: Boolean) {
+        _histogram.value = on
+        sp.edit { putBoolean(KEY_HISTOGRAM, on) }
+    }
+
+    private val _zoneAuto = MutableStateFlow(sp.getBoolean(KEY_ZONE_AUTO, false))
+    /**
+     * On, a picture places its middle on the grey card. The stored grade
+     * stays. Off for a fresh install.
+     */
+    val zoneAuto: StateFlow<Boolean> = _zoneAuto.asStateFlow()
+
+    fun setZoneAuto(on: Boolean) {
+        _zoneAuto.value = on
+        sp.edit { putBoolean(KEY_ZONE_AUTO, on) }
+    }
+
     private val _lampRed = MutableStateFlow(snapLamp(finiteOrZero(sp.getFloat(KEY_LAMP_RED, 0f))))
     /** The red lamp of the plate's projector, stops; the start value in review and the automatic JPEG's. */
     val lampRed: StateFlow<Double> = _lampRed.asStateFlow()
@@ -180,7 +219,13 @@ class Prefs(context: Context) {
                 PeakMode.CUSTOM -> radius to amount
             }
 
-        /** Twelfths of a stop, inside ±[STOP_LIMIT]; a non-finite value snaps to zero. */
+        /** Add [delta] stops to both exposures, snapped to a twelfth, and stop at the limit so the gap stays. */
+        fun shiftGrade(soft: Double, hard: Double, delta: Double): Pair<Double, Double> {
+            val lo = -STOP_LIMIT - minOf(soft, hard)
+            val hi = STOP_LIMIT - maxOf(soft, hard)
+            val d = (kotlin.math.round(delta * 12.0) / 12.0).coerceIn(lo, hi)
+            return soft + d to hard + d
+        }
         fun snapStops(v: Double): Double =
             (kotlin.math.round(finiteOrZero(v) * 12.0) / 12.0).coerceIn(-STOP_LIMIT, STOP_LIMIT)
 
@@ -200,5 +245,9 @@ class Prefs(context: Context) {
         private const val KEY_LAMP_RED = "lamp_red"
         private const val KEY_LAMP_BLUE = "lamp_blue"
         private const val KEY_STAY_ON_FINDER = "stay_on_finder"
+        private const val KEY_ZEBRA = "finder_zebra"
+        private const val KEY_GRID = "finder_grid"
+        private const val KEY_HISTOGRAM = "finder_histogram"
+        private const val KEY_ZONE_AUTO = "zone_auto"
     }
 }

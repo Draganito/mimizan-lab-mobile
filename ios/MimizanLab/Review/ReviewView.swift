@@ -156,6 +156,7 @@ struct ReviewView: View {
                 PlateFilterRow(selected: prefs.plateFilters, hasMatrix: vm.info?.hasColourMatrix ?? false, onSelect: vm.setPlateFilters)
             }
             PaperSliders(soft: vm.soft, hard: vm.hard, onSoft: vm.setSoft, onHard: vm.setHard)
+            ZoneStrip(soft: vm.soft, hard: vm.hard, onBoth: vm.setGrade)
             PeakRow(mode: prefs.peakMode, onMode: vm.setPeakMode)
             if prefs.peakMode == .custom {
                 let lim = Prefs.peakLimits

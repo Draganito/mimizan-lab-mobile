@@ -164,7 +164,7 @@ struct CaptureView: View {
                     HistogramView(bins: state.histogram)
                         .frame(width: 120, height: 56)
                         .padding(8)
-                        .onTapGesture { vm.viewfinder.showHistogram = false }
+                        .onTapGesture { vm.toggleHistogram() }
                     Spacer()
                 }
             }
@@ -190,9 +190,9 @@ struct CaptureView: View {
             HStack {
                 Spacer()
                 VStack(spacing: pad ? 8 : 4) {
-                    aid("grid", on: vm.viewfinder.grid) { vm.viewfinder.grid.toggle() }
-                    aid("chart.bar.xaxis", on: vm.viewfinder.showHistogram) { vm.viewfinder.showHistogram.toggle() }
-                    aid("circle.lefthalf.filled", on: vm.viewfinder.zebra) { vm.viewfinder.zebra.toggle() }
+                    aid("grid", on: vm.viewfinder.grid) { vm.toggleGrid() }
+                    aid("chart.bar.xaxis", on: vm.viewfinder.showHistogram) { vm.toggleHistogram() }
+                    aid("circle.lefthalf.filled", on: vm.viewfinder.zebra) { vm.toggleZebra() }
                 }
                 .padding(pad ? 12 : 6)
             }
@@ -290,6 +290,10 @@ struct SettingsSheet: View {
                         .font(.caption).foregroundStyle(.gray)
                     PaperSliders(soft: vm.prefs.soft, hard: vm.prefs.hard, onSoft: vm.setSoft, onHard: vm.setHard)
                         .padding(.top, 8)
+                    ZoneStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, onBoth: vm.setGrade)
+                    SettingRow(label: "Balance the zone", on: Binding(get: { vm.prefs.zoneAuto }, set: vm.setZoneAuto))
+                    Text("On, a picture places its middle on the grey card and leaves the grade. Moving the strip or a grade slider keeps what you set.")
+                        .font(.caption).foregroundStyle(.gray)
                     PeakRow(mode: vm.prefs.peakMode, onMode: vm.setPeakMode)
                     if vm.prefs.peakMode == .custom {
                         let lim = Prefs.peakLimits

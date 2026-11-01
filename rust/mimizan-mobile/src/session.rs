@@ -897,6 +897,37 @@ impl Developed {
         Ok(PeakMeasured { radius, amount, found: tuned.found })
     }
 
+    /// Stops to add to both exposures so the middle of this negative prints
+    /// where the grey card prints at `(soft, hard)`. The grade (the gap) is
+    /// untouched. 0 when the picture has no usable middle. The shift stays
+    /// inside the room both sliders still have.
+    pub fn zone_shift(&self, soft: f64, hard: f64) -> Result<f64> {
+        let g = lock_msg(self.inner.lock());
+        let pv = g.preview.as_ref().ok_or_else(|| MimizanError::Invalid {
+            msg: "developed without preview planes".into(),
+        })?;
+        // The monochrome mix, kept while a plate is on: one exposure for the paper.
+        let plane = mix_planes(&pv.lum, &pv.c1, &pv.c2, &g.weights);
+        let mut samples: Vec<f64> = plane
+            .data
+            .iter()
+            .step_by(8)
+            .copied()
+            .filter(|v| v.is_finite() && *v > 0.002 && *v < 0.98)
+            .collect();
+        if samples.is_empty() {
+            return Ok(0.0);
+        }
+        samples.sort_by(f64::total_cmp);
+        let mid = samples[samples.len() / 2];
+        let curve = crate::types::split_grade(soft, hard)?.curve();
+        let shift = curve.shift_for(mid, curve.eval(mimizan_core::zone::GRAY_CARD));
+        let limit = mimizan_core::paper::STOP_LIMIT;
+        let lo = -limit - soft.min(hard);
+        let hi = limit - soft.max(hard);
+        Ok(shift.clamp(lo, hi))
+    }
+
     /// Print as JPEG (8-bit grey, quality 100, grey ICC) at full size:
     /// the paper applied, then Peak's high-pass on the picture when
     /// `peak_amount` > 0 (`peak_radius` σ in pixels of the negative, the

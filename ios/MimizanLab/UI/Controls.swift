@@ -130,6 +130,36 @@ struct PaperSliders: View {
     }
 }
 
+/// Drag left to print darker, right to print lighter. Both exposures move
+/// by the same stops, so the grade stays.
+struct ZoneStrip: View {
+    let soft: Double
+    let hard: Double
+    let onBoth: (Double, Double) -> Void
+    @State private var origin: (Double, Double)?
+
+    var body: some View {
+        GeometryReader { g in
+            RoundedRectangle(cornerRadius: 6)
+                .fill(LinearGradient(colors: [.black, .white], startPoint: .leading, endPoint: .trailing))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.35), lineWidth: 1))
+                .highPriorityGesture(
+                    DragGesture(minimumDistance: 4)
+                        .onChanged { v in
+                            let base = origin ?? (soft, hard)
+                            if origin == nil { origin = base }
+                            let width = max(g.size.width, 1)
+                            let delta = -Double(v.translation.width) / Double(width) * Prefs.stopLimit
+                            let pair = Prefs.shiftGrade(soft: base.0, hard: base.1, by: delta)
+                            onBoth(pair.0, pair.1)
+                        }
+                        .onEnded { _ in origin = nil }
+                )
+        }
+        .frame(height: 28)
+    }
+}
+
 struct ShutterButton: View {
     let enabled: Bool
     let action: () -> Void

@@ -96,13 +96,9 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     fun open(name: String) {
         if (_state.value.name == name && openJob?.isActive == true) {
             // The collector stays alive, so a second visit must still pick up
-            // the settings exposures.
-            _state.update {
-                it.copy(
-                    soft = darkroom.prefs.soft.value,
-                    hard = darkroom.prefs.hard.value,
-                )
-            }
+            // the settings exposures, plus the zone shift when balance is on.
+            val pair = placedPaper(developed)
+            _state.update { it.copy(soft = pair.first, hard = pair.second) }
             render()
             return
         }
@@ -120,7 +116,8 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                     // info.weights already include the filter of the first
                     // mix; the sliders start from the camera's base weights.
                     // The plate is the process the frame was developed in.
-                    // Lamps stay at zero.
+                    // Lamps stay at zero. The zone shift is shown, not stored.
+                    val pair = placedPaper(neg.developed)
                     _state.update {
                         it.copy(
                             info = neg.info,
@@ -131,6 +128,8 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                             peakMeasured = neg.peak,
                             needsDevelop = false,
                             detail = null,
+                            soft = pair.first,
+                            hard = pair.second,
                         )
                     }
                     render()
@@ -194,14 +193,24 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     private fun peakApplied(s: ReviewState): Pair<Double, Double> =
         Prefs.peakApplied(darkroom.prefs.peakMode.value, darkroom.prefs.peakRadius.value, darkroom.prefs.peakAmount.value, s.peakMeasured)
 
-    fun setSoft(stops: Double) = setPaper(soft = Prefs.snapStops(stops), hard = null)
+    /** The stored grade, then the zone shift when balance is on. Not written back. */
+    private fun placedPaper(d: Developed?): Pair<Double, Double> {
+        val soft = darkroom.prefs.soft.value
+        val hard = darkroom.prefs.hard.value
+        if (!darkroom.prefs.zoneAuto.value || d == null) return soft to hard
+        val shift = runCatching { d.zoneShift(soft, hard) }.getOrDefault(0.0)
+        return Prefs.shiftGrade(soft, hard, shift)
+    }
 
-    fun setHard(stops: Double) = setPaper(soft = null, hard = Prefs.snapStops(stops))
+    fun setSoft(stops: Double) = setGrade(Prefs.snapStops(stops), _state.value.hard)
 
-    private fun setPaper(soft: Double?, hard: Double?) {
-        if (soft != null) darkroom.prefs.setSoft(soft)
-        if (hard != null) darkroom.prefs.setHard(hard)
-        _state.update { it.copy(soft = soft ?: it.soft, hard = hard ?: it.hard) }
+    fun setHard(stops: Double) = setGrade(_state.value.soft, Prefs.snapStops(stops))
+
+    /** Both exposures as they stand. A zone drag and a grade slider write the pair, so the next picture starts here. */
+    fun setGrade(soft: Double, hard: Double) {
+        darkroom.prefs.setSoft(soft)
+        darkroom.prefs.setHard(hard)
+        _state.update { it.copy(soft = darkroom.prefs.soft.value, hard = darkroom.prefs.hard.value) }
         renderJob?.cancel()
         renderJob = viewModelScope.launch {
             delay(60)
