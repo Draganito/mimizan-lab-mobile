@@ -65,6 +65,9 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
+    /** Set when a frame has been taken and the developer should open. */
+    private val _pendingReview = MutableStateFlow<String?>(null)
+    val pendingReview: StateFlow<String?> = _pendingReview.asStateFlow()
 
     /** The paper's two exposures, the standing values. The lamps stay at zero for a new frame. */
     private data class Paper(val soft: Double, val hard: Double)
@@ -271,6 +274,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun setSoft(stops: Double) = darkroom.prefs.setSoft(stops)
     fun setHard(stops: Double) = darkroom.prefs.setHard(stops)
     fun setPeak(on: Boolean) = darkroom.prefs.setPeak(on)
+    fun setStayOnFinder(on: Boolean) = darkroom.prefs.setStayOnFinder(on)
     fun toggleZebra() = _viewfinder.update { it.copy(zebra = !it.zebra) }
     fun toggleGrid() = _viewfinder.update { it.copy(grid = !it.grid) }
     fun toggleHistogram() = _viewfinder.update { it.copy(showHistogram = !it.showHistogram) }
@@ -278,16 +282,21 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun capture() {
         val l = _lens.value ?: return
         if (stream.value.capturing) return
+        val stay = darkroom.prefs.stayOnFinder.value
+        val settings = if (stay) _develop.value.copy(autoJpeg = true) else _develop.value
         viewModelScope.launch {
             try {
                 val frame = controller.capture(l.label)
-                darkroom.submit(frame, _develop.value)
+                val name = darkroom.submit(frame, settings)
+                if (!stay) _pendingReview.value = name
             } catch (t: Throwable) {
                 Log.e(TAG, "capture", t)
                 _message.value = t.message ?: "Capture failed"
             }
         }
     }
+
+    fun clearPendingReview() { _pendingReview.value = null }
 
     fun clearMessage() { _message.value = null }
 

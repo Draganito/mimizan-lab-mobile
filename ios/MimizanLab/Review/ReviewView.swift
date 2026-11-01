@@ -44,19 +44,22 @@ struct ReviewView: View {
             .ignoresSafeArea()
 
             if vm.info != nil {
-                ScrollView {
-                    controls(prefs: prefs)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 12)
-                        .padding(.bottom, 8)
-                        .background {
-                            GeometryReader { g in
-                                Color.clear.preference(key: PanelHeightKey.self, value: g.size.height)
+                VStack(spacing: 0) {
+                    panelHeader
+                    ScrollView {
+                        controls(prefs: prefs)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 4)
+                            .padding(.bottom, 10)
+                            .background {
+                                GeometryReader { g in
+                                    Color.clear.preference(key: PanelHeightKey.self, value: g.size.height)
+                                }
                             }
-                        }
+                    }
+                    .scrollIndicators(.hidden)
+                    .frame(height: panelHeight > 0 ? min(panelHeight, 300) : 240)
                 }
-                .scrollIndicators(.hidden)
-                .frame(height: panelHeight > 0 ? min(panelHeight, 360) : 360)
                 .background {
                     ZStack {
                         Rectangle().fill(.ultraThinMaterial)
@@ -111,59 +114,82 @@ struct ReviewView: View {
         .task(id: name) { vm.open(name) }
     }
 
+    /// Grade on the left, Export fixed on the right. It does not scroll away.
+    private var panelHeader: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Group {
+                if let g = try? paperGrade(soft: vm.soft, hard: vm.hard) {
+                    Text(String(format: "≈ grade %@ · %.1f stops of scene", g.label, g.sceneStops))
+                } else {
+                    Text("Paper")
+                }
+            }
+            .font(.subheadline.monospaced())
+            .lineLimit(2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            exportButton
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
+    }
+
+    private var exportButton: some View {
+        let plate = vm.plate
+        return Menu {
+            let peak = vm.peakOn && vm.peakAmount > 0 ? ", peak" : ""
+            let rgb = plate.map { " \(Format.plateSpace($0.space))" } ?? ""
+            Button("JPEG\(rgb)\(peak)") { vm.exportJpeg() }
+            Button("TIFF 16-bit\(rgb)\(peak)") { vm.exportTiff() }
+            Button(plate != nil ? "Plate (linear TIFF, three frames + mask)" : "Negative (linear TIFF + mask)") { vm.exportNegative() }
+        } label: {
+            Text(vm.exporting.map { "Saving \($0)…" } ?? "Export")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.black)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 9)
+                .background(Color.white, in: Capsule())
+        }
+        .disabled(vm.exporting != nil)
+        .opacity(vm.exporting == nil ? 1 : 0.55)
+    }
+
     @ViewBuilder
     private func controls(prefs: Prefs) -> some View {
         let plate = vm.plate
-        ProcessRow(
-            plate: plate != nil, filters: prefs.plateFilters, space: prefs.plateSpace, hasMatrix: vm.info?.hasColourMatrix ?? false,
-            onProcess: vm.setProcess, onFilters: vm.setPlateFilters, onSpace: vm.setPlateSpace
-        )
-        if plate == nil {
-            FilterRow(selected: vm.filter, onSelect: vm.setFilter)
-        }
-        PaperSliders(soft: vm.soft, hard: vm.hard, onSoft: vm.setSoft, onHard: vm.setHard)
-        SettingRow(label: "Peak", on: Binding(get: { vm.peakOn }, set: { vm.darkroom.prefs.setPeak($0) }))
-        if vm.peakOn {
-            // Peak's pair, started from the measurement on this negative; the
-            // 1:1 view shows the result, the preview is never sharpened.
-            let lim = Prefs.peakLimits
-            LabeledSlider(label: String(format: "peak σ %.2f", vm.peakRadius), value: Binding(get: { vm.peakRadius }, set: { vm.setPeak(radius: $0, amount: vm.peakAmount) }), range: lim.radiusMin...lim.radiusMax)
-            LabeledSlider(label: String(format: "peak ×%.2f", vm.peakAmount), value: Binding(get: { vm.peakAmount }, set: { vm.setPeak(radius: vm.peakRadius, amount: $0) }), range: 0...lim.amountMax)
-            HStack(spacing: 12) {
-                let m = vm.peakMeasured
-                Text(
-                    m == nil ? "not measured"
-                        : !(m!.found) ? "no clean edge measured: left as it is"
-                        : String(format: "measured σ %.2f ×%.2f", m!.radius, m!.amount)
-                )
-                .font(.caption).foregroundStyle(.gray)
-                Button("Measured") { vm.resetPeak() }
-                    .disabled(m == nil || (m!.radius == vm.peakRadius && m!.amount == vm.peakAmount))
-                Spacer()
+        VStack(alignment: .leading, spacing: 12) {
+            PaperSliders(soft: vm.soft, hard: vm.hard, onSoft: vm.setSoft, onHard: vm.setHard, showsGrade: false)
+            SettingRow(label: "Peak", on: Binding(get: { vm.peakOn }, set: { vm.darkroom.prefs.setPeak($0) }))
+            if vm.peakOn {
+                // Peak's pair, started from the measurement on this negative; the
+                // 1:1 view shows the result, the preview is never sharpened.
+                let lim = Prefs.peakLimits
+                LabeledSlider(label: String(format: "peak σ %.2f", vm.peakRadius), value: Binding(get: { vm.peakRadius }, set: { vm.setPeak(radius: $0, amount: vm.peakAmount) }), range: lim.radiusMin...lim.radiusMax)
+                LabeledSlider(label: String(format: "peak ×%.2f", vm.peakAmount), value: Binding(get: { vm.peakAmount }, set: { vm.setPeak(radius: vm.peakRadius, amount: $0) }), range: 0...lim.amountMax)
+                HStack(spacing: 12) {
+                    let m = vm.peakMeasured
+                    Text(
+                        m == nil ? "not measured"
+                            : !(m!.found) ? "no clean edge measured: left as it is"
+                            : String(format: "measured σ %.2f ×%.2f", m!.radius, m!.amount)
+                    )
+                    .font(.caption).foregroundStyle(.gray)
+                    Button("Measured") { vm.resetPeak() }
+                        .disabled(m == nil || (m!.radius == vm.peakRadius && m!.amount == vm.peakAmount))
+                    Spacer()
+                }
             }
-        }
-        if let cur = vm.shotSettings, cur.binning == 2 {
-            HStack {
+            if let cur = vm.shotSettings, cur.binning == 2 {
                 Button("Full size") { var s = cur; s.binning = 1; vm.develop(s) }
-                Spacer()
+            }
+            ProcessRow(
+                plate: plate != nil, filters: prefs.plateFilters, space: prefs.plateSpace, hasMatrix: vm.info?.hasColourMatrix ?? false,
+                onProcess: vm.setProcess, onFilters: vm.setPlateFilters, onSpace: vm.setPlateSpace
+            )
+            if plate == nil {
+                FilterRow(selected: vm.filter, onSelect: vm.setFilter)
             }
         }
-        HStack(spacing: 8) {
-            Menu {
-                let peak = vm.peakOn && vm.peakAmount > 0 ? ", peak" : ""
-                let rgb = plate.map { " \(Format.plateSpace($0.space))" } ?? ""
-                Button("JPEG\(rgb)\(peak)") { vm.exportJpeg() }
-                Button("TIFF 16-bit\(rgb)\(peak)") { vm.exportTiff() }
-                Button(plate != nil ? "Plate (linear TIFF, three frames + mask)" : "Negative (linear TIFF + mask)") { vm.exportNegative() }
-            } label: {
-                Text(vm.exporting.map { "Saving \($0)…" } ?? "Export")
-                    .padding(.horizontal, 14).padding(.vertical, 8)
-                    .background(Color(white: 0.2), in: Capsule())
-            }
-            .disabled(vm.exporting != nil)
-            Spacer()
-        }
-        .padding(.top, 4)
     }
 }
 

@@ -201,6 +201,8 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     fun setHard(stops: Double) = setPaper(soft = null, hard = Prefs.snapStops(stops))
 
     private fun setPaper(soft: Double?, hard: Double?) {
+        if (soft != null) darkroom.prefs.setSoft(soft)
+        if (hard != null) darkroom.prefs.setHard(hard)
         _state.update { it.copy(soft = soft ?: it.soft, hard = hard ?: it.hard) }
         renderJob?.cancel()
         renderJob = viewModelScope.launch {

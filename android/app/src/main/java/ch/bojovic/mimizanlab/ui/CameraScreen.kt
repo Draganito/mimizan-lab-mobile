@@ -104,7 +104,9 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val soft by vm.darkroom.prefs.soft.collectAsStateWithLifecycle()
     val hard by vm.darkroom.prefs.hard.collectAsStateWithLifecycle()
     val peak by vm.darkroom.prefs.peak.collectAsStateWithLifecycle()
+    val stayOnFinder by vm.darkroom.prefs.stayOnFinder.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
+    val pendingReview by vm.pendingReview.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
     var exposureOpen by remember { mutableStateOf(false) }
     var confirmDeleteAll by remember { mutableStateOf(false) }
@@ -125,6 +127,12 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     }
 
     val aspect = lens?.let { it.rawSize.height.toFloat() / it.rawSize.width } ?: 0.75f
+
+    LaunchedEffect(pendingReview) {
+        val name = pendingReview ?: return@LaunchedEffect
+        vm.clearPendingReview()
+        onOpenShot(name)
+    }
 
     Column(
         Modifier
@@ -332,7 +340,12 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 PaperSliders(soft, hard, onSoft = vm::setSoft, onHard = vm::setHard)
                 SettingRow("Peak", peak) { vm.setPeak(it) }
                 Text(
-                    "The grade and Peak are the preset: the viewfinder, the automatic JPEG, and where each picture starts.",
+                    "The grade and Peak are the viewfinder, the automatic JPEG, and where a picture opens.",
+                    style = MaterialTheme.typography.bodySmall, color = Color.Gray,
+                )
+                SettingRow("Stay on the finder", stayOnFinder) { vm.setStayOnFinder(it) }
+                Text(
+                    "On, a shot saves the JPEG at this grade and Peak and stays here. The frame stays on the roll.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 Spacer(Modifier.height(16.dp))
@@ -458,14 +471,22 @@ fun SettingRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
 }
 
 @Composable
-fun PaperSliders(soft: Double, hard: Double, onSoft: (Double) -> Unit, onHard: (Double) -> Unit) {
-    val grade = remember(soft, hard) { runCatching { paperGrade(soft, hard) }.getOrNull() }
-    if (grade != null) {
-        Text(
-            String.format(Locale.US, "≈ grade %s · %.1f stops of scene", grade.label, grade.sceneStops),
-            fontFamily = FontFamily.Monospace,
-            style = MaterialTheme.typography.bodySmall,
-        )
+fun PaperSliders(
+    soft: Double,
+    hard: Double,
+    onSoft: (Double) -> Unit,
+    onHard: (Double) -> Unit,
+    showsGrade: Boolean = true,
+) {
+    if (showsGrade) {
+        val grade = remember(soft, hard) { runCatching { paperGrade(soft, hard) }.getOrNull() }
+        if (grade != null) {
+            Text(
+                String.format(Locale.US, "≈ grade %s · %.1f stops of scene", grade.label, grade.sceneStops),
+                fontFamily = FontFamily.Monospace,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
     }
     val range = -Prefs.STOP_LIMIT.toFloat()..Prefs.STOP_LIMIT.toFloat()
     LabeledSlider(

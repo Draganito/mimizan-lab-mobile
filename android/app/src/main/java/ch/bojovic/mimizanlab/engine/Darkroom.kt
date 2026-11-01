@@ -127,8 +127,8 @@ class Darkroom private constructor(private val context: Context) {
         }
     }
 
-    /** Called from the camera: persists the frame, then queues the development. */
-    fun submit(capture: RawCapture, settings: DevelopSettings) {
+    /** Called from the camera: persists the frame, then queues the development. The name is ready at once. */
+    fun submit(capture: RawCapture, settings: DevelopSettings): String {
         val name = nameFor(capture.capturedAtEpochMs)
         val meta = capture.meta()
         _shots.update { listOf(Shot(name, meta, settings, ShotStatus.Saving)) + it }
@@ -144,6 +144,7 @@ class Darkroom private constructor(private val context: Context) {
             syncWithCache()
             enqueue(name, settings)
         }
+        return name
     }
 
     /**

@@ -31,6 +31,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -74,6 +76,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.bojovic.mimizanlab.engine.Darkroom
 import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.ShotStatus
+import ch.bojovic.mimizanlab.engine.paperGrade
 import ch.bojovic.mimizanlab.store.Prefs
 import java.util.Locale
 import kotlin.math.max
@@ -162,7 +165,6 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                 Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .heightIn(max = 360.dp)
                     .background(Color(0x38000000))
                     .drawBehind {
                         drawLine(
@@ -172,69 +174,26 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                             strokeWidth = 1f,
                         )
                     }
-                    .onSizeChanged { frostPx = it.height }
-                    .verticalScroll(rememberScrollState())
-                    .navigationBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .onSizeChanged { frostPx = it.height },
             ) {
                 val plate = s.plate
-                ProcessRow(
-                    plate = plate != null,
-                    filters = plateFilters,
-                    space = plateSpace,
-                    hasMatrix = s.info?.hasColourMatrix ?: false,
-                    onProcess = vm::setProcess,
-                    onFilters = vm::setPlateFilters,
-                    onSpace = vm::setPlateSpace,
-                )
-                if (plate == null) {
-                    FilterRow(selected = s.filter, onSelect = vm::setFilter)
-                }
-                PaperSliders(s.soft, s.hard, onSoft = vm::setSoft, onHard = vm::setHard)
-                SettingRow("Peak", peakOn) { darkroom.prefs.setPeak(it) }
-                if (peakOn) {
-                    // Peak's pair, started from the measurement on this
-                    // negative; the 1:1 view shows the result, the preview
-                    // is never sharpened. The radius is in pixels of the
-                    // negative, which the full-size print keeps.
-                    val lim = Prefs.PEAK
-                    LabeledSlider(
-                        label = String.format(Locale.US, "peak σ %.2f", s.peakRadius),
-                        value = s.peakRadius.toFloat(),
-                        onChange = { vm.setPeak(it.toDouble(), s.peakAmount) },
-                        range = lim.radiusMin.toFloat()..lim.radiusMax.toFloat(),
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val grade = remember(s.soft, s.hard) { runCatching { paperGrade(s.soft, s.hard) }.getOrNull() }
+                    Text(
+                        if (grade != null) String.format(Locale.US, "≈ grade %s · %.1f stops of scene", grade.label, grade.sceneStops) else "Paper",
+                        Modifier.weight(1f),
+                        fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodyMedium,
                     )
-                    LabeledSlider(
-                        label = String.format(Locale.US, "peak ×%.2f", s.peakAmount),
-                        value = s.peakAmount.toFloat(),
-                        onChange = { vm.setPeak(s.peakRadius, it.toDouble()) },
-                        range = 0f..lim.amountMax.toFloat(),
-                    )
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        val m = s.peakMeasured
-                        Text(
-                            when {
-                                m == null -> "not measured"
-                                !m.found -> "no clean edge measured: left as it is"
-                                else -> String.format(Locale.US, "measured σ %.2f ×%.2f", m.radius, m.amount)
-                            },
-                            style = MaterialTheme.typography.bodySmall, color = Color.Gray,
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        TextButton(
-                            onClick = vm::resetPeak,
-                            enabled = m != null && (m.radius != s.peakRadius || m.amount != s.peakAmount),
-                        ) { Text("Measured") }
-                        Spacer(Modifier.weight(1f))
-                    }
-                }
-                val cur = vm.shotSettings()
-                if (cur != null && cur.binning == 2) {
-                    TextButton(onClick = { vm.develop(cur.copy(binning = 1)) }) { Text("Full size") }
-                }
-                Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box {
-                        FilledTonalButton(onClick = { exportMenu = true }, enabled = s.exporting == null) {
+                        Button(
+                            onClick = { exportMenu = true },
+                            enabled = s.exporting == null,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
+                        ) {
                             Text(s.exporting?.let { "Saving $it…" } ?: "Export")
                         }
                         DropdownMenu(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
@@ -247,6 +206,63 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                                 onClick = { exportMenu = false; vm.exportNegative() },
                             )
                         }
+                    }
+                }
+                Column(
+                    Modifier
+                        .heightIn(max = 300.dp)
+                        .verticalScroll(rememberScrollState())
+                        .navigationBarsPadding()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    PaperSliders(s.soft, s.hard, onSoft = vm::setSoft, onHard = vm::setHard, showsGrade = false)
+                    SettingRow("Peak", peakOn) { darkroom.prefs.setPeak(it) }
+                    if (peakOn) {
+                        val lim = Prefs.PEAK
+                        LabeledSlider(
+                            label = String.format(Locale.US, "peak σ %.2f", s.peakRadius),
+                            value = s.peakRadius.toFloat(),
+                            onChange = { vm.setPeak(it.toDouble(), s.peakAmount) },
+                            range = lim.radiusMin.toFloat()..lim.radiusMax.toFloat(),
+                        )
+                        LabeledSlider(
+                            label = String.format(Locale.US, "peak ×%.2f", s.peakAmount),
+                            value = s.peakAmount.toFloat(),
+                            onChange = { vm.setPeak(s.peakRadius, it.toDouble()) },
+                            range = 0f..lim.amountMax.toFloat(),
+                        )
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            val m = s.peakMeasured
+                            Text(
+                                when {
+                                    m == null -> "not measured"
+                                    !m.found -> "no clean edge measured: left as it is"
+                                    else -> String.format(Locale.US, "measured σ %.2f ×%.2f", m.radius, m.amount)
+                                },
+                                style = MaterialTheme.typography.bodySmall, color = Color.Gray, modifier = Modifier.weight(1f),
+                            )
+                            TextButton(
+                                onClick = vm::resetPeak,
+                                enabled = m != null && (m.radius != s.peakRadius || m.amount != s.peakAmount),
+                            ) { Text("Measured") }
+                        }
+                    }
+                    val cur = vm.shotSettings()
+                    if (cur != null && cur.binning == 2) {
+                        TextButton(onClick = { vm.develop(cur.copy(binning = 1)) }) { Text("Full size") }
+                    }
+                    ProcessRow(
+                        plate = plate != null,
+                        filters = plateFilters,
+                        space = plateSpace,
+                        hasMatrix = s.info?.hasColourMatrix ?: false,
+                        onProcess = vm::setProcess,
+                        onFilters = vm::setPlateFilters,
+                        onSpace = vm::setPlateSpace,
+                    )
+                    if (plate == null) {
+                        FilterRow(selected = s.filter, onSelect = vm::setFilter)
                     }
                 }
             }

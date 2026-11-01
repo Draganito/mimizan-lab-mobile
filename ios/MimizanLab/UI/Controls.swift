@@ -108,11 +108,13 @@ struct PaperSliders: View {
     let hard: Double
     let onSoft: (Double) -> Void
     let onHard: (Double) -> Void
+    /// The developer shows the grade beside Export. Settings keeps it here.
+    var showsGrade = true
 
     var body: some View {
         let range = -Prefs.stopLimit...Prefs.stopLimit
         VStack(alignment: .leading, spacing: 2) {
-            if let g = try? paperGrade(soft: soft, hard: hard) {
+            if showsGrade, let g = try? paperGrade(soft: soft, hard: hard) {
                 Text(String(format: "≈ grade %@ · %.1f stops of scene", g.label, g.sceneStops))
                     .font(.caption.monospaced())
             }

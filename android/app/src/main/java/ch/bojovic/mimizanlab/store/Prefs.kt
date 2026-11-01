@@ -77,6 +77,18 @@ class Prefs(context: Context) {
         sp.edit { putString(KEY_PLATE_SPACE, s.name) }
     }
 
+    private val _stayOnFinder = MutableStateFlow(sp.getBoolean(KEY_STAY_ON_FINDER, true))
+    /**
+     * On, a shot saves the JPEG at the standing grade and stays on the finder.
+     * On for a fresh install: the viewfinder is already the paper.
+     */
+    val stayOnFinder: StateFlow<Boolean> = _stayOnFinder.asStateFlow()
+
+    fun setStayOnFinder(on: Boolean) {
+        _stayOnFinder.value = on
+        sp.edit { putBoolean(KEY_STAY_ON_FINDER, on) }
+    }
+
     private val _lampRed = MutableStateFlow(snapLamp(finiteOrZero(sp.getFloat(KEY_LAMP_RED, 0f))))
     /** The red lamp of the plate's projector, stops; the start value in review and the automatic JPEG's. */
     val lampRed: StateFlow<Double> = _lampRed.asStateFlow()
@@ -137,5 +149,6 @@ class Prefs(context: Context) {
         private const val KEY_PLATE_SPACE = "plate_space"
         private const val KEY_LAMP_RED = "lamp_red"
         private const val KEY_LAMP_BLUE = "lamp_blue"
+        private const val KEY_STAY_ON_FINDER = "stay_on_finder"
     }
 }
