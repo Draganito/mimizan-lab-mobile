@@ -1,18 +1,14 @@
 // The roll: every frame in the cache, newest first, with its state; swipe
-// or the bin to delete; the import button for a RAW from Files or Photos.
-// Mirrors `RollScreen.kt`, plus the import the desktop route allows.
+// or the bin to delete. Import from Files and Photos stays off: a full-size
+// NEF develops past the iPad's memory and the system kills the app.
+// Mirrors `RollScreen.kt`.
 import MimizanCore
-import PhotosUI
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct RollView: View {
     /// Which shot is open (the split view's selection; the stack pushes on it).
     @Binding var selection: String?
     @State private var toDelete: String?
-    @State private var importing = false
-    @State private var pickingPhoto = false
-    @State private var pickedPhoto: PhotosPickerItem?
 
     private var darkroom: Darkroom { Darkroom.shared }
 
@@ -46,28 +42,9 @@ struct RollView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbarBackground(Color.black, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button { importing = true } label: { Label("From Files…", systemImage: "folder") }
-                    Button { pickingPhoto = true } label: { Label("From Photos…", systemImage: "photo.on.rectangle") }
-                } label: {
-                    Image(systemName: "square.and.arrow.down")
-                }
-            }
             ToolbarItem(placement: .bottomBar) {
                 Text(Format.bytes(darkroom.cacheBytes)).font(.caption).foregroundStyle(.gray)
             }
-        }
-        .fileImporter(isPresented: $importing, allowedContentTypes: RollView.rawTypes, allowsMultipleSelection: true) { result in
-            if case let .success(urls) = result {
-                for u in urls { darkroom.importFile(u, settings: darkroom.standingSettings()) }
-            }
-        }
-        .photosPicker(isPresented: $pickingPhoto, selection: $pickedPhoto, matching: .images)
-        .onChange(of: pickedPhoto) { _, item in
-            guard let item else { return }
-            pickedPhoto = nil
-            Task { await importPhoto(item) }
         }
         .alert("Delete \(toDelete ?? "")?", isPresented: Binding(get: { toDelete != nil }, set: { if !$0 { toDelete = nil } })) {
             Button("Delete", role: .destructive) { if let n = toDelete { darkroom.delete(n) }; toDelete = nil }
@@ -76,34 +53,6 @@ struct RollView: View {
             Text("The raw frame leaves the app for good; it can no longer be developed again. Pictures already exported stay.")
         }
     }
-
-    /// Photos hands over the original bytes; written to a temporary file
-    /// the darkroom copies into its cache.
-    private func importPhoto(_ item: PhotosPickerItem) async {
-        guard let data = try? await item.loadTransferable(type: Data.self) else { return }
-        let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "dng"
-        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("import_\(UUID().uuidString).\(ext)")
-        do {
-            try data.write(to: tmp)
-            darkroom.importFile(tmp, settings: darkroom.standingSettings())
-        } catch {
-            try? FileManager.default.removeItem(at: tmp)
-        }
-    }
-
-    static let rawTypes: [UTType] = {
-        var t: [UTType] = [.rawImage, .tiff]
-        for id in ["com.adobe.raw-image", "com.nikon.raw-image", "com.canon.cr2-raw-image", "com.canon.cr3-raw-image",
-                   "com.sony.arw-raw-image", "com.fuji.raw-image", "com.olympus.raw-image", "com.panasonic.raw-image",
-                   "com.pentax.raw-image", "com.leica.raw-image", "com.hasselblad.3fr-raw-image"] {
-            if let u = UTType(id) { t.append(u) }
-        }
-        for ext in ["dng", "nef", "cr2", "cr3", "arw", "raf", "orf", "rw2", "pef", "iiq", "3fr", "srw"] {
-            if let u = UTType(filenameExtension: ext) { t.append(u) }
-        }
-        t.append(.data)
-        return t
-    }()
 }
 
 private struct RollRow: View {
