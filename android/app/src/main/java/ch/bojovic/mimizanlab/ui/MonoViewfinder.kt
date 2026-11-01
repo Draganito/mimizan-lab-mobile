@@ -17,12 +17,13 @@ import ch.bojovic.mimizanlab.camera.FinderTone
 
 /**
  * The live negative at the camera's frame rate. The ISP delivers the
- * preview with its tone curve pinned to sRGB (`IspControls`); this shader
- * undoes exactly that curve, pulls the colour step back through the
- * inverse matrix of the frame, mixes with the development's weights and
- * applies the paper — per pixel on the GPU, so the display costs
- * nothing on the CPU. Zebra stripes mark display values above
- * [FinderTone.zebra].
+ * preview with its tone curve pinned to sRGB where the device has that
+ * preset (`IspControls`); otherwise the camera keeps its own curve and
+ * this shader still assumes sRGB. The shader undoes that curve, pulls
+ * the colour step back through the inverse matrix of the frame, mixes
+ * with the development's weights and applies the paper — per pixel on
+ * the GPU, so the display costs nothing on the CPU. Zebra stripes mark
+ * display values above [FinderTone.zebra].
  *
  * The effect sits on a Compose `graphicsLayer` around the `TextureView`,
  * not on the view itself: a `RenderEffect` on a `TextureView` blacked out

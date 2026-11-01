@@ -22,8 +22,9 @@ class IspColor(val transform: FloatArray, val gains: FloatArray) {
 }
 
 /**
- * How the camera's pinned-sRGB preview becomes the negative's display
- * value, for the GPU shader and the histogram alike:
+ * How the camera preview becomes the negative's display value, for the
+ * GPU shader and the histogram alike. Where the device pins sRGB, the
+ * linearisation is exact; otherwise it assumes sRGB.
  *
  *   gray  = v · linearise(rgb)        — [v] is the mix weights pulled back
  *                                       through the inverse ISP matrix and

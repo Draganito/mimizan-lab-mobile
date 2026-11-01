@@ -80,7 +80,7 @@ data class StreamState(
 
 /**
  * Camera2 session: a preview stream (SurfaceTexture) with the ISP pinned
- * to a known rendering ([IspControls]), a small YUV stream for the
+ * to sRGB where the device has that preset ([IspControls]), a small YUV stream for the
  * histogram, and a RAW_SENSOR reader for the still. The viewfinder shader
  * turns the preview back into the negative with [ispColor] of each frame;
  * [tone] lets the histogram do the same arithmetic on the CPU.
@@ -595,8 +595,8 @@ class CameraController(context: Context) {
     /**
      * Histogram of the picture on screen, every frame the YUV reader
      * delivers: the preview decoded (JFIF full range), linearised from the
-     * pinned sRGB curve and put through [tone]; plain luma until a tone
-     * is set. Subsampled 2x in both directions. Planes are copied out in
+     * sRGB curve (pinned where the device has that preset) and put through
+     * [tone]; plain luma until a tone is set. Subsampled 2x in both directions. Planes are copied out in
      * bulk first: per-sample `ByteBuffer.get` is far too slow here.
      */
     private fun analyse(image: Image) {
