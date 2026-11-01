@@ -80,7 +80,8 @@ data class StreamState(
 
 /**
  * Camera2 session: a preview stream (SurfaceTexture) with the ISP pinned
- * to sRGB where the device has that preset ([IspControls]), a small YUV stream for the
+ * to sRGB ([IspControls]: the preset at once, or the fixed curve once exposure
+ * has locked), a small YUV stream for the
  * histogram, and a RAW_SENSOR reader for the still. The viewfinder shader
  * turns the preview back into the negative with [ispColor] of each frame;
  * [tone] lets the histogram do the same arithmetic on the CPU.
@@ -138,6 +139,21 @@ class CameraController(context: Context) {
     private val lock = Mutex()
     private var frameCounter = 0
     private var isp: IspControls? = null
+    /** The drawn sRGB curve is on the repeating request, and AE is off at the metered exposure. */
+    @Volatile private var curvePinned = false
+    private var heldExposureNs: Long? = null
+    private var heldIso: Int? = null
+    private var heldBoost: Int? = null
+    /** A completed frame has shown the drawn curve with the meter off. */
+    @Volatile private var curveLive = false
+    /** Converged frames seen since the meter was last released. */
+    private var meterFrames = 0
+    /** A release waits until AE actually searches, so a stale converged frame cannot pin again. */
+    private var meterSearched = true
+    @Volatile private var pinnedLuma = -1f
+    @Volatile private var lumaWarmup = 0
+    private var driftFrames = 0
+    private var lastRemeterMs = 0L
 
     private val orientationListener = object : OrientationEventListener(appContext) {
         override fun onOrientationChanged(orientation: Int) {
@@ -188,6 +204,7 @@ class CameraController(context: Context) {
         characteristics = manager.getCameraCharacteristics(lens.sensorId)
         // Request keys are judged by the camera the requests go to.
         isp = IspControls(manager.getCameraCharacteristics(lens.cameraId)).also { Log.i(TAG, "isp: ${it.description}") }
+        releaseMeter()
         _ispColor.value = null
 
         rawReader = ImageReader.newInstance(lens.rawSize.width, lens.rawSize.height, ImageFormat.RAW_SENSOR, 2)
@@ -297,6 +314,8 @@ class CameraController(context: Context) {
         override fun onCaptureCompleted(s: CameraCaptureSession, req: CaptureRequest, result: TotalCaptureResult) {
             noteColor(result)
             results.tryEmit(result)
+            noteCurveLive(result)
+            watchMeter(result)
             if (++frameCounter % 3 != 0) return
             _state.update {
                 it.copy(
@@ -345,13 +364,151 @@ class CameraController(context: Context) {
             b.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_OFF)
         }
         b.set(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_AUTO)
-        isp?.apply(b)
+        val pin = pinFinderCurve()
+        // The drawn curve goes on only with the meter off, at the exposure it
+        // already chose. A running meter never sees the curve, so it cannot
+        // chase it dark. Flash stills keep AE: one frame must not freeze it.
+        val ns = heldExposureNs
+        val iso = heldIso
+        if (pin && !exposure.manual && !armFlash && isp?.curve != null && ns != null && iso != null && lens.hasManualSensor) {
+            b.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF)
+            b.set(CaptureRequest.SENSOR_SENSITIVITY, iso.coerceIn(lens.isoRange.lower, lens.isoRange.upper))
+            b.set(CaptureRequest.SENSOR_EXPOSURE_TIME, ns.coerceIn(lens.exposureRangeNs.lower, lens.exposureRangeNs.upper))
+            val boost = heldBoost
+            if (boost != null && supports(CaptureRequest.CONTROL_POST_RAW_SENSITIVITY_BOOST)) {
+                val range = characteristics?.get(CameraCharacteristics.CONTROL_POST_RAW_SENSITIVITY_BOOST_RANGE)
+                val clamped = if (range != null) boost.coerceIn(range.lower, range.upper) else boost
+                b.set(CaptureRequest.CONTROL_POST_RAW_SENSITIVITY_BOOST, clamped)
+            }
+            if (!still && supports(CaptureRequest.SENSOR_FRAME_DURATION)) {
+                b.set(CaptureRequest.SENSOR_FRAME_DURATION, maxOf(ns, 33_333_333L))
+            }
+            b.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_OFF)
+        }
+        // A flash still keeps the meter, so it must not also carry the curve.
+        isp?.apply(b, pin && !armFlash)
         if (still) {
             val shading = characteristics?.get(CameraCharacteristics.STATISTICS_INFO_AVAILABLE_LENS_SHADING_MAP_MODES)
             if (shading != null && CameraMetadata.STATISTICS_LENS_SHADING_MAP_MODE_ON in shading) {
                 b.set(CaptureRequest.STATISTICS_LENS_SHADING_MAP_MODE, CameraMetadata.STATISTICS_LENS_SHADING_MAP_MODE_ON)
             }
             if (supports(CaptureRequest.CONTROL_ENABLE_ZSL)) b.set(CaptureRequest.CONTROL_ENABLE_ZSL, false)
+        }
+    }
+
+    /**
+     * The preset is pinned at once. A curve we draw waits until [watchMeter]
+     * has seen the exposure settle, then goes on with the meter switched off
+     * at that exposure. Manual exposure pins it immediately.
+     */
+    private fun pinFinderCurve(): Boolean {
+        val controls = isp ?: return false
+        if (controls.preset) return true
+        if (controls.curve == null) return false
+        if (exposure.manual) return true
+        return curvePinned
+    }
+
+    /** Drop the drawn curve so the meter can run. The next settle pins it again. */
+    private fun releaseMeter() {
+        curvePinned = false
+        heldExposureNs = null
+        heldIso = null
+        heldBoost = null
+        curveLive = false
+        meterFrames = 0
+        meterSearched = false
+        pinnedLuma = -1f
+        lumaWarmup = 0
+    }
+
+    /** The held exposure is only a baseline once a frame actually carries the curve. */
+    private fun noteCurveLive(result: TotalCaptureResult) {
+        if (!curvePinned || curveLive) return
+        val mode = result.get(CaptureResult.TONEMAP_MODE)
+        val aeMode = result.get(CaptureResult.CONTROL_AE_MODE)
+        if (mode == CameraMetadata.TONEMAP_MODE_CONTRAST_CURVE && aeMode == CameraMetadata.CONTROL_AE_MODE_OFF) {
+            curveLive = true
+            lumaWarmup = 0
+            pinnedLuma = -1f
+            driftFrames = 0
+        }
+    }
+
+    /**
+     * While the drawn curve is off, count settled meter frames and then pin
+     * it. A fresh release ignores a converged frame until the meter has
+     * searched, so the hold is not put back on the exposure it just left.
+     */
+    private fun watchMeter(result: TotalCaptureResult) {
+        val controls = isp ?: return
+        if (controls.preset || controls.curve == null || exposure.manual || curvePinned) return
+        if (lens?.hasManualSensor != true) return
+        val ae = result.get(CaptureResult.CONTROL_AE_STATE)
+        val searching = ae == CameraMetadata.CONTROL_AE_STATE_SEARCHING ||
+            ae == CameraMetadata.CONTROL_AE_STATE_PRECAPTURE
+        val settled = ae == CameraMetadata.CONTROL_AE_STATE_CONVERGED ||
+            ae == CameraMetadata.CONTROL_AE_STATE_FLASH_REQUIRED
+        if (searching) {
+            meterSearched = true
+            meterFrames = 0
+            return
+        }
+        if (!settled) {
+            meterFrames = 0
+            return
+        }
+        meterFrames++
+        if (!meterSearched) {
+            if (meterFrames < 12) return
+            meterSearched = true
+            meterFrames = 0
+            return
+        }
+        if (meterFrames < 4) return
+        val ns = result.get(CaptureResult.SENSOR_EXPOSURE_TIME) ?: return
+        val iso = result.get(CaptureResult.SENSOR_SENSITIVITY) ?: return
+        heldExposureNs = ns
+        heldIso = iso
+        heldBoost = result.get(CaptureResult.CONTROL_POST_RAW_SENSITIVITY_BOOST)
+        curvePinned = true
+        pinnedLuma = -1f
+        lumaWarmup = 0
+        driftFrames = 0
+        Log.i(TAG, "finder curve on, exposure held")
+        handler.post { runCatching { startRepeatingLocked() } }
+    }
+
+    /**
+     * The preview luma after the curve is on. A lasting shift means the
+     * scene moved under a locked exposure, so the meter runs again.
+     */
+    private fun noteSceneLuma(sum: Long, count: Int) {
+        if (!curvePinned || !curveLive || count <= 0) {
+            driftFrames = 0
+            return
+        }
+        val mean = sum.toFloat() / count
+        if (lumaWarmup < 8) {
+            lumaWarmup++
+            if (lumaWarmup == 8) pinnedLuma = mean
+            return
+        }
+        val base = pinnedLuma
+        if (base < 1f) return
+        val ratio = mean / base
+        if (ratio < 1.6f && ratio > 1f / 1.6f) {
+            driftFrames = 0
+            return
+        }
+        if (++driftFrames < 3) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastRemeterMs < 1000L) return
+        lastRemeterMs = now
+        Log.i(TAG, "scene changed, metering again")
+        handler.post {
+            releaseMeter()
+            runCatching { startRepeatingLocked() }
         }
     }
 
@@ -374,6 +531,7 @@ class CameraController(context: Context) {
 
     suspend fun setExposure(e: ExposureSettings) = lock.withLock {
         exposure = e
+        releaseMeter()
         if (session != null) startRepeatingLocked()
     }
 
@@ -387,6 +545,7 @@ class CameraController(context: Context) {
      * (0..1, x right, y down as seen on screen).
      */
     suspend fun focusAt(xNorm: Float, yNorm: Float) = lock.withLock {
+        releaseMeter()
         val lens = lens ?: return@withLock
         val c = characteristics ?: return@withLock
         val s = session ?: return@withLock
@@ -428,6 +587,7 @@ class CameraController(context: Context) {
     }
 
     suspend fun clearFocusPoint() = lock.withLock {
+        releaseMeter()
         afRegion = null
         afMode = CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE
         _state.update { it.copy(focusPoint = null) }
@@ -456,7 +616,11 @@ class CameraController(context: Context) {
             still.addTarget(reader.surface)
             if (includePreview) previewSurface?.let { still.addTarget(it) }
             applyControls(still, still = true, armFlash = flash != FlashMode.Off && lens?.hasFlash == true)
-            if (!exposure.manual && supports(CaptureRequest.CONTROL_AE_LOCK)) {
+            // A pinned finder already switched AE off at the held exposure.
+            // Locking on top of that is rejected. A still that still has AE
+            // (metering, or a flash frame) locks it.
+            val aeOff = still.get(CaptureRequest.CONTROL_AE_MODE) == CameraMetadata.CONTROL_AE_MODE_OFF
+            if (!exposure.manual && !aeOff && supports(CaptureRequest.CONTROL_AE_LOCK)) {
                 still.set(CaptureRequest.CONTROL_AE_LOCK, true)
             }
             session.capture(still.build(), object : CameraCaptureSession.CaptureCallback() {
@@ -595,7 +759,8 @@ class CameraController(context: Context) {
     /**
      * Histogram of the picture on screen, every frame the YUV reader
      * delivers: the preview decoded (JFIF full range), linearised from the
-     * sRGB curve (pinned where the device has that preset) and put through
+     * sRGB curve (the preset, or the fixed curve once exposure has locked)
+     * and put through
      * [tone]; plain luma until a tone is set. Subsampled 2x in both directions. Planes are copied out in
      * bulk first: per-sample `ByteBuffer.get` is far too slow here.
      */
@@ -608,13 +773,18 @@ class CameraController(context: Context) {
         yBytes = copyPlane(yP.buffer, yBytes)
         val t = tone
         bins.fill(0)
+        var lumaSum = 0L
+        var lumaCount = 0
         if (t == null) {
             var y = 0
             while (y < h) {
                 var x = 0
                 val row = y * yRs
                 while (x < w) {
-                    bins[(yBytes[row + x * yPs].toInt() and 0xFF) shr 2]++
+                    val sample = yBytes[row + x * yPs].toInt() and 0xFF
+                    bins[sample shr 2]++
+                    lumaSum += sample
+                    lumaCount++
                     x += 2
                 }
                 y += 2
@@ -640,6 +810,8 @@ class CameraController(context: Context) {
                 val cRow = (y shr 1) * cRs
                 while (x < w) {
                     val yy = (yBytes[yRow + x * yPs].toInt() and 0xFF).toFloat()
+                    lumaSum += yy.toLong()
+                    lumaCount++
                     val ci = cRow + (x shr 1) * cPs
                     val cb = (uBytes[ci].toInt() and 0xFF) - 128f
                     val cr = (vBytes[ci].toInt() and 0xFF) - 128f
@@ -654,6 +826,7 @@ class CameraController(context: Context) {
                 y += 2
             }
         }
+        noteSceneLuma(lumaSum, lumaCount)
         val max = bins.max().coerceAtLeast(1).toFloat()
         _histogram.value = FloatArray(64) { bins[it] / max }
     }

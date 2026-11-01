@@ -7,18 +7,20 @@ import android.hardware.camera2.params.TonemapCurve
 import kotlin.math.pow
 
 /**
- * Pins the ISP where the viewfinder can invert it, without handing the
- * meter a curve it will chase. A listed sRGB preset is requested. Where
- * the device has no preset, the fixed sRGB curve is installed instead, so
- * backlight in the finder stays as dark as the paper. The old Qualcomm
- * camera stack meters that curve and settles dark, so on that driver the
- * curve stays off and the shader assumes sRGB. Lens shading stays off
- * (the RAW has none), and so do noise reduction, edge enhancement,
- * distortion correction and stabilisation. What was pinned is in [description].
+ * Pins the ISP where the viewfinder can invert it. A listed sRGB preset
+ * stays on while the meter runs: the HAL built its meter for that curve.
+ * Where the preset is missing, the fixed sRGB curve is the same shape the
+ * finder matched to the paper, but a meter that sees it (the Pixel 4a)
+ * settles dark. That curve is applied only after autoexposure has locked
+ * ([apply] with `pinCurve`). Lens shading stays off (the RAW has none),
+ * and so do noise reduction, edge enhancement, distortion correction and
+ * stabilisation. What was pinned is in [description].
  */
 class IspControls(c: CameraCharacteristics) {
-    private val tonemapMode: Int?
-    private val curve: TonemapCurve?
+    /** The HAL's own sRGB. Safe to request while the meter is running. */
+    val preset: Boolean
+    /** A curve we draw. The meter must not see it until exposure is locked. */
+    val curve: TonemapCurve?
     private val shadingOff: Boolean
     private val noiseOff: Boolean
     private val edgeOff: Boolean
@@ -29,27 +31,9 @@ class IspControls(c: CameraCharacteristics) {
     init {
         val tonemaps = c.get(CameraCharacteristics.TONEMAP_AVAILABLE_TONE_MAP_MODES)?.toSet() ?: emptySet()
         val maxPoints = c.get(CameraCharacteristics.TONEMAP_MAX_CURVE_POINTS) ?: 0
-        val qualcommMeter = oldQualcommMeter(c)
         val canDrawCurve = CameraMetadata.TONEMAP_MODE_CONTRAST_CURVE in tonemaps && maxPoints >= 8
-        // The preset is the HAL's own sRGB. The drawn curve is the same
-        // shape, used where the preset is missing (the Pixel 9's finder
-        // matched the paper with it). The Qualcomm meter follows a curve
-        // we install, so that driver keeps its own tonemap.
-        val declinedCurve = CameraMetadata.TONEMAP_MODE_PRESET_CURVE !in tonemaps && canDrawCurve && qualcommMeter
-        when {
-            CameraMetadata.TONEMAP_MODE_PRESET_CURVE in tonemaps -> {
-                tonemapMode = CameraMetadata.TONEMAP_MODE_PRESET_CURVE
-                curve = null
-            }
-            canDrawCurve && !qualcommMeter -> {
-                tonemapMode = CameraMetadata.TONEMAP_MODE_CONTRAST_CURVE
-                curve = srgbCurve(minOf(maxPoints, 64))
-            }
-            else -> {
-                tonemapMode = null
-                curve = null
-            }
-        }
+        preset = CameraMetadata.TONEMAP_MODE_PRESET_CURVE in tonemaps
+        curve = if (!preset && canDrawCurve) srgbCurve(minOf(maxPoints, 64)) else null
         shadingOff = c.get(CameraCharacteristics.SHADING_AVAILABLE_MODES)
             ?.contains(CameraMetadata.SHADING_MODE_OFF) == true
         noiseOff = c.get(CameraCharacteristics.NOISE_REDUCTION_AVAILABLE_NOISE_REDUCTION_MODES)
@@ -62,10 +46,9 @@ class IspControls(c: CameraCharacteristics) {
             ?.contains(CameraMetadata.CONTROL_VIDEO_STABILIZATION_MODE_OFF) == true
         description = listOf(
             "tonemap " + when {
-                tonemapMode == CameraMetadata.TONEMAP_MODE_PRESET_CURVE -> "preset sRGB"
-                tonemapMode == CameraMetadata.TONEMAP_MODE_CONTRAST_CURVE ->
-                    "sRGB curve (${curve!!.getPointCount(TonemapCurve.CHANNEL_GREEN)} pts)"
-                declinedCurve -> "not pinned (qualcomm meter follows a custom curve)"
+                preset -> "preset sRGB"
+                curve != null ->
+                    "sRGB curve (${curve.getPointCount(TonemapCurve.CHANNEL_GREEN)} pts, after the meter settles)"
                 else -> "NOT pinned (assuming sRGB)"
             },
             "shading " + if (shadingOff) "off" else "on (not pinned)",
@@ -76,13 +59,13 @@ class IspControls(c: CameraCharacteristics) {
         ).joinToString(", ")
     }
 
-    fun apply(b: CaptureRequest.Builder) {
-        when (tonemapMode) {
-            CameraMetadata.TONEMAP_MODE_PRESET_CURVE -> {
+    fun apply(b: CaptureRequest.Builder, pinCurve: Boolean) {
+        when {
+            preset -> {
                 b.set(CaptureRequest.TONEMAP_MODE, CameraMetadata.TONEMAP_MODE_PRESET_CURVE)
                 b.set(CaptureRequest.TONEMAP_PRESET_CURVE, CameraMetadata.TONEMAP_PRESET_CURVE_SRGB)
             }
-            CameraMetadata.TONEMAP_MODE_CONTRAST_CURVE -> {
+            pinCurve && curve != null -> {
                 b.set(CaptureRequest.TONEMAP_MODE, CameraMetadata.TONEMAP_MODE_CONTRAST_CURVE)
                 b.set(CaptureRequest.TONEMAP_CURVE, curve)
             }
@@ -97,10 +80,6 @@ class IspControls(c: CameraCharacteristics) {
     }
 
     companion object {
-        /** The Qualcomm camera stack meters a curve we install and settles dark. */
-        private fun oldQualcommMeter(c: CameraCharacteristics): Boolean =
-            c.keys.any { it.name.startsWith("org.codeaurora.") || it.name.startsWith("org.quic.camera.") }
-
         /** The HAL interpolates linearly between control points; squared spacing puts most of them where sRGB bends. */
         private fun srgbCurve(points: Int): TonemapCurve {
             val pts = FloatArray(points * 2)
