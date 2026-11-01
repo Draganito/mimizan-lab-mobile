@@ -1,90 +1,104 @@
 # Mimizan Lab Mobile
 
-Monochrome RAW camera for the Google Pixel 9 / 9a. Tested on a **Pixel 9
-running GrapheneOS (Android 17, API 37)**; a ready-to-install APK is on the
-[releases page](https://github.com/Draganito/mimizan-lab-mobile/releases).
-
-The phone records
-`RAW_SENSOR` frames, and the exact Mimizan Lab pipeline (frequency separation
-of the Bayer mosaic, no demosaic, no noise reduction) turns them into a
-monochrome negative on the phone, with the same bits the desktop CLI would
-produce from a DNG of the same frame. Since 0.12.0 the same separation can
-be printed as a three-colour plate (Prokudin-Gorsky's principle, the
-second process of the desktop darkroom): three mixes through three taking
+Mimizan Lab on the phone: a monochrome RAW camera and a darkroom, on
+Android and on iOS. Both apps call the same Rust core as the desktop.
+A frame is developed on the device into a monochrome negative, or, since
+0.12.0, into a three-colour plate (Prokudin-Gorsky's principle, the
+desktop darkroom's second process): three mixes through three taking
 filters, the same paper, one RGB file.
 
+The Android app is a general Camera2 app, not a Pixel-9-only build. It
+runs on Android 14 and later (API 34), arm64-v8a, on any phone whose
+camera offers `RAW_SENSOR`. It does not use Google Play services. It is
+tested on a **Pixel 9 running GrapheneOS (Android 17, API 37)**; a
+ready-to-install APK is on the
+[releases page](https://github.com/Draganito/mimizan-lab-mobile/releases).
+The only fitted camera file today is the Pixel 9. Another phone still
+develops: the noise model and the colour weights stay the core defaults
+until that phone has its own file.
+
+The iOS app is the same darkroom for iPhone and iPad, iOS 17. It is
+built in CI and uploaded to TestFlight. A `v*` tag on this repository
+is what starts that upload.
+
 ```
-Camera2 RAW_SENSOR ──> RawInput (Kotlin bridge) ──> mimizan-core (Rust, via UniFFI)
-                   └─> app cache (.raw + .json, re-developable)   └─> Pictures/Mimizan Lab/
-                                                                       MLM_*.jpg / .tif / .negative.tif
-                                                                       MLM_*_plate.jpg / .tif / .plate.tif
+Android   Camera2 RAW_SENSOR ──> RawInput (Kotlin) ──> mimizan-core (Rust, UniFFI)
+iOS       AVFoundation Bayer RAW as DNG ──> develop_file (the desktop decoder)
+both                     └─> app cache (re-developable)   └─> gallery or Files
+                                                              MLM_*.jpg / .tif / .negative.tif
+                                                              MLM_*_plate.jpg / .tif / .plate.tif
 ```
 
-Only finished pictures reach the gallery: the raw frame stays in the app
-(and can be deleted there), the negative or the plate goes out.
+Only finished pictures leave the app. The raw frame stays in the cache
+and can be deleted there. Android writes no DNG; the way to the desktop
+is Export. iOS keeps the captured DNG in the cache, because that is the
+form AVFoundation hands over.
 
-* `rust/mimizan-mobile` — the Rust library around `mimizan-core`: `develop`,
-  `remix`, `preview`, `detail`, `export_*`, UniFFI bindings for Kotlin and
-  Swift. A cdylib for Android; a static library (plus `develop_file` /
-  `frame_info` through the desktop's RAW decoder) for iOS.
-* `android/` — Kotlin + Jetpack Compose app (Camera2, foreground service,
-  review screen). Gradle runs `cargo ndk` and `uniffi-bindgen` itself.
-* `ios/` — SwiftUI app for iPhone and iPad (AVFoundation Bayer RAW as DNG,
-  Metal viewfinder, the same darkroom and review); `scripts/build_ios.sh`
-  builds the core into an xcframework. See [iOS](#ios) below.
-* `cameras/google_pixel_9.json` — camera file (schema 1 of Mimizan Lab),
-  shipped in the APK as an asset.
-* `scripts/device_spike.sh` — timing / peak-RSS benchmark on the phone.
+* `rust/mimizan-mobile` — the Rust library around `mimizan-core`:
+  `develop`, `remix`, `preview`, `detail`, `export_*`, UniFFI for Kotlin
+  and Swift. A cdylib for Android; a static library (plus `develop_file`
+  / `frame_info` through the desktop's RAW decoder) for iOS.
+* `android/` — Kotlin and Jetpack Compose (Camera2, a foreground
+  service, review). Gradle runs `cargo ndk` and `uniffi-bindgen`.
+* `ios/` — SwiftUI for iPhone and iPad (AVFoundation, a Metal
+  viewfinder, the same darkroom and review). `scripts/build_ios.sh`
+  builds the core into an xcframework. See [iOS](#ios).
+* `cameras/google_pixel_9.json` — camera file (schema 1 of Mimizan
+  Lab), shipped in the APK. This is the tested phone, not a limit on
+  which Android phone the app installs on.
+* `scripts/device_spike.sh` — timing and peak RSS on a phone.
 * `docs/ARCHITECTURE.md`, `docs/RESULTS_MOBILE.md`.
 
-## Why the sensor is "already binned"
+## Android
+
+### Why the Pixel 9 sensor is already binned
 
 The Pixel 9 exposes its 50 MP quad-Bayer sensor to Camera2 as a 12.5 MP
-(4080x3072) regular RGGB mosaic: the hardware bins 2x2 before the frame
-leaves the ISP. That is the RGGB base the plan asked for, with no extra
-compute on the phone. An optional second, CFA-preserving 2x binning
-("Quick mode", `binning = 2`) quarters the pixels again for a fast preview
-development; the deliverable is always developed at full resolution.
+(4080×3072) regular RGGB mosaic: the hardware bins 2×2 before the frame
+leaves the ISP. An optional second, CFA-preserving 2× binning (Quick
+development, `binning = 2`) quarters the pixels again and finishes in
+about a quarter of the time. The deliverable is developed at full
+resolution unless Quick development was on for that frame. Other phones
+report their own RAW size; the pipeline does not assume 4080×3072.
 
-## Install the APK
+### Install the APK
 
-Download `mimizan-lab-mobile-<version>.apk` from the releases page, open it
-on the phone (allow installs from the browser / file manager once) and grant
-Camera, Notifications and — on Android 17 — Sensors when asked. The release
-build is minified but signed with a debug key: Android will not update it
-over a build with another key, so uninstall first when switching between a
-release download and your own `installDebug`.
+Download `mimizan-lab-mobile-<version>.apk` from the releases page, open
+it (allow installs from the browser or a file manager once) and grant
+Camera, Notifications and, on Android 17, Sensors when asked. The
+release build is minified and signed with the debug key. Android will
+not update it over a build with another key, so uninstall first when
+switching between a release download and your own `installDebug`.
 
-Tested: Pixel 9, GrapheneOS (Android 17). Any Pixel 9 / 9 Pro / 9a with
-stock Android 14+ should behave the same; the app only needs Camera2 with
-RAW capability and does not use Google Play services.
+### Build
 
-## Build
-
-The Rust crate depends on `mimizan-core` by path (`../mimizan` next to this
-checkout), so clone both side by side:
+The Rust crate depends on `mimizan-core` by path. The two repositories
+sit next to each other; from `rust/mimizan-mobile` the core is
+`../../../mimizan/crates/mimizan-core`.
 
 ```bash
 git clone https://github.com/Draganito/mimizan.git
 git clone https://github.com/Draganito/mimizan-lab-mobile.git
 ```
 
-Prerequisites (all user-local, no sudo):
+Prerequisites (user-local, no sudo):
 
-* Rust stable with target `aarch64-linux-android`, `cargo-ndk`
+* Rust stable with the target `aarch64-linux-android`, and `cargo-ndk`
   (`cargo install cargo-ndk`).
-* Android SDK at `$ANDROID_HOME` (default `~/.local/opt/android-sdk`) with
-  `platforms;android-37.1`, `build-tools`, and NDK r27 (`ndk;27.3.13750724`).
+* Android SDK at `$ANDROID_HOME` (default `~/.local/opt/android-sdk`)
+  with `platforms;android-37.1`, build-tools, and NDK r27
+  (`ndk;27.3.13750724`).
 * JDK 21.
 
 ```bash
 cd android
 ./gradlew assembleDebug        # cargo ndk -> uniffi-bindgen -> Kotlin -> APK
-./gradlew installDebug         # phone attached with USB debugging
+./gradlew installDebug         # phone attached, USB debugging on
+./gradlew assembleRelease      # the APK that the releases page carries
 ```
 
-`gradle.properties` has `mimizan.rustProfile=release`, so even the debug
-APK carries an optimised Rust library (the development is CPU-bound).
+`gradle.properties` sets `mimizan.rustProfile=release`, so a debug APK
+still carries an optimised Rust library. The development is CPU-bound.
 `local.properties` (`sdk.dir=...`) is git-ignored; create it or set
 `ANDROID_HOME`.
 
@@ -92,167 +106,151 @@ Rust alone:
 
 ```bash
 cd rust/mimizan-mobile
-cargo test                                   # synthetic frames
-cargo test --features host-raw               # + bit-for-bit check against the desktop decoder (needs mimizan/testdata)
+cargo test                        # synthetic frames
+cargo test --features host-raw    # bit-for-bit against the desktop decoder (needs mimizan/testdata)
 cargo ndk -t arm64-v8a --platform 34 build --release --lib
 ```
 
 ## iOS
 
-The same app for iPhone and iPad, from the same Rust crate. The route is
-different from Android's: AVFoundation hands over the Bayer RAW still as a
-**DNG** (`AVCapturePhoto.fileDataRepresentation()`), the app caches it as
-`<name>.dng` + `<name>.json`, and the core reads it with the desktop's
-decoder (`develop_file`, the `decode-files` feature) — which is what
-`mimizan` on the desktop does with the same file, so the negative is the
-desktop's bit for bit (test `develop_file_matches_develop_bit_for_bit`).
-The iPad also imports RAW files from Files or Photos into the roll.
+The same darkroom, for iPhone and iPad. AVFoundation hands the Bayer RAW
+still over as a DNG (`AVCapturePhoto.fileDataRepresentation()`). The app
+caches `<name>.dng` plus `<name>.json`, and the core reads the file with
+the desktop decoder (`develop_file`, the `decode-files` feature). A DNG
+developed here matches `mimizan` on the desktop bit for bit
+(`develop_file_matches_develop_bit_for_bit`).
 
-```
-AVCapturePhotoOutput (Bayer RAW) ──> DNG ──> mimizan-core (develop_file, via UniFFI Swift)
-                                 └─> Caches/raw (re-developable)   └─> Files › Mimizan Lab/ (+ Photos, add-only)
-```
+Import from Files and Photos is off. A full-size NEF develops past what
+an iPad can keep in memory, and the system kills the app. The roll is
+the camera's own frames. An iPad whose camera has no Bayer RAW can open
+the app; it cannot take a frame, and it cannot import one.
 
-What is the same as on Android: the process (Mono / Plate), the contrast
-filters, the paper's two exposures, the lamps, Peak, the review with remix
-and 1:1 detail, the exports (JPEG, TIFF 16-bit, linear negative / plate +
-mask), the roll. What is different: the viewfinder's pull-back from the
-ISP's preview to the sensor goes through the sensor's XYZ → camera matrix
-(from the last DNG of that lens) instead of Camera2's per-frame colour
-matrix; no exposure compensation beyond the camera's own EV bias; no
-foreground service (iOS grants a few seconds past backgrounding, which is
-what one development takes).
+What is the same as on Android: Mono and Plate, the contrast filters,
+the paper's two exposures, the zone strip, Peak, review with remix and
+1:1 detail, the exports (JPEG, 16-bit TIFF, linear negative or plate
+plus mask), the roll. What differs: the viewfinder is the camera's own
+preview, desaturated in mono and untouched in colour. The grade and
+Peak do not reach it. They are where a picture opens, and what the
+automatic JPEG uses. There is no foreground service. iOS grants a few
+seconds past backgrounding, which is what one development takes.
 
-Building needs a Mac with Xcode 16 (or the `iOS` GitHub workflow, which
-builds an unsigned `.app` / `.ipa` on a macOS runner on every push that
-touches `ios/`, `rust/` or `cameras/`):
+A Mac with Xcode 26 builds it, or the `iOS` GitHub workflow, which
+builds an unsigned `.app` on a macOS runner when a push touches `ios/`,
+`rust/` or `cameras/`:
 
 ```bash
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim
-scripts/build_ios.sh              # Rust static libs, Swift bindings, ios/MimizanCore/MimizanMobileFFI.xcframework
+scripts/build_ios.sh              # static libs, Swift bindings, ios/MimizanCore/MimizanMobileFFI.xcframework
 brew install xcodegen
 cd ios && xcodegen generate       # ios/MimizanLab.xcodeproj (not committed)
-open MimizanLab.xcodeproj         # set your team, run on a device (the simulator has no RAW camera)
+open MimizanLab.xcodeproj         # set your team; the simulator has no RAW camera
 ```
 
-The Rust half of the script also runs on Linux (`--no-xcframework`); only
-the xcframework step needs `xcodebuild`. Running on a phone needs a signing
-identity: a free Apple ID signs for seven days, the Developer Program for a
-year and for TestFlight / the App Store. The unsigned CI artifact is for
-re-signing tools.
+The Rust half of the script also runs on Linux (`--no-xcframework`).
+The xcframework step needs `xcodebuild`. A free Apple ID signs for seven
+days. The Developer Program signs for a year and for TestFlight and the
+App Store. The unsigned CI artifact is for re-signing tools.
 
-The `TestFlight` workflow (manual, or on a `v*` tag) signs and uploads
-without any certificate on the runner: the archive is built unsigned and
-`xcodebuild -exportArchive` signs it with Apple's cloud-managed
-distribution certificate through an App Store Connect API key (Admin
-role). It needs the repository secrets `APPLE_TEAM_ID`, `ASC_KEY_ID`,
-`ASC_ISSUER_ID`, `ASC_API_KEY_P8` (the `.p8`, base64) and an app record
-with the bundle ID `ch.bojovic.mimizanlab` in App Store Connect.
+The `TestFlight` workflow runs on a `v*` tag, and by hand. The archive
+is built unsigned. `xcodebuild -exportArchive` signs it with Apple's
+cloud-managed distribution certificate through an App Store Connect API
+key (Admin role). The repository secrets are `APPLE_TEAM_ID`,
+`ASC_KEY_ID`, `ASC_ISSUER_ID` and `ASC_API_KEY_P8` (the `.p8`, base64).
+App Store Connect needs an app record with the bundle id
+`ch.bojovic.mimizanlab`.
 
-Requirements: iOS 17, a device whose camera offers Bayer RAW (iPhone 12 and
-later; the iPad Pro / Air cameras do, older iPads do not — those can still
-import and develop files). iPhones from the 14 Pro on deliver 48 MP DNGs
-from the main camera; the entitlement
-`com.apple.developer.kernel.increased-memory-limit` is set for them.
+Requirements: iOS 17, and a camera that offers Bayer RAW (iPhone 12 and
+later; the iPad Pro and iPad Air cameras do, older iPads do not).
+iPhones from the 14 Pro on deliver 48 MP DNGs from the main camera. The
+entitlement `com.apple.developer.kernel.increased-memory-limit` is set
+for those frames.
 
 ## Using the app
 
-1. The viewfinder shows the scene as the negative will see it: the camera
-   preview is linearised, mixed with the channel weights of the chosen
-   filter, then the paper at the settings exposures (AGSL shader, a table
-   of the print curve over linear grey). Zebra marks the highlights, a 64-bin luma
-   histogram sits in the corner, tap sets focus and metering (long press
-   clears it). The flash icon left of the exposure switch cycles Off /
-   Auto / On; the viewfinder stays dark and the flash fires only on the
-   still. The switch changes between automatic (with EV compensation) and
-   manual ISO / shutter. With manual exposure, Auto does not fire and On
-   fires once.
-2. The process row, *Mono · Plate*, chooses the darkroom's process, kept
-   across starts. In *Mono* the filter row (Pan, Y8, YG11, O16, R25, G58,
-   B47) is the "film" for the shot; it can be changed afterwards in review
-   without developing again (`remix`). In *Plate* the row shows the three
-   taking filters (*Camera*: the sensor's own colour matrix towards the
-   primaries, colorimetric; *Wratten*: 25/58/47 in front of the
-   panchromatic emulsion, the softer palette of the historical glass;
-   *Channels*: the balanced channels as they are) and the primaries of the
-   file (sRGB for the gallery, Adobe RGB), and the viewfinder shows the
-   plate in colour. The plate is three mixes of the same separation,
-   printed through the same paper at the same two exposures: grey stays
-   grey at every density, saturated colours run towards white in the
-   shoulder like a slide. Its only colour control is the two lamps of the
-   projector (red and blue, stops, green the reference), under *Lamps* in
-   the settings sheet and as sliders in review.
-3. The shutter records one RAW frame into the app cache (no DNG is
-   written). The development runs in a foreground service (notification),
-   one frame at a time, and a full-size JPEG (the paper at the settings
-   exposures, quality 100) lands in `Pictures/Mimizan Lab` when it
-   is done.
-   The settings sheet (slider icon) chooses the separation (Dubois /
-   adaptive / mask off), Quick mode, whether the JPEG is saved
-   automatically, the soft and hard exposures, the Peak checkbox (the
-   desktop's high-pass: radius and amount measured on each negative after
-   development, the smallest pair that brings its edges to the target
-   without a rim; off leaves the exports as they are), and shows the
-   storage the raw frames take with a "Delete all".
-4. The thumbnail opens the review: pinch to zoom (beyond the 2048 px
-   preview the visible window is rendered 1:1 from the negative), filter
-   chips and R/B sliders change the mix, **soft** and **hard** set the two
-   paper exposures in stops from the base print (±3, steps of 1/12; zero
-   is about grade 2). They start from the settings and change the preview,
-   the histogram, the 1:1 window and every export of this picture, all
-   through the same paper evaluation. *Mono · Plate* switches the picture
-   between the processes at once (a re-mix, the separation stays); in the
-   plate the R/B sliders are the two lamps (±2 stops, twelfths), and the
-   histogram shows the luminance with the three positives as outlines.
-   With Peak on, two sliders show the
-   measured radius (σ, pixels of the negative) and amount and let you move
-   them, "Measured" goes back; the 1:1 view shows the result, the exports
-   apply it. Export writes the
-   full-size JPEG, 16-bit TIFF (RGB with the plate's profile in the plate
-   process), or the linear negative + saturation mask for the desktop CLI;
-   in the plate process that is the stacked three-frame plate
-   (`.plate.tif`), which `mimizan print` prints in colour. Share sends the
-   last export.
-5. The roll lists every frame in the cache; the bin icon (or a long press)
-   deletes one for good, pictures already in the gallery stay.
+The darkroom is the same on both phones. The finder is not.
 
-Only the most recent developed negative stays in memory (about 0.5 GB with
-its preview planes; a colour export holds about 50 MB more while it
-runs). Every frame is kept in the app cache as packed 16-bit
-samples plus metadata (1.5 GB budget, oldest first), so any shot on the
-roll can be developed again later, also with other settings. There is no
-DNG: the way to the desktop is Export > Negative (linear TIFF + mask) or
-Export > Plate.
+1. **Finder.** On Android the preview is linearised, mixed with the
+   filter's channel weights, then printed through the paper at the
+   standing exposures. The grade and Peak are the finder, the automatic
+   JPEG, and where a picture opens. On iOS the picture is the camera's
+   own preview: desaturated in mono, untouched in colour. Zebra marks
+   the highlights, a histogram sits in the corner, a grid draws thirds.
+   The three are remembered across launches and start off. Tap sets
+   focus and metering; a long press clears it. The flash icon cycles
+   Off / Auto / On. The viewfinder stays dark and the flash fires on
+   the still. With manual exposure, Auto does not fire and On fires
+   once. The exposure switch changes between automatic (with EV
+   compensation) and manual ISO and shutter.
+2. **Process.** Mono or Plate, kept across starts. In Mono the filter
+   row (Pan, Y8, YG11, O16, R25, G58, B47) is the film for the shot. It
+   can be changed afterwards in review without developing again. In
+   Plate the row is the three taking filters: Camera (the sensor's
+   colour matrix; the chip reads "Camera (no matrix)" when the camera
+   file has none), Wratten (25/58/47, the softer historical palette),
+   Channels (the balanced channels as they are). sRGB and Adobe RGB are
+   in Settings, not on this row. On Android the finder shows the plate
+   in colour. On iOS the finder stays the camera's colour picture.
+3. **Grade.** Soft and hard are the two paper exposures, in stops from
+   the base print (±3, steps of 1/12). Zero is about grade 2. The zone
+   strip under them moves both by the same stops: drag left and the
+   print gets darker, drag right and it gets lighter. The gap, and so
+   the grade, stays. Balance the zone is off until you turn it on. On,
+   a picture places its middle on the grey card and leaves the grade.
+   Moving the strip or a grade slider keeps what you set. The standing
+   pair is not overwritten by the balance itself.
+4. **Peak** is Off, Auto, or Custom. Auto measures radius and amount on
+   each negative. Custom shows the two sliders and remembers them. Off
+   leaves the exports unsharpened. The 1:1 view shows the result. The
+   preview is never sharpened.
+5. **Stay on the finder.** On, a shot writes the JPEG at this grade and
+   Peak and stays on the finder. Off, the developer opens and the JPEG
+   waits for Export. The negative stays on the roll either way. A fresh
+   Android install starts with this on, because the finder is already
+   the paper. A fresh iOS install starts with it off, so the developer
+   opens.
+6. **The shutter** records one RAW frame into the app cache. On Android
+   the development runs in a foreground service, one frame at a time,
+   and the JPEG lands in `Pictures/Mimizan Lab` when Stay on the finder
+   is on. On iOS the JPEG goes to Files and, add-only, to Photos.
+7. **Review** opens from the thumbnail, or on its own when Stay on the
+   finder is off. Mono and Plate sit at the left, Export at the right.
+   The filters are the row under them. Pinch to zoom; past the 2048 px
+   preview the visible window is rendered 1:1 from the negative. Soft,
+   hard and the zone strip change the preview, the histogram, the 1:1
+   window and every export of this picture, through the same paper.
+   Export writes the full-size JPEG, a 16-bit TIFF (RGB with the
+   plate's profile in the plate process), or the linear negative plus
+   saturation mask for the desktop. In the plate process that stack is
+   the three-frame plate (`.plate.tif`), which `mimizan print` prints
+   in colour. Share sends the last export. A frame shot with Quick
+   development can be developed again at full size.
+8. **The roll** lists every frame in the cache. The bin, or a long
+   press, deletes one. Pictures already exported stay where they were
+   written. Settings shows how much the raw frames take, and can delete
+   them all.
+
+Only the most recent developed negative stays in memory (about 0.5 GB
+with its preview planes; a colour export holds about 50 MB more while
+it runs). Every frame is kept in the cache as packed samples plus
+metadata (1.5 GB budget, oldest first), so a shot on the roll can be
+developed again, also with other settings.
 
 ## Status
 
-Runs on the Pixel 9 (Android 17): main and ultrawide lens (the ultrawide
-through its physical camera id), RAW capture, monochrome JPEG in the
-gallery, development in 2.3–4.5 s per 12.5 MP frame (measured before core
-0.12.0; core 0.15.5, which 0.11.0 and later are built on, is level with
-that on the host; 0.12.1 is on core 0.15.6, where a burnt-out green
-photosite takes the colour out of the plate around it, so clipped
-highlights print white instead of pink; 0.12.2 is on core 0.16.0, no
-change on the phone; 0.14.0 is on core 0.16.3 and replaces USM and
-deconvolution with the desktop's Peak; 0.14.1 is on core 0.16.4 and
-drops the standing exposure compensation from the settings), review with remix, the three-colour plate (viewfinder,
-review, exports; the plate's preview takes about 250 ms and the colour
-JPEG about three times the grey one on the host),
-the split-grade paper, sharpening and exports, roll with delete. The phone's negative
-matches the desktop CLI's development of a DNG of the same frame to
-0.015 % RMS (the rest is DNG metadata rounding; measured with 0.1.0, which
-still wrote DNGs). Numbers and device findings: `docs/RESULTS_MOBILE.md`.
+Android 0.14.12 runs on the Pixel 9: main and ultrawide (the ultrawide
+through its physical camera id), RAW capture, gallery JPEG, review,
+the plate, the split-grade paper, Peak, the zone strip, the roll.
+Development of a 12.5 MP frame was measured at 2.3–4.5 s before core
+0.12.0; the numbers and the device findings are in
+`docs/RESULTS_MOBILE.md`. The phone's negative matched the desktop CLI
+on a DNG of the same frame to 0.015 % RMS (measured with 0.1.0, which
+still wrote DNGs). The fitted camera file for the Pixel 9 is still the
+core defaults for noise and weights. `OTHER_SENSORS` and Android 17
+have been checked on this one device.
 
-Not yet done: a fitted camera file for the Pixel 9 (noise model and
-weights are the core defaults), and the `OTHER_SENSORS` / Android 17
-behaviour has only been checked on this one device.
-
-iOS: the app and the build are complete (0.14.1: Rust static library,
-Swift bindings, xcframework, SwiftUI app for iPhone and iPad, CI build of
-an unsigned `.app`), but it has not run on a device yet — there is no Mac
-or iPhone at hand. The first device run will show what the Bayer DNG of a
-given iPhone looks like to `rawler` and whether the finder's pull-back
-through the DNG's matrix is close enough.
+iOS 0.14.12 is the same darkroom, built for device and uploaded to
+TestFlight from a `v*` tag. The finder is the camera preview. Import
+of a RAW from Files or Photos is switched off.
 
 ## License
 
