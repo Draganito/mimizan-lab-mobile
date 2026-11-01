@@ -56,6 +56,30 @@ form AVFoundation hands over.
 
 ## Android
 
+### Which phones
+
+The app needs Android 13, arm64, and a back camera that offers RAW.
+The phones that sell the most keep RAW inside the maker's own camera.
+The Galaxy A56, the Galaxy A17, the Moto G and the cheap Redmi phones
+are in that group, and this app has no frame to develop there.
+
+Where a RAW frame is available, two groups are in use.
+
+Pixel 6 and later, on Google's Tensor chip, keep the finder matched to
+the paper. That is what was checked on the Pixel 9. Pixel 10 and Pixel
+11 are the same chip family and have not been checked themselves.
+
+Qualcomm phones keep the camera's own curve. The exposure stays put.
+The finder matches the paper in good light and leaves it in the dark.
+That was checked on a Pixel 4a. It covers a Galaxy S with a Snapdragon
+(the US models, and the Ultra models in every market), Xiaomi's
+Snapdragon flagships, and a Motorola Edge that offers RAW.
+
+Samsung's Exynos phones are the open gap. A Galaxy S24, S26 or S25 FE
+sold in Europe is given the paper's curve, and it is not yet known
+whether that meter follows the curve and settles dark. That is being
+checked on a Galaxy S25 FE.
+
 ### Why the Pixel 9 sensor is already binned
 
 The Pixel 9 exposes its 50 MP quad-Bayer sensor to Camera2 as a 12.5 MP
