@@ -7,6 +7,11 @@ A frame is developed on the device into a monochrome negative, or, since
 desktop darkroom's second process): three mixes through three taking
 filters, the same paper, one RGB file.
 
+<p align="center">
+  <img src="docs/screenshots/finder.png" alt="The finder, in colour" width="270">
+  <img src="docs/screenshots/developer.png" alt="The developer, a plate" width="270">
+</p>
+
 The Android app is a general Camera2 app, not a Pixel-9-only build. It
 runs on Android 14 and later (API 34), arm64-v8a, on any phone whose
 camera offers `RAW_SENSOR`. It does not use Google Play services. It is
