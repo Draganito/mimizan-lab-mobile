@@ -292,7 +292,15 @@ struct SettingsSheet: View {
                         .padding(.top, 8)
                     ZoneStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, onBoth: vm.setGrade)
                     SettingRow(label: "Balance the zone", on: Binding(get: { vm.prefs.zoneAuto }, set: vm.setZoneAuto))
-                    Text("On, a picture places its middle on the grey card and leaves the grade. Moving the strip or a grade slider keeps what you set.")
+                    if vm.prefs.zoneAuto {
+                        LabeledSlider(
+                            label: String(format: "comp %+.2f", vm.prefs.zoneBias),
+                            value: Binding(get: { vm.prefs.zoneBias }, set: vm.setZoneBias),
+                            range: -Prefs.zoneBiasLimit...Prefs.zoneBiasLimit,
+                            step: 1.0 / 12
+                        )
+                    }
+                    Text("On, a picture places its middle on the grey card and leaves the grade. Compensation adds paper time: plus prints darker. Moving the strip or a grade slider keeps what you set.")
                         .font(.caption).foregroundStyle(.gray)
                     PeakRow(mode: vm.prefs.peakMode, onMode: vm.setPeakMode)
                     if vm.prefs.peakMode == .custom {

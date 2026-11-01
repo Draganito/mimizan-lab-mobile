@@ -113,6 +113,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val peakAmount by vm.darkroom.prefs.peakAmount.collectAsStateWithLifecycle()
     val shotMode by vm.darkroom.prefs.shotMode.collectAsStateWithLifecycle()
     val zoneAuto by vm.darkroom.prefs.zoneAuto.collectAsStateWithLifecycle()
+    val zoneBias by vm.darkroom.prefs.zoneBias.collectAsStateWithLifecycle()
     val plateSpace by vm.darkroom.prefs.plateSpace.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     val pendingReview by vm.pendingReview.collectAsStateWithLifecycle()
@@ -348,8 +349,17 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 PaperSliders(soft, hard, onSoft = vm::setSoft, onHard = vm::setHard)
                 ZoneStrip(soft, hard, onBoth = vm::setGrade)
                 SettingRow("Balance the zone", zoneAuto, vm::setZoneAuto)
+                if (zoneAuto) {
+                    LabeledSlider(
+                        label = String.format(Locale.US, "comp %+.2f", zoneBias),
+                        value = zoneBias.toFloat(),
+                        onChange = { vm.setZoneBias(it.toDouble()) },
+                        range = -Prefs.ZONE_BIAS_LIMIT.toFloat()..Prefs.ZONE_BIAS_LIMIT.toFloat(),
+                        steps = 47,
+                    )
+                }
                 Text(
-                    "On, a picture places its middle on the grey card and leaves the grade. Moving the strip or a grade slider keeps what you set.",
+                    "On, a picture places its middle on the grey card and leaves the grade. Compensation adds paper time: plus prints darker. Moving the strip or a grade slider keeps what you set.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 PeakRow(peakMode, onMode = vm::setPeakMode)

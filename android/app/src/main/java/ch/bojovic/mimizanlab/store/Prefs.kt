@@ -187,6 +187,19 @@ class Prefs(context: Context) {
         sp.edit { putBoolean(KEY_ZONE_AUTO, on) }
     }
 
+    private val _zoneBias = MutableStateFlow(snapZoneBias(finiteOrZero(sp.getFloat(KEY_ZONE_BIAS, 0f))))
+    /**
+     * Extra paper time, in stops, added to a balanced picture. Plus prints
+     * darker. The grade stays. Zero for a fresh install.
+     */
+    val zoneBias: StateFlow<Double> = _zoneBias.asStateFlow()
+
+    fun setZoneBias(stops: Double) {
+        val v = snapZoneBias(stops)
+        _zoneBias.value = v
+        sp.edit { putFloat(KEY_ZONE_BIAS, v.toFloat()) }
+    }
+
     private val _lampRed = MutableStateFlow(snapLamp(finiteOrZero(sp.getFloat(KEY_LAMP_RED, 0f))))
     /** The red lamp of the plate's projector, stops; the start value in review and the automatic JPEG's. */
     val lampRed: StateFlow<Double> = _lampRed.asStateFlow()
@@ -210,6 +223,9 @@ class Prefs(context: Context) {
     companion object {
         /** How far either paper exposure may move, in stops: the core's `paper::STOP_LIMIT`, asked once. */
         val STOP_LIMIT: Double = paperStopLimit()
+
+        /** Extra paper time a balanced picture may take, in stops. The grade stays inside [STOP_LIMIT]. */
+        const val ZONE_BIAS_LIMIT: Double = 2.0
 
         /** How far either lamp may move, in stops: the core's `print::LAMP_LIMIT`. */
         val LAMP_LIMIT: Double = lampLimit()
@@ -249,6 +265,10 @@ class Prefs(context: Context) {
         fun snapStops(v: Double): Double =
             (kotlin.math.round(finiteOrZero(v) * 12.0) / 12.0).coerceIn(-STOP_LIMIT, STOP_LIMIT)
 
+        /** Twelfths of a stop, inside ±[ZONE_BIAS_LIMIT]. */
+        fun snapZoneBias(v: Double): Double =
+            (kotlin.math.round(finiteOrZero(v) * 12.0) / 12.0).coerceIn(-ZONE_BIAS_LIMIT, ZONE_BIAS_LIMIT)
+
         /** A stored float that was never finite (a damaged preferences file) reads as zero. */
         private fun finiteOrZero(v: Float): Double = finiteOrZero(v.toDouble())
         private fun finiteOrZero(v: Double): Double = if (v.isFinite()) v else 0.0
@@ -270,5 +290,6 @@ class Prefs(context: Context) {
         private const val KEY_GRID = "finder_grid"
         private const val KEY_HISTOGRAM = "finder_histogram"
         private const val KEY_ZONE_AUTO = "zone_auto"
+        private const val KEY_ZONE_BIAS = "zone_bias"
     }
 }

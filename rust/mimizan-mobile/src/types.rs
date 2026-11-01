@@ -326,11 +326,12 @@ impl PlateFilters {
 /// The projection primaries: the RGB colour space of the colour file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum PlateSpace {
+    /// sRGB primaries with the paper's gamma 2.2. The standard: the gallery
+    /// shows the file as it is.
+    Srgb,
     /// Adobe RGB (1998): its curve is the paper's gamma 2.2, its gamut
     /// holds the saturated primaries.
     AdobeRgb,
-    /// sRGB primaries with the paper's gamma 2.2 (the gallery, sharing).
-    Srgb,
 }
 
 impl PlateSpace {

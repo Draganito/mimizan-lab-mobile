@@ -78,6 +78,9 @@ final class Prefs {
     /// On, a picture places its middle on the grey card. The grade stays.
     /// Off for a fresh install.
     private(set) var zoneAuto: Bool
+    /// Extra paper time on a balanced picture, in stops. Plus prints darker.
+    /// Zero for a fresh install.
+    private(set) var zoneBias: Double
 
     init() {
         soft = Prefs.snapStops(store.double(forKey: Keys.soft))
@@ -107,6 +110,7 @@ final class Prefs {
         grid = store.bool(forKey: Keys.grid)
         histogram = store.bool(forKey: Keys.histogram)
         zoneAuto = store.bool(forKey: Keys.zoneAuto)
+        zoneBias = Prefs.snapZoneBias(store.object(forKey: Keys.zoneBias) == nil ? 0 : store.double(forKey: Keys.zoneBias))
     }
 
     func setSoft(_ stops: Double) {
@@ -180,6 +184,11 @@ final class Prefs {
         store.set(on, forKey: Keys.zoneAuto)
     }
 
+    func setZoneBias(_ stops: Double) {
+        zoneBias = Prefs.snapZoneBias(stops)
+        store.set(zoneBias, forKey: Keys.zoneBias)
+    }
+
     /// Add `delta` stops to both exposures, snapped to a twelfth, and stop
     /// at the limit so the gap between them stays.
     nonisolated static func shiftGrade(soft: Double, hard: Double, by delta: Double) -> (Double, Double) {
@@ -198,6 +207,13 @@ final class Prefs {
     /// The range of the peak fields: the core's `recipe::PEAK_*`.
     nonisolated static let peakLimits: PeakLimits = MimizanCore.peakLimits()
 
+    /// How far the balance may add paper time, in stops. The grade stays inside `stopLimit`.
+    nonisolated static let zoneBiasLimit: Double = 2
+
+    /// Twelfths of a stop, inside ±`zoneBiasLimit`.
+    nonisolated static func snapZoneBias(_ v: Double) -> Double {
+        min(max((finiteOrZero(v) * 12).rounded() / 12, -zoneBiasLimit), zoneBiasLimit)
+    }
     /// Twelfths of a stop, inside ±`stopLimit`; a non-finite value snaps to zero.
     nonisolated static func snapStops(_ v: Double) -> Double {
         min(max((finiteOrZero(v) * 12).rounded() / 12, -stopLimit), stopLimit)
@@ -237,6 +253,7 @@ final class Prefs {
         static let grid = "finder_grid"
         static let histogram = "finder_histogram"
         static let zoneAuto = "zone_auto"
+        static let zoneBias = "zone_bias"
     }
 }
 

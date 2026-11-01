@@ -41,6 +41,7 @@ struct PaperSettings: Sendable {
     var peakRadius: Double
     var peakAmount: Double
     var zoneAuto: Bool
+    var zoneBias: Double
 }
 
 @MainActor
@@ -88,14 +89,14 @@ final class Darkroom {
         PaperSettings(
             soft: prefs.soft, hard: prefs.hard, lampRed: 0, lampBlue: 0,
             peakMode: prefs.peakMode, peakRadius: prefs.peakRadius, peakAmount: prefs.peakAmount,
-            zoneAuto: prefs.zoneAuto
+            zoneAuto: prefs.zoneAuto, zoneBias: prefs.zoneBias
         )
     }
 
     /// The standing grade, plus the zone shift when balance is on. The shift is not stored.
     nonisolated static func placed(_ developed: Developed, _ paper: PaperSettings) -> (soft: Double, hard: Double) {
         if paper.zoneAuto, let shift = try? developed.zoneShift(soft: paper.soft, hard: paper.hard) {
-            return Prefs.shiftGrade(soft: paper.soft, hard: paper.hard, by: shift)
+            return Prefs.shiftGrade(soft: paper.soft, hard: paper.hard, by: shift + paper.zoneBias)
         }
         return (paper.soft, paper.hard)
     }

@@ -192,7 +192,7 @@ final class ReviewViewModel {
         soft = darkroom.prefs.soft
         hard = darkroom.prefs.hard
         if darkroom.prefs.zoneAuto, let d = developed, let shift = try? d.zoneShift(soft: soft, hard: hard) {
-            let pair = Prefs.shiftGrade(soft: soft, hard: hard, by: shift)
+            let pair = Prefs.shiftGrade(soft: soft, hard: hard, by: shift + darkroom.prefs.zoneBias)
             soft = pair.0
             hard = pair.1
         }

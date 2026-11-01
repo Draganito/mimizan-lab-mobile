@@ -282,7 +282,7 @@ class Darkroom private constructor(private val context: Context) {
         val hard = prefs.hard.value
         if (!prefs.zoneAuto.value) return soft to hard
         val shift = runCatching { d.zoneShift(soft, hard) }.getOrDefault(0.0)
-        return Prefs.shiftGrade(soft, hard, shift)
+        return Prefs.shiftGrade(soft, hard, shift + prefs.zoneBias.value)
     }
 
     /** 256 px box of the preview, grey or, in the plate process, colour. */

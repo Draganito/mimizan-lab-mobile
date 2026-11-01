@@ -199,7 +199,7 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
         val hard = darkroom.prefs.hard.value
         if (!darkroom.prefs.zoneAuto.value || d == null) return soft to hard
         val shift = runCatching { d.zoneShift(soft, hard) }.getOrDefault(0.0)
-        return Prefs.shiftGrade(soft, hard, shift)
+        return Prefs.shiftGrade(soft, hard, shift + darkroom.prefs.zoneBias.value)
     }
 
     fun setSoft(stops: Double) = setGrade(Prefs.snapStops(stops), _state.value.hard)

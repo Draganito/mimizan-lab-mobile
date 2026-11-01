@@ -192,8 +192,8 @@ The darkroom is the same on both phones. The finder is not.
    Plate the row is the three taking filters: Camera (the sensor's
    colour matrix; the chip reads "Camera (no matrix)" when the camera
    file has none), Wratten (25/58/47, the softer historical palette),
-   Channels (the balanced channels as they are). sRGB and Adobe RGB are
-   in Settings, not on this row. On Android the finder shows the plate
+   Channels (the balanced channels as they are). The colour space starts
+   at sRGB; Adobe RGB is the other choice, in Settings, not on this row. On Android the finder shows the plate
    in colour. On iOS the finder stays the camera's colour picture.
 3. **Grade.** Soft and hard are the two paper exposures, in stops from
    the base print (±3, steps of 1/12). Zero is about grade 2. The zone
@@ -201,7 +201,9 @@ The darkroom is the same on both phones. The finder is not.
    print gets darker, drag right and it gets lighter. The gap, and so
    the grade, stays. Balance the zone is off until you turn it on. On,
    a picture places its middle on the grey card and leaves the grade.
-   Moving the strip or a grade slider keeps what you set. The standing
+   Compensation, shown only then, adds paper time on top of that
+   placement: plus prints darker, and the same amount is kept for the
+   next picture. Moving the strip or a grade slider keeps what you set. The standing
    pair is not overwritten by the balance itself.
 4. **Peak** is Off, Auto, or Custom. Auto measures radius and amount on
    each negative. Custom shows the two sliders and remembers them. Off
@@ -245,7 +247,7 @@ developed again, also with other settings.
 
 ## Status
 
-Android 0.14.13 runs on the Pixel 9: main and ultrawide (the ultrawide
+Android 0.14.14 runs on the Pixel 9: main and ultrawide (the ultrawide
 through its physical camera id), RAW capture, gallery JPEG, review,
 the plate, the split-grade paper, Peak, the zone strip, the roll.
 Development of a 12.5 MP frame was measured at 2.3–4.5 s before core
@@ -256,7 +258,7 @@ still wrote DNGs). The fitted camera file for the Pixel 9 is still the
 core defaults for noise and weights. `OTHER_SENSORS` and Android 17
 have been checked on this one device.
 
-iOS 0.14.13 is the same darkroom, built for device and uploaded to
+iOS 0.14.14 is the same darkroom, built for device and uploaded to
 TestFlight from a `v*` tag. The finder is the camera preview. Import
 of a RAW from Files or Photos is switched off.
 

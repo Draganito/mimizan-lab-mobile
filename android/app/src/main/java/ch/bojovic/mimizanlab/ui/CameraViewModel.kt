@@ -286,6 +286,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         darkroom.prefs.setHard(hard)
     }
     fun setZoneAuto(on: Boolean) = darkroom.prefs.setZoneAuto(on)
+    fun setZoneBias(stops: Double) = darkroom.prefs.setZoneBias(stops)
     fun setPeakMode(mode: PeakMode) = darkroom.prefs.setPeakMode(mode)
     fun setPeak(radius: Double, amount: Double) = darkroom.prefs.setPeak(radius, amount)
     fun setShotMode(mode: ShotMode) = darkroom.prefs.setShotMode(mode)
