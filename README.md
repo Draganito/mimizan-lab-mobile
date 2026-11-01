@@ -60,25 +60,29 @@ form AVFoundation hands over.
 
 The app needs Android 13, arm64, and a back camera that offers RAW.
 The phones that sell the most keep RAW inside the maker's own camera.
-The Galaxy A56, the Galaxy A17, the Moto G and the cheap Redmi phones
-are in that group, and this app has no frame to develop there.
+The Galaxy A56 does not offer it to another app. The Galaxy A17, the
+Moto G and the cheap Redmi phones are built the same way, and this app
+has no frame to develop there.
 
 Where a RAW frame is available, two groups are in use.
 
-Pixel 6 and later, on Google's Tensor chip, keep the finder matched to
-the paper. That is what was checked on the Pixel 9. Pixel 10 and Pixel
-11 are the same chip family and have not been checked themselves.
+Pixel 6 and later use Google's Tensor chip. On the Pixel 9 the finder
+matches the paper. Pixel 6, 7, 8, 10 and 11 are the same chip family
+and have not been checked themselves.
 
-Qualcomm phones keep the camera's own curve. The exposure stays put.
-The finder matches the paper in good light and leaves it in the dark.
-That was checked on a Pixel 4a. It covers a Galaxy S with a Snapdragon
-(the US models, and the Ultra models in every market), Xiaomi's
-Snapdragon flagships, and a Motorola Edge that offers RAW.
+On a Qualcomm phone the app leaves the camera's own curve in place,
+unless that camera offers an sRGB preset. The exposure stays put. The
+finder matches the paper in good light and leaves it in the dark. That
+was checked on a Pixel 4a. It covers Xiaomi's Snapdragon flagships, a
+Motorola Edge that offers RAW, and a Galaxy S with a Snapdragon: the
+S23 and S25 series in every market, the Ultra models in every market,
+and the other S models in the US.
 
-Samsung's Exynos phones are the open gap. A Galaxy S24, S26 or S25 FE
-sold in Europe is given the paper's curve, and it is not yet known
-whether that meter follows the curve and settles dark. That is being
-checked on a Galaxy S25 FE.
+Samsung's Exynos phones are the open gap. The curve for the paper is
+on, and it is not yet known whether that meter follows it and settles
+dark. That is the S24 and S24+ in Europe, the S26 and S26+ in Europe,
+and the S25 FE in every market. Older European S models on an Exynos
+chip are in the same gap. It is being checked on a Galaxy S25 FE.
 
 ### Why the Pixel 9 sensor is already binned
 
@@ -165,7 +169,7 @@ seconds past backgrounding, which is what one development takes.
 
 A Mac with Xcode 26 builds it, or the `iOS` GitHub workflow, which
 builds an unsigned `.app` on a macOS runner when a push touches `ios/`,
-`rust/` or `cameras/`:
+`rust/`, `cameras/` or `scripts/build_ios.sh`:
 
 ```bash
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim
@@ -190,9 +194,10 @@ App Store Connect needs an app record with the bundle id
 
 Requirements: iOS 17, and a camera that offers Bayer RAW (iPhone 12 and
 later; the iPad Pro and iPad Air cameras do, older iPads do not).
-iPhones from the 14 Pro on deliver 48 MP DNGs from the main camera. The
-entitlement `com.apple.developer.kernel.increased-memory-limit` is set
-for those frames.
+The still is a Bayer RAW at the size the camera gives by default. The
+app does not ask a 14 Pro or later for its 48 MP frame, so that size
+does not enter the darkroom. The entitlement
+`com.apple.developer.kernel.increased-memory-limit` is set.
 
 ## Using the app
 
