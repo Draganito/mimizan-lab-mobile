@@ -186,7 +186,6 @@ final class CaptureViewModel {
     }
     func setZoneAuto(_ on: Bool) { prefs.setZoneAuto(on) }
     func setZoneBias(_ stops: Double) { prefs.setZoneBias(stops) }
-    func setZoneBias(_ stops: Double) { prefs.setZoneBias(stops) }
     func toggleZebra() { viewfinder.zebra.toggle(); prefs.setZebra(viewfinder.zebra) }
     func toggleGrid() { viewfinder.grid.toggle(); prefs.setGrid(viewfinder.grid) }
     func toggleHistogram() { viewfinder.showHistogram.toggle(); prefs.setHistogram(viewfinder.showHistogram) }
