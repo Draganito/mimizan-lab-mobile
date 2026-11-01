@@ -285,7 +285,6 @@ struct SettingsSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    SettingRow(label: "Save JPEG automatically", on: Binding(get: { develop.autoJpeg }, set: vm.setAutoJpeg))
                     SettingRow(label: "Quick development", on: Binding(get: { develop.binning == 2 }, set: vm.setQuick))
                     Text("Quick development bins the frame and finishes in about a quarter of the time.")
                         .font(.caption).foregroundStyle(.gray)
@@ -295,8 +294,14 @@ struct SettingsSheet: View {
                     Text("The grade and Peak are where a picture opens, and what the automatic JPEG uses. The viewfinder does not follow them.")
                         .font(.caption).foregroundStyle(.gray)
                     SettingRow(label: "Stay on the finder", on: Binding(get: { vm.prefs.stayOnFinder }, set: vm.setStayOnFinder))
-                    Text("On, a shot saves the JPEG at this grade and Peak and stays here. The frame stays on the roll.")
+                    Text("On, a shot saves the JPEG at this grade and Peak and stays here. Off, the developer opens and the JPEG waits for Export.")
                         .font(.caption).foregroundStyle(.gray)
+                    Text("Plate colour space").font(.subheadline).padding(.top, 8)
+                    HStack(spacing: 6) {
+                        ForEach(PlateSpace.all, id: \.self) { sp in
+                            Chip(label: Format.plateSpace(sp), selected: vm.prefs.plateSpace == sp) { vm.setPlateSpace(sp) }
+                        }
+                    }
 
                     Text("Storage").font(.headline).padding(.top, 16)
                     HStack {

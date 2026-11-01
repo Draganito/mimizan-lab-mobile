@@ -53,35 +53,15 @@ struct SettingRow: View {
     }
 }
 
-/// The darkroom's process, *Mono · Plate*, and, for the plate, its taking
-/// filters and primaries. One scrolling row the viewfinder and the review share.
-struct ProcessRow: View {
+/// Mono and Plate. The filters sit on their own row under this.
+struct ProcessChoice: View {
     let plate: Bool
-    let filters: PlateFilters
-    let space: PlateSpace
-    let hasMatrix: Bool
     let onProcess: (Process) -> Void
-    let onFilters: (PlateFilters) -> Void
-    let onSpace: (PlateSpace) -> Void
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                Chip(label: "Mono", selected: !plate) { onProcess(.mono) }
-                Chip(label: "Plate", selected: plate, tint: Color(red: 0.29, green: 0.23, blue: 0.16)) { onProcess(.plate) }
-                if plate {
-                    Spacer().frame(width: 6)
-                    ForEach(PlateFilters.all, id: \.self) { f in
-                        Chip(label: f == .camera && !hasMatrix ? "Camera (no matrix)" : Format.plateFilters(f), selected: f == filters) { onFilters(f) }
-                    }
-                    Spacer().frame(width: 6)
-                    ForEach(PlateSpace.all, id: \.self) { sp in
-                        Chip(label: Format.plateSpace(sp), selected: sp == space) { onSpace(sp) }
-                    }
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+        HStack(spacing: 6) {
+            Chip(label: "Mono", selected: !plate) { onProcess(.mono) }
+            Chip(label: "Plate", selected: plate, tint: Color(red: 0.29, green: 0.23, blue: 0.16)) { onProcess(.plate) }
         }
     }
 }
@@ -103,25 +83,35 @@ struct FilterRow: View {
     }
 }
 
+struct PlateFilterRow: View {
+    let selected: PlateFilters
+    let hasMatrix: Bool
+    let onSelect: (PlateFilters) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(PlateFilters.all, id: \.self) { f in
+                    Chip(label: f == .camera && !hasMatrix ? "Camera (no matrix)" : Format.plateFilters(f), selected: f == selected) { onSelect(f) }
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+        }
+    }
+}
+
 struct PaperSliders: View {
     let soft: Double
     let hard: Double
     let onSoft: (Double) -> Void
     let onHard: (Double) -> Void
-    /// The developer shows the grade beside Export. Settings keeps it here.
-    var showsGrade = true
 
     var body: some View {
         let range = -Prefs.stopLimit...Prefs.stopLimit
         VStack(alignment: .leading, spacing: 2) {
-            if showsGrade, let g = try? paperGrade(soft: soft, hard: hard) {
-                Text(String(format: "≈ grade %@ · %.1f stops of scene", g.label, g.sceneStops))
-                    .font(.caption.monospaced())
-            }
             LabeledSlider(label: String(format: "soft %+.2f", soft), value: Binding(get: { soft }, set: onSoft), range: range, step: 1.0 / 12)
-            Text("filter 00").font(.caption2).foregroundStyle(.gray)
             LabeledSlider(label: String(format: "hard %+.2f", hard), value: Binding(get: { hard }, set: onHard), range: range, step: 1.0 / 12)
-            Text("filter 5").font(.caption2).foregroundStyle(.gray)
         }
     }
 }

@@ -114,24 +114,16 @@ struct ReviewView: View {
         .task(id: name) { vm.open(name) }
     }
 
-    /// Grade on the left, Export fixed on the right. It does not scroll away.
+    /// Mono and Plate on the left, Export fixed on the right.
     private var panelHeader: some View {
         HStack(alignment: .center, spacing: 12) {
-            Group {
-                if let g = try? paperGrade(soft: vm.soft, hard: vm.hard) {
-                    Text(String(format: "≈ grade %@ · %.1f stops of scene", g.label, g.sceneStops))
-                } else {
-                    Text("Paper")
-                }
-            }
-            .font(.subheadline.monospaced())
-            .lineLimit(2)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            ProcessChoice(plate: vm.plate != nil, onProcess: vm.setProcess)
+            Spacer(minLength: 8)
             exportButton
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 12)
         .padding(.top, 12)
-        .padding(.bottom, 8)
+        .padding(.bottom, 4)
     }
 
     private var exportButton: some View {
@@ -158,7 +150,12 @@ struct ReviewView: View {
     private func controls(prefs: Prefs) -> some View {
         let plate = vm.plate
         VStack(alignment: .leading, spacing: 12) {
-            PaperSliders(soft: vm.soft, hard: vm.hard, onSoft: vm.setSoft, onHard: vm.setHard, showsGrade: false)
+            if plate == nil {
+                FilterRow(selected: vm.filter, onSelect: vm.setFilter)
+            } else {
+                PlateFilterRow(selected: prefs.plateFilters, hasMatrix: vm.info?.hasColourMatrix ?? false, onSelect: vm.setPlateFilters)
+            }
+            PaperSliders(soft: vm.soft, hard: vm.hard, onSoft: vm.setSoft, onHard: vm.setHard)
             SettingRow(label: "Peak", on: Binding(get: { vm.peakOn }, set: { vm.darkroom.prefs.setPeak($0) }))
             if vm.peakOn {
                 // Peak's pair, started from the measurement on this negative; the
@@ -181,13 +178,6 @@ struct ReviewView: View {
             }
             if let cur = vm.shotSettings, cur.binning == 2 {
                 Button("Full size") { var s = cur; s.binning = 1; vm.develop(s) }
-            }
-            ProcessRow(
-                plate: plate != nil, filters: prefs.plateFilters, space: prefs.plateSpace, hasMatrix: vm.info?.hasColourMatrix ?? false,
-                onProcess: vm.setProcess, onFilters: vm.setPlateFilters, onSpace: vm.setPlateSpace
-            )
-            if plate == nil {
-                FilterRow(selected: vm.filter, onSelect: vm.setFilter)
             }
         }
     }

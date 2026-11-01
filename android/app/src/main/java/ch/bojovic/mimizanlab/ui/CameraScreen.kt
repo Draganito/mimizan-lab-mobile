@@ -82,7 +82,6 @@ import ch.bojovic.mimizanlab.engine.PlateSpace
 import ch.bojovic.mimizanlab.engine.Process
 import ch.bojovic.mimizanlab.engine.ShotStatus
 import ch.bojovic.mimizanlab.engine.coreVersion
-import ch.bojovic.mimizanlab.engine.paperGrade
 import ch.bojovic.mimizanlab.engine.version
 import ch.bojovic.mimizanlab.engine.workerThreads
 import ch.bojovic.mimizanlab.store.Prefs
@@ -105,6 +104,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val hard by vm.darkroom.prefs.hard.collectAsStateWithLifecycle()
     val peak by vm.darkroom.prefs.peak.collectAsStateWithLifecycle()
     val stayOnFinder by vm.darkroom.prefs.stayOnFinder.collectAsStateWithLifecycle()
+    val plateSpace by vm.darkroom.prefs.plateSpace.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     val pendingReview by vm.pendingReview.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
@@ -330,7 +330,6 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     if (showSettings) {
         ModalBottomSheet(onDismissRequest = { showSettings = false }) {
             Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 8.dp).padding(bottom = 32.dp)) {
-                SettingRow("Save JPEG automatically", develop.autoJpeg) { vm.setAutoJpeg(it) }
                 SettingRow("Quick development", develop.binning == 2) { vm.setQuick(it) }
                 Text(
                     "Quick development bins the frame and finishes in about a quarter of the time.",
@@ -345,9 +344,21 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 )
                 SettingRow("Stay on the finder", stayOnFinder) { vm.setStayOnFinder(it) }
                 Text(
-                    "On, a shot saves the JPEG at this grade and Peak and stays here. The frame stays on the roll.",
+                    "On, a shot saves the JPEG at this grade and Peak and stays here. Off, the developer opens and the JPEG waits for Export.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
+                Spacer(Modifier.height(8.dp))
+                Text("Plate colour space", style = MaterialTheme.typography.titleSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (sp in PlateSpace.entries) {
+                        FilterChip(
+                            selected = sp == plateSpace,
+                            onClick = { vm.setPlateSpace(sp) },
+                            label = { Text(Format.plateSpace(sp)) },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF3A3A3A)),
+                        )
+                    }
+                }
                 Spacer(Modifier.height(16.dp))
                 Text("Storage", style = MaterialTheme.typography.titleMedium)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -392,48 +403,19 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     }
 }
 
-/**
- * The darkroom's process, *Mono · Plate*, and, for the plate, its taking
- * filters and primaries. One scrolling row, so the viewfinder and the
- * review share it.
- */
 @Composable
-fun ProcessRow(
-    plate: Boolean,
-    filters: PlateFilters,
-    space: PlateSpace,
-    hasMatrix: Boolean,
-    onProcess: (Process) -> Unit,
-    onFilters: (PlateFilters) -> Unit,
-    onSpace: (PlateSpace) -> Unit,
-) {
-    val chipColors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF3A3A3A))
+fun PlateFilterRow(selected: PlateFilters, hasMatrix: Boolean, onSelect: (PlateFilters) -> Unit) {
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        FilterChip(selected = !plate, onClick = { onProcess(Process.MONO) }, label = { Text("Mono") }, colors = chipColors)
-        FilterChip(
-            selected = plate,
-            onClick = { onProcess(Process.PLATE) },
-            label = { Text("Plate") },
-            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF4A3A2A)),
-        )
-        if (plate) {
-            Spacer(Modifier.width(6.dp))
-            for (f in PlateFilters.entries) {
-                FilterChip(
-                    selected = f == filters,
-                    onClick = { onFilters(f) },
-                    label = { Text(if (f == PlateFilters.CAMERA && !hasMatrix) "Camera (no matrix)" else Format.plateFilters(f)) },
-                    colors = chipColors,
-                )
-            }
-            Spacer(Modifier.width(6.dp))
-            for (sp in PlateSpace.entries) {
-                FilterChip(selected = sp == space, onClick = { onSpace(sp) }, label = { Text(Format.plateSpace(sp)) }, colors = chipColors)
-            }
+        for (f in PlateFilters.entries) {
+            FilterChip(
+                selected = f == selected,
+                onClick = { onSelect(f) },
+                label = { Text(if (f == PlateFilters.CAMERA && !hasMatrix) "Camera (no matrix)" else Format.plateFilters(f)) },
+                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF3A3A3A)),
+            )
         }
     }
 }
@@ -471,23 +453,7 @@ fun SettingRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
 }
 
 @Composable
-fun PaperSliders(
-    soft: Double,
-    hard: Double,
-    onSoft: (Double) -> Unit,
-    onHard: (Double) -> Unit,
-    showsGrade: Boolean = true,
-) {
-    if (showsGrade) {
-        val grade = remember(soft, hard) { runCatching { paperGrade(soft, hard) }.getOrNull() }
-        if (grade != null) {
-            Text(
-                String.format(Locale.US, "≈ grade %s · %.1f stops of scene", grade.label, grade.sceneStops),
-                fontFamily = FontFamily.Monospace,
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-    }
+fun PaperSliders(soft: Double, hard: Double, onSoft: (Double) -> Unit, onHard: (Double) -> Unit) {
     val range = -Prefs.STOP_LIMIT.toFloat()..Prefs.STOP_LIMIT.toFloat()
     LabeledSlider(
         label = String.format(Locale.US, "soft %+.2f", soft),
@@ -495,14 +461,12 @@ fun PaperSliders(
         onChange = { onSoft(it.toDouble()) },
         range = range,
     )
-    Text("filter 00", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
     LabeledSlider(
         label = String.format(Locale.US, "hard %+.2f", hard),
         value = hard.toFloat(),
         onChange = { onHard(it.toDouble()) },
         range = range,
     )
-    Text("filter 5", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
 }
 
 @Composable

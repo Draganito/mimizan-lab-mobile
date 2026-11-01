@@ -283,7 +283,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         val l = _lens.value ?: return
         if (stream.value.capturing) return
         val stay = darkroom.prefs.stayOnFinder.value
-        val settings = if (stay) _develop.value.copy(autoJpeg = true) else _develop.value
+        val settings = _develop.value.copy(autoJpeg = stay)
         viewModelScope.launch {
             try {
                 val frame = controller.capture(l.label)

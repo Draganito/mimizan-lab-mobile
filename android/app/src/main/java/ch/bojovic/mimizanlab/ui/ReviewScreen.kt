@@ -37,6 +37,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -75,8 +77,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ch.bojovic.mimizanlab.engine.Darkroom
 import ch.bojovic.mimizanlab.engine.Filter
+import ch.bojovic.mimizanlab.engine.PlateFilters
+import ch.bojovic.mimizanlab.engine.Process
 import ch.bojovic.mimizanlab.engine.ShotStatus
-import ch.bojovic.mimizanlab.engine.paperGrade
 import ch.bojovic.mimizanlab.store.Prefs
 import java.util.Locale
 import kotlin.math.max
@@ -94,7 +97,6 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
     val shot = shots.firstOrNull { it.name == name }
     val peakOn by darkroom.prefs.peak.collectAsStateWithLifecycle()
     val plateFilters by darkroom.prefs.plateFilters.collectAsStateWithLifecycle()
-    val plateSpace by darkroom.prefs.plateSpace.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var showInfo by remember { mutableStateOf(false) }
     var exportMenu by remember { mutableStateOf(false) }
@@ -178,16 +180,23 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
             ) {
                 val plate = s.plate
                 Row(
-                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 4.dp),
+                    Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    val grade = remember(s.soft, s.hard) { runCatching { paperGrade(s.soft, s.hard) }.getOrNull() }
-                    Text(
-                        if (grade != null) String.format(Locale.US, "≈ grade %s · %.1f stops of scene", grade.label, grade.sceneStops) else "Paper",
-                        Modifier.weight(1f),
-                        fontFamily = FontFamily.Monospace,
-                        style = MaterialTheme.typography.bodyMedium,
+                    FilterChip(
+                        selected = plate == null,
+                        onClick = { vm.setProcess(Process.MONO) },
+                        label = { Text("Mono") },
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF3A3A3A)),
                     )
+                    Spacer(Modifier.width(6.dp))
+                    FilterChip(
+                        selected = plate != null,
+                        onClick = { vm.setProcess(Process.PLATE) },
+                        label = { Text("Plate") },
+                        colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF4A3A2A)),
+                    )
+                    Spacer(Modifier.weight(1f))
                     Box {
                         Button(
                             onClick = { exportMenu = true },
@@ -216,7 +225,16 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    PaperSliders(s.soft, s.hard, onSoft = vm::setSoft, onHard = vm::setHard, showsGrade = false)
+                    if (plate == null) {
+                        FilterRow(selected = s.filter, onSelect = vm::setFilter)
+                    } else {
+                        PlateFilterRow(
+                            selected = plateFilters,
+                            hasMatrix = s.info?.hasColourMatrix ?: false,
+                            onSelect = vm::setPlateFilters,
+                        )
+                    }
+                    PaperSliders(s.soft, s.hard, onSoft = vm::setSoft, onHard = vm::setHard)
                     SettingRow("Peak", peakOn) { darkroom.prefs.setPeak(it) }
                     if (peakOn) {
                         val lim = Prefs.PEAK
@@ -251,18 +269,6 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                     val cur = vm.shotSettings()
                     if (cur != null && cur.binning == 2) {
                         TextButton(onClick = { vm.develop(cur.copy(binning = 1)) }) { Text("Full size") }
-                    }
-                    ProcessRow(
-                        plate = plate != null,
-                        filters = plateFilters,
-                        space = plateSpace,
-                        hasMatrix = s.info?.hasColourMatrix ?: false,
-                        onProcess = vm::setProcess,
-                        onFilters = vm::setPlateFilters,
-                        onSpace = vm::setPlateSpace,
-                    )
-                    if (plate == null) {
-                        FilterRow(selected = s.filter, onSelect = vm::setFilter)
                     }
                 }
             }

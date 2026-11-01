@@ -191,7 +191,7 @@ final class CaptureViewModel {
         guard let l = lens, !state.capturing else { return }
         var settings = develop
         let stay = prefs.stayOnFinder
-        if stay { settings.autoJpeg = true }
+        settings.autoJpeg = stay
         Task {
             do {
                 let dng = try await session.capture()
