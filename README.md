@@ -250,7 +250,7 @@ settings. Android keeps packed samples plus metadata. iOS keeps the DNG.
 
 ## Status
 
-Android 0.14.19 runs on the Pixel 9: main and ultrawide (the ultrawide
+Android 0.14.20 runs on the Pixel 9: main and ultrawide (the ultrawide
 through its physical camera id), RAW capture, gallery JPEG, review,
 the plate, the split-grade paper, Peak, the zone strip, the roll.
 Development of a 12.5 MP frame was measured at 2.3–4.5 s before core

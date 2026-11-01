@@ -17,8 +17,9 @@ import ch.bojovic.mimizanlab.camera.FinderTone
 
 /**
  * The live negative at the camera's frame rate. The ISP delivers the
- * preview with its tone curve pinned to sRGB (`IspControls`: the device
- * preset, or the fixed curve once exposure has locked). The shader undoes
+ * preview with its tone curve pinned to sRGB from the first frame
+ * (`IspControls`: the device preset, or the fixed curve where the meter
+ * allows it). The shader undoes
  * that curve, pulls
  * the colour step back through the inverse matrix of the frame, mixes
  * with the development's weights and applies the paper — per pixel on
