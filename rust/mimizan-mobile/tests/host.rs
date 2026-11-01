@@ -174,6 +174,15 @@ fn zone_shift_places_the_middle_without_a_preview_it_refuses() {
     assert!(shift.is_finite() && shift.abs() <= 3.0, "{shift}");
     let again = dev.zone_shift(0.0, 0.0).unwrap();
     assert!((shift - again).abs() < 1e-9, "the same negative places once");
+    // The shift belongs to the negative. It does not depend on where the grade
+    // sits, so a placed pair still wants the same stops: storing the placed
+    // pair and placing again would add them twice.
+    let elsewhere = dev.zone_shift(0.5, -0.25).unwrap();
+    assert!((shift - elsewhere).abs() < 1e-6, "grade must not change the shift: {shift} vs {elsewhere}");
+    if shift.abs() < 2.5 {
+        let parked = dev.zone_shift(shift, shift).unwrap();
+        assert!((parked - shift).abs() < 1e-6, "an already placed pair still wants the full shift, got {parked}");
+    }
     let bare = develop(synthetic_input(80, 60, 1), DevelopParams { preview_long_edge: 0, separation: SeparationMode::Off, ..DevelopParams::default() }).unwrap();
     assert!(bare.zone_shift(0.0, 0.0).is_err());
 }

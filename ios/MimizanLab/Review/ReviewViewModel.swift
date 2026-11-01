@@ -206,13 +206,27 @@ final class ReviewViewModel {
         setGrade(soft: soft, hard: stops)
     }
 
-    /// Both exposures, as they stand on the screen. A zone drag and a grade slider write the pair, so the next picture starts here.
+    /// Both exposures as they stand on this print. With the balance on, the sliders include this negative's shift and the compensation; those come back off before the grade is stored, so the next picture adds them once.
     func setGrade(soft: Double, hard: Double) {
-        darkroom.prefs.setSoft(soft)
-        darkroom.prefs.setHard(hard)
-        self.soft = darkroom.prefs.soft
-        self.hard = darkroom.prefs.hard
+        if darkroom.prefs.zoneAuto, let d = developed {
+            let standing = Prefs.shiftGrade(soft: soft, hard: hard, by: -automaticStops(d))
+            darkroom.prefs.setSoft(standing.0)
+            darkroom.prefs.setHard(standing.1)
+            showStandingPaper()
+        } else {
+            darkroom.prefs.setSoft(soft)
+            darkroom.prefs.setHard(hard)
+            self.soft = darkroom.prefs.soft
+            self.hard = darkroom.prefs.hard
+        }
         schedule { await self.renderNow() }
+    }
+
+    /// Stops the balance adds on top of the stored grade: this negative's shift, then the compensation.
+    private func automaticStops(_ d: Developed) -> Double {
+        // At zero both sliders have the full ±3 of room, so the clamp does not eat the shift.
+        let shift = (try? d.zoneShift(soft: 0, hard: 0)) ?? 0
+        return shift + darkroom.prefs.zoneBias
     }
 
     private func remixAndRender() {

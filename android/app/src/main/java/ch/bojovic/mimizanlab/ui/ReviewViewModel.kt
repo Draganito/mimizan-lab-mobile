@@ -206,16 +206,36 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setHard(stops: Double) = setGrade(_state.value.soft, Prefs.snapStops(stops))
 
-    /** Both exposures as they stand. A zone drag and a grade slider write the pair, so the next picture starts here. */
+    /**
+     * Both exposures as they stand on this print. With the balance on, the
+     * sliders include this negative's shift and the compensation; those come
+     * back off before the grade is stored, so the next picture adds them once.
+     */
     fun setGrade(soft: Double, hard: Double) {
-        darkroom.prefs.setSoft(soft)
-        darkroom.prefs.setHard(hard)
-        _state.update { it.copy(soft = darkroom.prefs.soft.value, hard = darkroom.prefs.hard.value) }
+        val d = developed
+        if (darkroom.prefs.zoneAuto.value && d != null) {
+            val standing = Prefs.shiftGrade(soft, hard, -automaticStops(d))
+            darkroom.prefs.setSoft(standing.first)
+            darkroom.prefs.setHard(standing.second)
+            val pair = placedPaper(d)
+            _state.update { it.copy(soft = pair.first, hard = pair.second) }
+        } else {
+            darkroom.prefs.setSoft(soft)
+            darkroom.prefs.setHard(hard)
+            _state.update { it.copy(soft = darkroom.prefs.soft.value, hard = darkroom.prefs.hard.value) }
+        }
         renderJob?.cancel()
         renderJob = viewModelScope.launch {
             delay(60)
             render()
         }
+    }
+
+    /** Stops the balance adds on top of the stored grade: this negative's shift, then the compensation. */
+    private fun automaticStops(d: Developed): Double {
+        // At zero both sliders have the full ±3 of room, so the clamp does not eat the shift.
+        val shift = runCatching { d.zoneShift(0.0, 0.0) }.getOrDefault(0.0)
+        return shift + darkroom.prefs.zoneBias.value
     }
 
     private fun remixAndRender() {
