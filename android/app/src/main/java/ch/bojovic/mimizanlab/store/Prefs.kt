@@ -3,6 +3,7 @@ package ch.bojovic.mimizanlab.store
 import android.content.Context
 import androidx.core.content.edit
 import ch.bojovic.mimizanlab.engine.PeakLimits
+import ch.bojovic.mimizanlab.engine.PeakMeasured
 import ch.bojovic.mimizanlab.engine.PlateFilters
 import ch.bojovic.mimizanlab.engine.PlateSpace
 import ch.bojovic.mimizanlab.engine.Process
@@ -12,6 +13,18 @@ import ch.bojovic.mimizanlab.engine.peakLimits
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+
+/** Peak on a print: off, the measurement of this negative, or a hand pair. */
+enum class PeakMode {
+    OFF, AUTO, CUSTOM;
+
+    val label: String
+        get() = when (this) {
+            OFF -> "Off"
+            AUTO -> "Auto"
+            CUSTOM -> "Custom"
+        }
+}
 
 /** The few settings that survive a restart. */
 class Prefs(context: Context) {
@@ -37,17 +50,43 @@ class Prefs(context: Context) {
         sp.edit { putFloat(KEY_HARD, v.toFloat()) }
     }
 
-    private val _peak = MutableStateFlow(sp.getBoolean(KEY_PEAK, true))
+    private val _peakMode = MutableStateFlow(loadPeakMode())
     /**
-     * Peak's high-pass on the automatic JPEG and the full-size exports: the
-     * radius and the amount are measured on each negative (the desktop's
-     * `peak` program); this is only the checkbox. On for a fresh install.
+     * Peak's high-pass on the automatic JPEG and the full-size exports.
+     * Auto measures each negative. Custom keeps a hand pair. Auto on a fresh install.
      */
-    val peak: StateFlow<Boolean> = _peak.asStateFlow()
+    val peakMode: StateFlow<PeakMode> = _peakMode.asStateFlow()
 
-    fun setPeak(on: Boolean) {
-        _peak.value = on
-        sp.edit { putBoolean(KEY_PEAK, on) }
+    fun setPeakMode(mode: PeakMode) {
+        _peakMode.value = mode
+        sp.edit { putString(KEY_PEAK_MODE, mode.name) }
+    }
+
+    private val _peakRadius = MutableStateFlow(clampPeakRadius(sp.getFloat(KEY_PEAK_RADIUS, PEAK.radiusDefault.toFloat()).toDouble()))
+    /** Custom Peak radius, pixels of the negative. */
+    val peakRadius: StateFlow<Double> = _peakRadius.asStateFlow()
+
+    private val _peakAmount = MutableStateFlow(clampPeakAmount(sp.getFloat(KEY_PEAK_AMOUNT, 0f).toDouble()))
+    /** Custom Peak amount. */
+    val peakAmount: StateFlow<Double> = _peakAmount.asStateFlow()
+
+    fun setPeak(radius: Double, amount: Double) {
+        val r = clampPeakRadius(radius)
+        val a = clampPeakAmount(amount)
+        _peakRadius.value = r
+        _peakAmount.value = a
+        sp.edit {
+            putFloat(KEY_PEAK_RADIUS, r.toFloat())
+            putFloat(KEY_PEAK_AMOUNT, a.toFloat())
+        }
+    }
+
+    /** A bool from before the three states: on was the measurement, off was none. */
+    private fun loadPeakMode(): PeakMode {
+        val named = sp.getString(KEY_PEAK_MODE, null)
+        if (named != null) return enumOr(named, PeakMode.AUTO)
+        if (!sp.contains(KEY_PEAK)) return PeakMode.AUTO
+        return if (sp.getBoolean(KEY_PEAK, true)) PeakMode.AUTO else PeakMode.OFF
     }
 
     private val _process = MutableStateFlow(enumOr(sp.getString(KEY_PROCESS, null), Process.MONO))
@@ -133,6 +172,14 @@ class Prefs(context: Context) {
         /** A peak amount inside the core's range; a non-finite value is zero. */
         fun clampPeakAmount(v: Double): Double = finiteOrZero(v).coerceIn(0.0, PEAK.amountMax)
 
+        /** Radius and amount a print uses. Off applies nothing. Auto uses the measurement. */
+        fun peakApplied(mode: PeakMode, radius: Double, amount: Double, measured: PeakMeasured?): Pair<Double, Double> =
+            when (mode) {
+                PeakMode.OFF -> radius to 0.0
+                PeakMode.AUTO -> (measured?.radius ?: PEAK.radiusDefault) to (measured?.amount ?: 0.0)
+                PeakMode.CUSTOM -> radius to amount
+            }
+
         /** Twelfths of a stop, inside ±[STOP_LIMIT]; a non-finite value snaps to zero. */
         fun snapStops(v: Double): Double =
             (kotlin.math.round(finiteOrZero(v) * 12.0) / 12.0).coerceIn(-STOP_LIMIT, STOP_LIMIT)
@@ -144,6 +191,9 @@ class Prefs(context: Context) {
         private const val KEY_SOFT = "paper_soft"
         private const val KEY_HARD = "paper_hard"
         private const val KEY_PEAK = "peak_on"
+        private const val KEY_PEAK_MODE = "peak_mode"
+        private const val KEY_PEAK_RADIUS = "peak_radius"
+        private const val KEY_PEAK_AMOUNT = "peak_amount"
         private const val KEY_PROCESS = "process"
         private const val KEY_PLATE_FILTERS = "plate_filters"
         private const val KEY_PLATE_SPACE = "plate_space"

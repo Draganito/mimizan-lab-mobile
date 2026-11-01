@@ -44,6 +44,22 @@ struct LabeledSlider: View {
     }
 }
 
+/// Peak: Off, Auto, or Custom. The two sliders appear only for Custom.
+struct PeakRow: View {
+    let mode: PeakMode
+    let onMode: (PeakMode) -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("Peak")
+            Spacer(minLength: 8)
+            ForEach(PeakMode.allCases, id: \.self) { m in
+                Chip(label: m.label, selected: mode == m) { onMode(m) }
+            }
+        }
+    }
+}
+
 struct SettingRow: View {
     let label: String
     @Binding var on: Bool

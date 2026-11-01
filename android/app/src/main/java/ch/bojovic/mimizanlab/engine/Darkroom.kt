@@ -243,11 +243,11 @@ class Darkroom private constructor(private val context: Context) {
                 updateShot(name) { it.copy(status = ShotStatus.Ready(info), thumbnail = thumb) }
                 // A second development of the same frame does not add a second JPEG.
                 if (shot.settings.autoJpeg && shot.jpegUri == null) {
+                    val applied = Prefs.peakApplied(prefs.peakMode.value, prefs.peakRadius.value, prefs.peakAmount.value, peak)
                     val uri = exportJpeg(
                         developed, name, suffixFor(shot.settings, info),
                         soft = prefs.soft.value, hard = prefs.hard.value,
-                        peakRadius = peak?.radius ?: Prefs.PEAK.radiusDefault,
-                        peakAmount = if (prefs.peak.value) peak?.amount ?: 0.0 else 0.0,
+                        peakRadius = applied.first, peakAmount = applied.second,
                     )
                     updateShot(name) { it.copy(jpegUri = uri) }
                 }

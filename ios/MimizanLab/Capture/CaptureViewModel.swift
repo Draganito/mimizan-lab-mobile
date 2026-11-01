@@ -179,7 +179,8 @@ final class CaptureViewModel {
     /// The standing grade: the automatic JPEG, and where a picture opens.
     func setSoft(_ stops: Double) { prefs.setSoft(stops) }
     func setHard(_ stops: Double) { prefs.setHard(stops) }
-    func setPeak(_ on: Bool) { prefs.setPeak(on) }
+    func setPeakMode(_ mode: PeakMode) { prefs.setPeakMode(mode) }
+    func setPeak(radius: Double, amount: Double) { prefs.setPeak(radius: radius, amount: amount) }
     func setProcess(_ p: Process) { prefs.setProcess(p) }
     func setPlateFilters(_ f: PlateFilters) { prefs.setPlateFilters(f) }
     func setPlateSpace(_ s: PlateSpace) { prefs.setPlateSpace(s) }

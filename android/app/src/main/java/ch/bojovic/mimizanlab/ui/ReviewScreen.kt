@@ -80,6 +80,7 @@ import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.PlateFilters
 import ch.bojovic.mimizanlab.engine.Process
 import ch.bojovic.mimizanlab.engine.ShotStatus
+import ch.bojovic.mimizanlab.store.PeakMode
 import ch.bojovic.mimizanlab.store.Prefs
 import java.util.Locale
 import kotlin.math.max
@@ -95,7 +96,9 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
     val darkroom = Darkroom.get(LocalContext.current)
     val shots by darkroom.shots.collectAsStateWithLifecycle()
     val shot = shots.firstOrNull { it.name == name }
-    val peakOn by darkroom.prefs.peak.collectAsStateWithLifecycle()
+    val peakMode by darkroom.prefs.peakMode.collectAsStateWithLifecycle()
+    val peakRadius by darkroom.prefs.peakRadius.collectAsStateWithLifecycle()
+    val peakAmount by darkroom.prefs.peakAmount.collectAsStateWithLifecycle()
     val plateFilters by darkroom.prefs.plateFilters.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var showInfo by remember { mutableStateOf(false) }
@@ -206,7 +209,8 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                             Text(s.exporting?.let { "Saving $it…" } ?: "Export")
                         }
                         DropdownMenu(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
-                            val peak = if (peakOn && s.peakAmount > 0.0) ", peak" else ""
+                            val applied = Prefs.peakApplied(peakMode, peakRadius, peakAmount, s.peakMeasured)
+                            val peak = if (applied.second > 0.0) ", peak" else ""
                             val rgb = if (plate != null) " ${Format.plateSpace(plate.space)}" else ""
                             DropdownMenuItem(text = { Text("JPEG$rgb$peak") }, onClick = { exportMenu = false; vm.exportJpeg() })
                             DropdownMenuItem(text = { Text("TIFF 16-bit$rgb$peak") }, onClick = { exportMenu = false; vm.exportTiff() })
@@ -235,36 +239,21 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                         )
                     }
                     PaperSliders(s.soft, s.hard, onSoft = vm::setSoft, onHard = vm::setHard)
-                    SettingRow("Peak", peakOn) { darkroom.prefs.setPeak(it) }
-                    if (peakOn) {
+                    PeakRow(peakMode, onMode = vm::setPeakMode)
+                    if (peakMode == PeakMode.CUSTOM) {
                         val lim = Prefs.PEAK
                         LabeledSlider(
-                            label = String.format(Locale.US, "peak σ %.2f", s.peakRadius),
-                            value = s.peakRadius.toFloat(),
-                            onChange = { vm.setPeak(it.toDouble(), s.peakAmount) },
+                            label = String.format(Locale.US, "peak σ %.2f", peakRadius),
+                            value = peakRadius.toFloat(),
+                            onChange = { vm.setPeak(it.toDouble(), peakAmount) },
                             range = lim.radiusMin.toFloat()..lim.radiusMax.toFloat(),
                         )
                         LabeledSlider(
-                            label = String.format(Locale.US, "peak ×%.2f", s.peakAmount),
-                            value = s.peakAmount.toFloat(),
-                            onChange = { vm.setPeak(s.peakRadius, it.toDouble()) },
+                            label = String.format(Locale.US, "peak ×%.2f", peakAmount),
+                            value = peakAmount.toFloat(),
+                            onChange = { vm.setPeak(peakRadius, it.toDouble()) },
                             range = 0f..lim.amountMax.toFloat(),
                         )
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            val m = s.peakMeasured
-                            Text(
-                                when {
-                                    m == null -> "not measured"
-                                    !m.found -> "no clean edge measured: left as it is"
-                                    else -> String.format(Locale.US, "measured σ %.2f ×%.2f", m.radius, m.amount)
-                                },
-                                style = MaterialTheme.typography.bodySmall, color = Color.Gray, modifier = Modifier.weight(1f),
-                            )
-                            TextButton(
-                                onClick = vm::resetPeak,
-                                enabled = m != null && (m.radius != s.peakRadius || m.amount != s.peakAmount),
-                            ) { Text("Measured") }
-                        }
                     }
                     val cur = vm.shotSettings()
                     if (cur != null && cur.binning == 2) {

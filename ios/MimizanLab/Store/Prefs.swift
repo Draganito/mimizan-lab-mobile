@@ -12,6 +12,21 @@ enum Process: String, CaseIterable, Codable {
     case plate = "PLATE"
 }
 
+/// Peak on a print: off, the measurement of this negative, or a hand pair.
+enum PeakMode: String, CaseIterable {
+    case off = "OFF"
+    case auto = "AUTO"
+    case custom = "CUSTOM"
+
+    var label: String {
+        switch self {
+        case .off: return "Off"
+        case .auto: return "Auto"
+        case .custom: return "Custom"
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class Prefs {
@@ -22,10 +37,13 @@ final class Prefs {
     private(set) var soft: Double
     /// Hard-pass time in stops from the base exposure.
     private(set) var hard: Double
-    /// Peak's high-pass on the automatic JPEG and the full-size exports:
-    /// the radius and the amount are measured on each negative; this is
-    /// only the checkbox. On for a fresh install.
-    private(set) var peak: Bool
+    /// Peak's high-pass on the automatic JPEG and the full-size exports.
+    /// Auto measures each negative. Custom keeps a hand pair. Auto on a fresh install.
+    private(set) var peakMode: PeakMode
+    /// Custom Peak radius, pixels of the negative.
+    private(set) var peakRadius: Double
+    /// Custom Peak amount.
+    private(set) var peakAmount: Double
     /// The darkroom's process; the next shot opens in it.
     private(set) var process: Process
     /// The plate's taking filters.
@@ -40,7 +58,16 @@ final class Prefs {
     init() {
         soft = Prefs.snapStops(store.double(forKey: Keys.soft))
         hard = Prefs.snapStops(store.double(forKey: Keys.hard))
-        peak = store.object(forKey: Keys.peak) == nil ? true : store.bool(forKey: Keys.peak)
+        if let raw = store.string(forKey: Keys.peakMode), let mode = PeakMode(rawValue: raw) {
+            peakMode = mode
+        } else if store.object(forKey: Keys.peak) != nil {
+            // A bool from before the three states: on was the measurement, off was none.
+            peakMode = store.bool(forKey: Keys.peak) ? .auto : .off
+        } else {
+            peakMode = .auto
+        }
+        peakRadius = Prefs.clampPeakRadius(store.object(forKey: Keys.peakRadius) == nil ? Prefs.peakLimits.radiusDefault : store.double(forKey: Keys.peakRadius))
+        peakAmount = Prefs.clampPeakAmount(store.object(forKey: Keys.peakAmount) == nil ? 0 : store.double(forKey: Keys.peakAmount))
         process = Process(rawValue: store.string(forKey: Keys.process) ?? "") ?? .mono
         plateFilters = PlateFilters.fromName(store.string(forKey: Keys.plateFilters)) ?? .camera
         plateSpace = PlateSpace.fromName(store.string(forKey: Keys.plateSpace)) ?? .srgb
@@ -57,9 +84,25 @@ final class Prefs {
         store.set(hard, forKey: Keys.hard)
     }
 
-    func setPeak(_ on: Bool) {
-        peak = on
-        store.set(on, forKey: Keys.peak)
+    func setPeakMode(_ mode: PeakMode) {
+        peakMode = mode
+        store.set(mode.rawValue, forKey: Keys.peakMode)
+    }
+
+    func setPeak(radius: Double, amount: Double) {
+        peakRadius = Prefs.clampPeakRadius(radius)
+        peakAmount = Prefs.clampPeakAmount(amount)
+        store.set(peakRadius, forKey: Keys.peakRadius)
+        store.set(peakAmount, forKey: Keys.peakAmount)
+    }
+
+    /// Radius and amount a print uses. Off applies nothing. Auto uses the measurement.
+    nonisolated static func peakApplied(mode: PeakMode, radius: Double, amount: Double, measured: PeakMeasured?) -> (radius: Double, amount: Double) {
+        switch mode {
+        case .off: return (radius, 0)
+        case .auto: return (measured?.radius ?? peakLimits.radiusDefault, measured?.amount ?? 0)
+        case .custom: return (radius, amount)
+        }
     }
 
     func setProcess(_ p: Process) {
@@ -118,6 +161,9 @@ final class Prefs {
         static let soft = "paper_soft"
         static let hard = "paper_hard"
         static let peak = "peak_on"
+        static let peakMode = "peak_mode"
+        static let peakRadius = "peak_radius"
+        static let peakAmount = "peak_amount"
         static let process = "process"
         static let plateFilters = "plate_filters"
         static let plateSpace = "plate_space"

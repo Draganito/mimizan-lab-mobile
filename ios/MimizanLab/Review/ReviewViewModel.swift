@@ -32,8 +32,6 @@ final class ReviewViewModel {
     private(set) var hard = 0.0
     /// The plate process as the development stands; nil is the monochrome negative.
     private(set) var plate: PlateState?
-    private(set) var peakRadius = Prefs.peakLimits.radiusDefault
-    private(set) var peakAmount = 0.0
     private(set) var peakMeasured: PeakMeasured?
     /// Grey, or the plate in colour.
     private(set) var preview: CGImage?
@@ -58,7 +56,10 @@ final class ReviewViewModel {
 
     var shot: Shot? { darkroom.shots.first { $0.name == name } }
     var shotSettings: DevelopSettings? { shot?.settings }
-    var peakOn: Bool { darkroom.prefs.peak }
+    /// Radius and amount the 1:1 view and the exports apply.
+    var peakApplied: (radius: Double, amount: Double) {
+        Prefs.peakApplied(mode: darkroom.prefs.peakMode, radius: darkroom.prefs.peakRadius, amount: darkroom.prefs.peakAmount, measured: peakMeasured)
+    }
 
     /// Bind to a shot; follows `Darkroom.current` so a (re)development shows up.
     func open(_ name: String) {
@@ -98,10 +99,12 @@ final class ReviewViewModel {
         }
     }
 
-    /// The Peak checkbox lives in the settings; a zoomed-in view follows it.
+    /// Peak lives in the settings; a zoomed-in view follows the mode and the custom pair.
     private func observePeak() {
         withObservationTracking {
-            _ = darkroom.prefs.peak
+            _ = darkroom.prefs.peakMode
+            _ = darkroom.prefs.peakRadius
+            _ = darkroom.prefs.peakAmount
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -124,8 +127,6 @@ final class ReviewViewModel {
             filter = neg.info.filter
             plate = neg.info.plate
             peakMeasured = neg.peak
-            peakRadius = neg.peak?.radius ?? Prefs.peakLimits.radiusDefault
-            peakAmount = neg.peak?.amount ?? 0
             needsDevelop = false
             detail = nil
             render()
@@ -169,21 +170,20 @@ final class ReviewViewModel {
         if plate != nil { remixAndRender() }
     }
 
-    /// Peak's radius and amount by hand; only the 1:1 view has to follow (the preview is never sharpened).
-    func setPeak(radius: Double, amount: Double) {
-        peakRadius = Prefs.clampPeakRadius(radius)
-        peakAmount = Prefs.clampPeakAmount(amount)
+    /// Custom, started from this negative's measurement. The 1:1 view follows; the preview is never sharpened.
+    func setPeakMode(_ mode: PeakMode) {
+        if mode == .custom, darkroom.prefs.peakMode != .custom, let m = peakMeasured {
+            darkroom.prefs.setPeak(radius: m.radius, amount: m.amount)
+        }
+        darkroom.prefs.setPeakMode(mode)
         if let r = detailRegion { requestDetail(x: r.0, y: r.1, w: r.2, h: r.3) }
     }
 
-    /// Back to the pair the algorithm measured.
-    func resetPeak() {
-        guard let m = peakMeasured else { return }
-        setPeak(radius: m.radius, amount: m.amount)
+    /// Peak's radius and amount by hand. Remembered for the next picture and the automatic JPEG.
+    func setPeak(radius: Double, amount: Double) {
+        darkroom.prefs.setPeak(radius: radius, amount: amount)
+        if let r = detailRegion { requestDetail(x: r.0, y: r.1, w: r.2, h: r.3) }
     }
-
-    /// The amount the exports and the 1:1 view apply: zero while the Peak checkbox is off.
-    private var peakAmountApplied: Double { peakOn ? peakAmount : 0 }
 
     func setSoft(_ stops: Double) {
         darkroom.prefs.setSoft(stops)
@@ -293,7 +293,8 @@ final class ReviewViewModel {
             try? await Task.sleep(for: .milliseconds(120))
             if Task.isCancelled { return }
             guard let d = developed else { return }
-            let soft = self.soft, hard = self.hard, radius = self.peakRadius, amount = self.peakAmountApplied, isPlate = self.plate != nil
+            let pair = self.peakApplied
+            let soft = self.soft, hard = self.hard, radius = pair.radius, amount = pair.amount, isPlate = self.plate != nil
             let gate = self.gate
             let image: CGImage? = await Task.detached(priority: .userInitiated) {
                 await gate.run { () -> CGImage? in
@@ -322,14 +323,16 @@ final class ReviewViewModel {
     // MARK: exports
 
     func exportJpeg() {
-        let (soft, hard, radius, amount) = (self.soft, self.hard, self.peakRadius, self.peakAmountApplied)
+        let pair = peakApplied
+        let (soft, hard, radius, amount) = (self.soft, self.hard, pair.radius, pair.amount)
         export("JPEG") { d, name, suffix, exporter in
             try [Darkroom.exportJpeg(d, name: name, suffix: suffix, soft: soft, hard: hard, peakRadius: radius, peakAmount: amount, exporter: exporter)]
         }
     }
 
     func exportTiff() {
-        let (soft, hard, radius, amount) = (self.soft, self.hard, self.peakRadius, self.peakAmountApplied)
+        let pair = peakApplied
+        let (soft, hard, radius, amount) = (self.soft, self.hard, pair.radius, pair.amount)
         export("TIFF 16-bit") { d, name, suffix, exporter in
             try [Darkroom.exportTiff(d, name: name, suffix: suffix, soft: soft, hard: hard, peakRadius: radius, peakAmount: amount, exporter: exporter)]
         }

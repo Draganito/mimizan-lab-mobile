@@ -84,6 +84,7 @@ import ch.bojovic.mimizanlab.engine.ShotStatus
 import ch.bojovic.mimizanlab.engine.coreVersion
 import ch.bojovic.mimizanlab.engine.version
 import ch.bojovic.mimizanlab.engine.workerThreads
+import ch.bojovic.mimizanlab.store.PeakMode
 import ch.bojovic.mimizanlab.store.Prefs
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -102,7 +103,9 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val cacheBytes by vm.darkroom.cacheBytes.collectAsStateWithLifecycle()
     val soft by vm.darkroom.prefs.soft.collectAsStateWithLifecycle()
     val hard by vm.darkroom.prefs.hard.collectAsStateWithLifecycle()
-    val peak by vm.darkroom.prefs.peak.collectAsStateWithLifecycle()
+    val peakMode by vm.darkroom.prefs.peakMode.collectAsStateWithLifecycle()
+    val peakRadius by vm.darkroom.prefs.peakRadius.collectAsStateWithLifecycle()
+    val peakAmount by vm.darkroom.prefs.peakAmount.collectAsStateWithLifecycle()
     val stayOnFinder by vm.darkroom.prefs.stayOnFinder.collectAsStateWithLifecycle()
     val plateSpace by vm.darkroom.prefs.plateSpace.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
@@ -337,7 +340,22 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 )
                 Spacer(Modifier.height(8.dp))
                 PaperSliders(soft, hard, onSoft = vm::setSoft, onHard = vm::setHard)
-                SettingRow("Peak", peak) { vm.setPeak(it) }
+                PeakRow(peakMode, onMode = vm::setPeakMode)
+                if (peakMode == PeakMode.CUSTOM) {
+                    val lim = Prefs.PEAK
+                    LabeledSlider(
+                        label = String.format(Locale.US, "peak σ %.2f", peakRadius),
+                        value = peakRadius.toFloat(),
+                        onChange = { vm.setPeak(it.toDouble(), peakAmount) },
+                        range = lim.radiusMin.toFloat()..lim.radiusMax.toFloat(),
+                    )
+                    LabeledSlider(
+                        label = String.format(Locale.US, "peak ×%.2f", peakAmount),
+                        value = peakAmount.toFloat(),
+                        onChange = { vm.setPeak(peakRadius, it.toDouble()) },
+                        range = 0f..lim.amountMax.toFloat(),
+                    )
+                }
                 Text(
                     "The grade and Peak are the viewfinder, the automatic JPEG, and where a picture opens.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
@@ -441,6 +459,23 @@ fun FilterRow(selected: Filter, onSelect: (Filter) -> Unit) {
 private fun Aid(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, on: Boolean, toggle: () -> Unit) {
     IconButton(onClick = toggle) {
         Icon(icon, contentDescription = label, tint = if (on) Color.White else Color.White.copy(alpha = 0.45f))
+    }
+}
+
+@Composable
+fun PeakRow(mode: PeakMode, onMode: (PeakMode) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text("Peak", Modifier.weight(1f))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (m in PeakMode.entries) {
+                FilterChip(
+                    selected = m == mode,
+                    onClick = { onMode(m) },
+                    label = { Text(m.label) },
+                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF3A3A3A)),
+                )
+            }
+        }
     }
 }
 

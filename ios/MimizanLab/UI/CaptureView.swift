@@ -290,7 +290,12 @@ struct SettingsSheet: View {
                         .font(.caption).foregroundStyle(.gray)
                     PaperSliders(soft: vm.prefs.soft, hard: vm.prefs.hard, onSoft: vm.setSoft, onHard: vm.setHard)
                         .padding(.top, 8)
-                    SettingRow(label: "Peak", on: Binding(get: { vm.prefs.peak }, set: vm.setPeak))
+                    PeakRow(mode: vm.prefs.peakMode, onMode: vm.setPeakMode)
+                    if vm.prefs.peakMode == .custom {
+                        let lim = Prefs.peakLimits
+                        LabeledSlider(label: String(format: "peak σ %.2f", vm.prefs.peakRadius), value: Binding(get: { vm.prefs.peakRadius }, set: { vm.setPeak(radius: $0, amount: vm.prefs.peakAmount) }), range: lim.radiusMin...lim.radiusMax)
+                        LabeledSlider(label: String(format: "peak ×%.2f", vm.prefs.peakAmount), value: Binding(get: { vm.prefs.peakAmount }, set: { vm.setPeak(radius: vm.prefs.peakRadius, amount: $0) }), range: 0...lim.amountMax)
+                    }
                     Text("The grade and Peak are where a picture opens, and what the automatic JPEG uses. The viewfinder does not follow them.")
                         .font(.caption).foregroundStyle(.gray)
                     SettingRow(label: "Stay on the finder", on: Binding(get: { vm.prefs.stayOnFinder }, set: vm.setStayOnFinder))

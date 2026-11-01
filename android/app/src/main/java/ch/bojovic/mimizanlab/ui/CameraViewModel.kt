@@ -23,6 +23,7 @@ import ch.bojovic.mimizanlab.engine.SeparationMode
 import ch.bojovic.mimizanlab.engine.mixWeights
 import ch.bojovic.mimizanlab.engine.paperLut
 import ch.bojovic.mimizanlab.engine.plateWeights
+import ch.bojovic.mimizanlab.store.PeakMode
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -273,7 +274,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun setAutoJpeg(on: Boolean) = _develop.update { it.copy(autoJpeg = on) }
     fun setSoft(stops: Double) = darkroom.prefs.setSoft(stops)
     fun setHard(stops: Double) = darkroom.prefs.setHard(stops)
-    fun setPeak(on: Boolean) = darkroom.prefs.setPeak(on)
+    fun setPeakMode(mode: PeakMode) = darkroom.prefs.setPeakMode(mode)
+    fun setPeak(radius: Double, amount: Double) = darkroom.prefs.setPeak(radius, amount)
     fun setStayOnFinder(on: Boolean) = darkroom.prefs.setStayOnFinder(on)
     fun toggleZebra() = _viewfinder.update { it.copy(zebra = !it.zebra) }
     fun toggleGrid() = _viewfinder.update { it.copy(grid = !it.grid) }

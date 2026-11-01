@@ -129,7 +129,7 @@ struct ReviewView: View {
     private var exportButton: some View {
         let plate = vm.plate
         return Menu {
-            let peak = vm.peakOn && vm.peakAmount > 0 ? ", peak" : ""
+            let peak = vm.peakApplied.amount > 0 ? ", peak" : ""
             let rgb = plate.map { " \(Format.plateSpace($0.space))" } ?? ""
             Button("JPEG\(rgb)\(peak)") { vm.exportJpeg() }
             Button("TIFF 16-bit\(rgb)\(peak)") { vm.exportTiff() }
@@ -156,25 +156,11 @@ struct ReviewView: View {
                 PlateFilterRow(selected: prefs.plateFilters, hasMatrix: vm.info?.hasColourMatrix ?? false, onSelect: vm.setPlateFilters)
             }
             PaperSliders(soft: vm.soft, hard: vm.hard, onSoft: vm.setSoft, onHard: vm.setHard)
-            SettingRow(label: "Peak", on: Binding(get: { vm.peakOn }, set: { vm.darkroom.prefs.setPeak($0) }))
-            if vm.peakOn {
-                // Peak's pair, started from the measurement on this negative; the
-                // 1:1 view shows the result, the preview is never sharpened.
+            PeakRow(mode: prefs.peakMode, onMode: vm.setPeakMode)
+            if prefs.peakMode == .custom {
                 let lim = Prefs.peakLimits
-                LabeledSlider(label: String(format: "peak σ %.2f", vm.peakRadius), value: Binding(get: { vm.peakRadius }, set: { vm.setPeak(radius: $0, amount: vm.peakAmount) }), range: lim.radiusMin...lim.radiusMax)
-                LabeledSlider(label: String(format: "peak ×%.2f", vm.peakAmount), value: Binding(get: { vm.peakAmount }, set: { vm.setPeak(radius: vm.peakRadius, amount: $0) }), range: 0...lim.amountMax)
-                HStack(spacing: 12) {
-                    let m = vm.peakMeasured
-                    Text(
-                        m == nil ? "not measured"
-                            : !(m!.found) ? "no clean edge measured: left as it is"
-                            : String(format: "measured σ %.2f ×%.2f", m!.radius, m!.amount)
-                    )
-                    .font(.caption).foregroundStyle(.gray)
-                    Button("Measured") { vm.resetPeak() }
-                        .disabled(m == nil || (m!.radius == vm.peakRadius && m!.amount == vm.peakAmount))
-                    Spacer()
-                }
+                LabeledSlider(label: String(format: "peak σ %.2f", prefs.peakRadius), value: Binding(get: { prefs.peakRadius }, set: { vm.setPeak(radius: $0, amount: prefs.peakAmount) }), range: lim.radiusMin...lim.radiusMax)
+                LabeledSlider(label: String(format: "peak ×%.2f", prefs.peakAmount), value: Binding(get: { prefs.peakAmount }, set: { vm.setPeak(radius: prefs.peakRadius, amount: $0) }), range: 0...lim.amountMax)
             }
             if let cur = vm.shotSettings, cur.binning == 2 {
                 Button("Full size") { var s = cur; s.binning = 1; vm.develop(s) }

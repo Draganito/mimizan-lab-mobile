@@ -29,14 +29,17 @@ final class Negative: @unchecked Sendable {
     }
 }
 
-/// The paper's two exposures, the plate's two lamps and the Peak checkbox
-/// as they stand: read on the main actor, carried into the worker.
+/// The paper's two exposures, the plate's two lamps and Peak as they
+/// stand: read on the main actor, carried into the worker. Custom keeps
+/// its own radius and amount; Auto uses the measurement made below.
 struct PaperSettings: Sendable {
     var soft: Double
     var hard: Double
     var lampRed: Double
     var lampBlue: Double
-    var peakOn: Bool
+    var peakMode: PeakMode
+    var peakRadius: Double
+    var peakAmount: Double
 }
 
 @MainActor
@@ -81,7 +84,10 @@ final class Darkroom {
     }
 
     var paperSettings: PaperSettings {
-        PaperSettings(soft: prefs.soft, hard: prefs.hard, lampRed: 0, lampBlue: 0, peakOn: prefs.peak)
+        PaperSettings(
+            soft: prefs.soft, hard: prefs.hard, lampRed: 0, lampBlue: 0,
+            peakMode: prefs.peakMode, peakRadius: prefs.peakRadius, peakAmount: prefs.peakAmount
+        )
     }
 
     // MARK: intake
@@ -299,10 +305,10 @@ final class Darkroom {
             if wantJpeg {
                 let suffix = suffix(for: settings, info: info)
                 jpeg = try exporter.place(fileName: "\(name)\(suffix).jpg") { p in
+                    let peakPair = Prefs.peakApplied(mode: paper.peakMode, radius: paper.peakRadius, amount: paper.peakAmount, measured: peak)
                     _ = try developed.exportJpeg(
                         path: p, soft: paper.soft, hard: paper.hard, extraQuarterTurns: 0,
-                        peakRadius: peak?.radius ?? Prefs.peakLimits.radiusDefault,
-                        peakAmount: paper.peakOn ? (peak?.amount ?? 0) : 0
+                        peakRadius: peakPair.radius, peakAmount: peakPair.amount
                     )
                 }
             }

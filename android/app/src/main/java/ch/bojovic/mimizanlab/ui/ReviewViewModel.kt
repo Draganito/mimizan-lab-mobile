@@ -22,6 +22,7 @@ import ch.bojovic.mimizanlab.engine.RgbImage
 import ch.bojovic.mimizanlab.engine.WeightSpace
 import ch.bojovic.mimizanlab.engine.Weights
 import ch.bojovic.mimizanlab.engine.normaliseWeights
+import ch.bojovic.mimizanlab.store.PeakMode
 import ch.bojovic.mimizanlab.store.Prefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -29,6 +30,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -52,9 +54,6 @@ data class ReviewState(
     val hard: Double = 0.0,
     /** The plate process as the development stands; null is the monochrome negative. */
     val plate: PlateState? = null,
-    /** Peak's radius (pixels of the negative) and amount the exports and the 1:1 view use. */
-    val peakRadius: Double = Prefs.PEAK.radiusDefault,
-    val peakAmount: Double = 0.0,
     /** What the algorithm measured on this negative; null until the development carries it. */
     val peakMeasured: PeakMeasured? = null,
     /** Grey, or the plate in colour. */
@@ -86,9 +85,10 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     private var detailRegion: IntArray? = null
 
     init {
-        // The Peak checkbox lives in the settings; a zoomed-in view follows it.
+        // Peak lives in the settings; a zoomed-in view follows the mode and the custom pair.
         viewModelScope.launch {
-            darkroom.prefs.peak.collect { detailRegion?.let { r -> requestDetail(r[0], r[1], r[2], r[3]) } }
+            combine(darkroom.prefs.peakMode, darkroom.prefs.peakRadius, darkroom.prefs.peakAmount) { _, _, _ -> }
+                .collect { detailRegion?.let { r -> requestDetail(r[0], r[1], r[2], r[3]) } }
         }
     }
 
@@ -128,11 +128,7 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                             effective = neg.info.weights,
                             filter = neg.info.filter,
                             plate = neg.info.plate,
-                            // A (re)development has new pixels: the fields
-                            // take the measured pair, as on the desktop.
                             peakMeasured = neg.peak,
-                            peakRadius = neg.peak?.radius ?: Prefs.PEAK.radiusDefault,
-                            peakAmount = neg.peak?.amount ?: 0.0,
                             needsDevelop = false,
                             detail = null,
                         )
@@ -181,20 +177,22 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
         if (_state.value.plate != null) remixAndRender()
     }
 
-    /** Peak's radius and amount by hand; only the 1:1 view has to follow (the preview is never sharpened). */
+    /** Custom, started from this negative's measurement. The 1:1 view follows; the preview is never sharpened. */
+    fun setPeakMode(mode: PeakMode) {
+        if (mode == PeakMode.CUSTOM && darkroom.prefs.peakMode.value != PeakMode.CUSTOM) {
+            _state.value.peakMeasured?.let { darkroom.prefs.setPeak(it.radius, it.amount) }
+        }
+        darkroom.prefs.setPeakMode(mode)
+    }
+
+    /** Peak's radius and amount by hand. Remembered for the next picture and the automatic JPEG. */
     fun setPeak(radius: Double, amount: Double) {
-        _state.update { it.copy(peakRadius = Prefs.clampPeakRadius(radius), peakAmount = Prefs.clampPeakAmount(amount)) }
-        detailRegion?.let { r -> requestDetail(r[0], r[1], r[2], r[3]) }
+        darkroom.prefs.setPeak(radius, amount)
     }
 
-    /** Back to the pair the algorithm measured. */
-    fun resetPeak() {
-        val m = _state.value.peakMeasured ?: return
-        setPeak(m.radius, m.amount)
-    }
-
-    /** The amount the exports and the 1:1 view apply: zero while the Peak checkbox is off. */
-    private fun peakAmountApplied(s: ReviewState): Double = if (darkroom.prefs.peak.value) s.peakAmount else 0.0
+    /** Radius and amount the exports and the 1:1 view apply. */
+    private fun peakApplied(s: ReviewState): Pair<Double, Double> =
+        Prefs.peakApplied(darkroom.prefs.peakMode.value, darkroom.prefs.peakRadius.value, darkroom.prefs.peakAmount.value, s.peakMeasured)
 
     fun setSoft(stops: Double) = setPaper(soft = Prefs.snapStops(stops), hard = null)
 
@@ -290,11 +288,11 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
             renderLock.withLock {
                 try {
                     val s = _state.value
-                    val amount = peakAmountApplied(s)
+                    val applied = peakApplied(s)
                     val bitmap = if (s.plate != null) {
-                        toBitmap(d.detailRgb(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.soft, s.hard, 0u, s.peakRadius, amount))
+                        toBitmap(d.detailRgb(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.soft, s.hard, 0u, applied.first, applied.second))
                     } else {
-                        toBitmap(d.detail(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.soft, s.hard, 0u, s.peakRadius, amount))
+                        toBitmap(d.detail(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.soft, s.hard, 0u, applied.first, applied.second))
                     }
                     _state.update { it.copy(detail = Detail(x, y, bitmap)) }
                 } catch (t: Throwable) {
@@ -312,12 +310,14 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
 
     fun exportJpeg() = export("JPEG") { d, name, suffix ->
         val s = _state.value
-        darkroom.exportJpeg(d, name, suffix, s.soft, s.hard, s.peakRadius, peakAmountApplied(s))
+        val applied = peakApplied(s)
+        darkroom.exportJpeg(d, name, suffix, s.soft, s.hard, applied.first, applied.second)
     }
 
     fun exportTiff() = export("TIFF 16-bit") { d, name, suffix ->
         val s = _state.value
-        darkroom.exportTiff(d, name, suffix, s.soft, s.hard, s.peakRadius, peakAmountApplied(s))
+        val applied = peakApplied(s)
+        darkroom.exportTiff(d, name, suffix, s.soft, s.hard, applied.first, applied.second)
     }
 
     fun exportNegative() = export(if (_state.value.plate != null) "plate" else "negative") { d, name, _ ->
