@@ -1,6 +1,8 @@
 [package]
 name = "mimizan-mobile"
-version = "0.14.1"
+# The app's version: scripts/set_version.sh keeps this, build.gradle.kts and
+# ios/project.yml on the same number.
+version = "0.14.21"
 edition = "2021"
 license = "GPL-3.0-or-later"
 authors = ["Dragan Bojovic"]

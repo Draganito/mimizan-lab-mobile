@@ -1,0 +1,80 @@
+# Builds the Android app on a Linux runner: the Rust core for arm64 Android
+# through cargo-ndk, the UniFFI Kotlin bindings, the Kotlin unit tests, and a
+# debug APK. The release APK on the releases page is still built locally
+# (README, "Install the APK"); this job is the check that a push still
+# compiles and that the Rust half of it builds for the phone.
+#
+# The core is the commit in mimizan-core.ref, as in the iOS workflows.
+name: Android
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "android/**"
+      - "rust/**"
+      - "cameras/**"
+      - "mimizan-core.ref"
+      - ".github/workflows/android.yml"
+  pull_request:
+    paths:
+      - "android/**"
+      - "rust/**"
+      - "cameras/**"
+      - "mimizan-core.ref"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  NDK_VERSION: "27.3.13750724"
+
+jobs:
+  apk:
+    name: Debug APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mimizan-lab-mobile
+      - name: Core commit
+        id: core
+        run: echo "sha=$(tr -d '[:space:]' < mimizan-lab-mobile/mimizan-core.ref)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: Draganito/mimizan
+          ref: ${{ steps.core.outputs.sha }}
+          path: mimizan
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mimizan-lab-mobile/rust/mimizan-mobile
+      - name: cargo-ndk
+        run: command -v cargo-ndk >/dev/null || cargo install cargo-ndk --locked
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-37.1 ndk;${{ env.NDK_VERSION }}"
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build and test
+        working-directory: mimizan-lab-mobile/android
+        env:
+          # build.gradle.kts takes the newest NDK under the SDK otherwise;
+          # the runner image carries several. This is the one the APK is
+          # linked and stripped with.
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
+        run: ./gradlew --no-daemon assembleDebug testDebugUnitTest
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mimizan-lab-mobile-debug
+          path: mimizan-lab-mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

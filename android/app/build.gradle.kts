@@ -90,14 +90,34 @@ android {
         ndk { abiFilters += rustAbi }
     }
 
+    // A release key, when android/keystore.properties exists (git-ignored):
+    //   storeFile=/absolute/path/to/mimizan-lab.jks
+    //   storePassword=...
+    //   keyAlias=...
+    //   keyPassword=...
+    // Without it the release APK is signed with the debug key, as every
+    // release so far. Android treats the two as different apps; the first
+    // APK with the release key needs an uninstall on the phone.
+    val releaseKey = rootProject.file("keystore.properties").takeIf { it.exists() }?.let { f ->
+        Properties().also { p -> f.inputStream().use { p.load(it) } }
+    }
+    signingConfigs {
+        if (releaseKey != null) {
+            create("release") {
+                storeFile = file(releaseKey.getProperty("storeFile"))
+                storePassword = releaseKey.getProperty("storePassword")
+                keyAlias = releaseKey.getProperty("keyAlias")
+                keyPassword = releaseKey.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Signed with the debug key until a release key exists, so
-            // `./gradlew installRelease` works on the test phone.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (releaseKey != null) "release" else "debug")
         }
         debug {
             isMinifyEnabled = false

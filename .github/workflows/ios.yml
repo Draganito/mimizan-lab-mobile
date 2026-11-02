@@ -5,7 +5,9 @@
 # nothing here needs an Apple developer account.
 #
 # The core is a path dependency on the sibling checkout of Draganito/mimizan,
-# as it is on the desktop (rust/mimizan-mobile/Cargo.toml).
+# as it is on the desktop (rust/mimizan-mobile/Cargo.toml). The checkout is
+# the commit in mimizan-core.ref, so the build here carries the same core
+# as the APK built next to that checkout (scripts/set_version.sh writes it).
 name: iOS
 
 on:
@@ -15,6 +17,7 @@ on:
       - "ios/**"
       - "rust/**"
       - "cameras/**"
+      - "mimizan-core.ref"
       - "scripts/build_ios.sh"
       - ".github/workflows/ios.yml"
   pull_request:
@@ -22,6 +25,7 @@ on:
       - "ios/**"
       - "rust/**"
       - "cameras/**"
+      - "mimizan-core.ref"
       - "scripts/build_ios.sh"
       - ".github/workflows/ios.yml"
   workflow_dispatch:
@@ -37,9 +41,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: mimizan-lab-mobile
+      - name: Core commit
+        id: core
+        run: echo "sha=$(tr -d '[:space:]' < mimizan-lab-mobile/mimizan-core.ref)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           repository: Draganito/mimizan
+          ref: ${{ steps.core.outputs.sha }}
           path: mimizan
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -61,9 +69,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: mimizan-lab-mobile
+      - name: Core commit
+        id: core
+        run: echo "sha=$(tr -d '[:space:]' < mimizan-lab-mobile/mimizan-core.ref)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           repository: Draganito/mimizan
+          ref: ${{ steps.core.outputs.sha }}
           path: mimizan
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -74,10 +86,11 @@ jobs:
       - name: Xcode 26
         # App Store Connect rejects anything built with an SDK older than
         # iOS 26, so the unsigned build uses the same toolchain as the
-        # TestFlight one.
+        # TestFlight one. "26" is the newest 26.x the runner has, so a
+        # retired point release does not stop the build.
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "26.0"
+          xcode-version: "26"
       - name: Core, bindings, xcframework
         working-directory: mimizan-lab-mobile
         run: scripts/build_ios.sh --device-only

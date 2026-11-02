@@ -102,12 +102,20 @@ Camera, Notifications and, on Android 17, Sensors when asked. The
 release build is minified and signed with the debug key. Android will
 not update it over a build with another key, so uninstall first when
 switching between a release download and your own `installDebug`.
+`build.gradle.kts` takes a release key from `android/keystore.properties`
+(git-ignored; `storeFile`, `storePassword`, `keyAlias`, `keyPassword`)
+when that file exists. The day a release carries it, the phones on the
+debug-signed APK have to uninstall once.
 
 ### Build
 
 The Rust crate depends on `mimizan-core` by path. The two repositories
 sit next to each other; from `rust/mimizan-mobile` the core is
-`../../../mimizan/crates/mimizan-core`.
+`../../../mimizan/crates/mimizan-core`. A local build takes whatever
+that checkout is at. The workflows check `Draganito/mimizan` out at the
+commit in `mimizan-core.ref`, so a TestFlight build and the APK of the
+same version carry the same core; `scripts/set_version.sh` writes that
+file from the sibling's `HEAD` (see [Release](#release)).
 
 ```bash
 git clone https://github.com/Draganito/mimizan.git
@@ -143,6 +151,11 @@ cargo test                        # synthetic frames
 cargo test --features host-raw    # bit-for-bit against the desktop decoder (needs mimizan/testdata)
 cargo ndk -t arm64-v8a --platform 33 build --release --lib
 ```
+
+The `Android` workflow does the same on a Linux runner for a push that
+touches `android/`, `rust/`, `cameras/` or `mimizan-core.ref`: cargo-ndk,
+the bindings, the Kotlin unit tests, a debug APK as the artifact. The
+release APK is not built there.
 
 ## iOS
 
@@ -198,6 +211,34 @@ The still is a Bayer RAW at the size the camera gives by default. The
 app does not ask a 14 Pro or later for its 48 MP frame, so that size
 does not enter the darkroom. The entitlement
 `com.apple.developer.kernel.increased-memory-limit` is set.
+
+## Release
+
+One version number sits in three files: `versionName` and `versionCode`
+in `android/app/build.gradle.kts`, `MARKETING_VERSION` in
+`ios/project.yml`, and `version` in `rust/mimizan-mobile/Cargo.toml`
+(what `version()` reports in the app). `scripts/set_version.sh <version>`
+writes all three, raises `versionCode` by one, and pins the core: it puts
+the `HEAD` of `../mimizan` into `mimizan-core.ref`, and refuses when that
+checkout has uncommitted core changes or a `HEAD` that is not on
+`origin/main`, because the workflows check that commit out. It commits
+nothing.
+
+```bash
+scripts/set_version.sh 0.14.22
+cd android && ./gradlew assembleRelease && cd ..
+git commit -am "0.14.22: ..."
+git push
+gh release create v0.14.22 \
+  android/app/build/outputs/apk/release/app-release.apk#mimizan-lab-mobile-0.14.22.apk \
+  --title 0.14.22 --notes "..."
+```
+
+The `v*` tag the release creates starts the `TestFlight` workflow. A tag
+`android-<version>` publishes the APK alone and starts nothing on the iOS
+side; 0.14.20 went out that way, for a look on the phones first. The iOS
+build number is the workflow's run number, not the `27` in `project.yml`;
+that one is for a local Xcode build.
 
 ## Using the app
 
