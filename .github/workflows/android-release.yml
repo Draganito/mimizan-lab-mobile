@@ -1,0 +1,77 @@
+# Release APK for the GitHub releases page. Same core pin as TestFlight
+# (mimizan-core.ref). Signed with the debug key: the runner has no
+# keystore, and every APK so far has used that key.
+#
+# A v* tag also starts TestFlight. android-<version> is the APK alone.
+name: Android Release
+
+on:
+  push:
+    tags: ["v*", "android-*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  NDK_VERSION: "27.3.13750724"
+
+jobs:
+  apk:
+    name: Release APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: mimizan-lab-mobile
+      - name: Core commit
+        id: core
+        run: echo "sha=$(tr -d '[:space:]' < mimizan-lab-mobile/mimizan-core.ref)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: Draganito/mimizan
+          ref: ${{ steps.core.outputs.sha }}
+          path: mimizan
+
+      - name: Version
+        id: ver
+        run: |
+          t="${GITHUB_REF_NAME}"
+          t="${t#android-}"
+          t="${t#v}"
+          echo "name=$t" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mimizan-lab-mobile/rust/mimizan-mobile
+      - name: cargo-ndk
+        run: command -v cargo-ndk >/dev/null || cargo install cargo-ndk --locked
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-37.1 ndk;${{ env.NDK_VERSION }}"
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build
+        working-directory: mimizan-lab-mobile/android
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Name the APK
+        run: |
+          src=mimizan-lab-mobile/android/app/build/outputs/apk/release/app-release.apk
+          dest=mimizan-lab-mobile/android/app/build/outputs/apk/release/mimizan-lab-mobile-${{ steps.ver.outputs.name }}.apk
+          cp "$src" "$dest"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: mimizan-lab-mobile/android/app/build/outputs/apk/release/mimizan-lab-mobile-${{ steps.ver.outputs.name }}.apk
+          fail_on_unmatched_files: true

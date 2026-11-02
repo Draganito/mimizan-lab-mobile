@@ -1,8 +1,7 @@
 # Builds the Android app on a Linux runner: the Rust core for arm64 Android
 # through cargo-ndk, the UniFFI Kotlin bindings, the Kotlin unit tests, and a
-# debug APK. The release APK on the releases page is still built locally
-# (README, "Install the APK"); this job is the check that a push still
-# compiles and that the Rust half of it builds for the phone.
+# debug APK. The check that a push still compiles. The release APK on the
+# releases page is `android-release.yml`, on a v* or android-* tag.
 #
 # The core is the commit in mimizan-core.ref, as in the iOS workflows.
 name: Android

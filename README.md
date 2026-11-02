@@ -137,7 +137,7 @@ Prerequisites (user-local, no sudo):
 cd android
 ./gradlew assembleDebug        # cargo ndk -> uniffi-bindgen -> Kotlin -> APK
 ./gradlew installDebug         # phone attached, USB debugging on
-./gradlew assembleRelease      # the APK that the releases page carries
+./gradlew assembleRelease      # a local release APK; the releases page is CI
 ```
 
 `gradle.properties` sets `mimizan.rustProfile=release`, so a debug APK
@@ -156,8 +156,9 @@ cargo ndk -t arm64-v8a --platform 33 build --release --lib
 
 The `Android` workflow does the same on a Linux runner for a push that
 touches `android/`, `rust/`, `cameras/` or `mimizan-core.ref`: cargo-ndk,
-the bindings, the Kotlin unit tests, a debug APK as the artifact. The
-release APK is not built there.
+the bindings, the Kotlin unit tests, a debug APK as the artifact. A
+`v*` or `android-*` tag starts `Android Release`, which builds the
+minified APK and puts it on the release.
 
 ## iOS
 
@@ -228,17 +229,12 @@ nothing.
 
 ```bash
 scripts/set_version.sh 0.14.22
-cd android && ./gradlew assembleRelease && cd ..
-cp android/app/build/outputs/apk/release/app-release.apk \
-  android/app/build/outputs/apk/release/mimizan-lab-mobile-0.14.22.apk
 git commit -am "0.14.22: ..."
 git push
-gh release create v0.14.22 \
-  android/app/build/outputs/apk/release/mimizan-lab-mobile-0.14.22.apk \
-  --title 0.14.22 --notes "..."
+gh release create v0.14.22 --title 0.14.22 --notes "..."
 ```
 
-The `v*` tag the release creates starts the `TestFlight` workflow. A tag
+The `v*` tag starts `TestFlight` and `Android Release`. A tag
 `android-<version>` publishes the APK alone and starts nothing on the iOS
 side; 0.14.20 went out that way, for a look on the phones first. The iOS
 build number is the workflow's run number, not the `27` in `project.yml`;

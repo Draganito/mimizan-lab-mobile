@@ -10,18 +10,14 @@
 #   mimizan-core.ref                    HEAD of ../mimizan, the core the CI builds against
 #
 # It refuses when ../mimizan has uncommitted changes under crates/mimizan-core
-# or when its HEAD is not on origin: the iOS workflows check that commit out,
-# and the APK built here must be the same core. Nothing is committed; the
-# diff is yours to read and commit ("<version>: ...").
+# or when its HEAD is not on origin: the workflows check that commit out.
+# Nothing is committed; the diff is yours to read and commit ("<version>: ...").
 #
-# Then: build the APK (cd android && ./gradlew assembleRelease), commit, and
-#   cp android/app/build/outputs/apk/release/app-release.apk \
-#      android/app/build/outputs/apk/release/mimizan-lab-mobile-<version>.apk
-#   gh release create v<version> \
-#     android/app/build/outputs/apk/release/mimizan-lab-mobile-<version>.apk \
-#     --title <version> --notes "..."
-# A v* tag starts the TestFlight upload. For Android alone, tag
-# android-<version> instead; nothing on the iOS side listens to that.
+# Then commit, push, and
+#   gh release create v<version> --title <version> --notes "..."
+# The v* tag starts TestFlight and the Android Release APK. For Android
+# alone, tag android-<version> instead; nothing on the iOS side listens
+# to that.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
