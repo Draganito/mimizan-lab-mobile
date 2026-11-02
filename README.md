@@ -26,6 +26,9 @@ The iOS app is the same darkroom for iPhone and iPad, iOS 17. It is
 built in CI and uploaded to TestFlight. A `v*` tag on this repository
 is what starts that upload.
 
+A short handbook for the phone and the desktop window, in German:
+[docs/HANDBUCH.md](https://github.com/Draganito/mimizan/blob/main/docs/HANDBUCH.md).
+
 ```
 Android   Camera2 RAW_SENSOR ──> RawInput (Kotlin) ──> mimizan-core (Rust, UniFFI)
 iOS       AVFoundation Bayer RAW as DNG ──> develop_file (the desktop decoder)
