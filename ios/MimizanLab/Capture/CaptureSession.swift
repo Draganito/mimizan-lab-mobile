@@ -70,23 +70,24 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
 
     private let queue = DispatchQueue(label: "ch.bojovic.mimizanlab.camera", qos: .userInteractive)
     private let session = AVCaptureSession()
-    /// The rotation coordinator only follows the device while the app
-    /// subscribes to orientation notifications; started once, with the session.
-    private static let orientation = {
-        UIDevice.current.beginGeneratingDeviceOrientationNotifications()
-    }()
     private let photoOutput = AVCapturePhotoOutput()
     private let videoOutput = AVCaptureVideoDataOutput()
     private var input: AVCaptureDeviceInput?
     private var device: AVCaptureDevice?
     private var lens: LensInfo?
     private var rawFormat: OSType = 0
-    /// Clockwise quarter-turns that bring the sensor buffer upright for the
-    /// device's current orientation. The shader applies them; the video
+    /// Clockwise quarter-turns that bring the sensor buffer upright on the
+    /// screen: the interface orientation, which is fixed to portrait on the
+    /// phone and follows the iPad. The shader applies them; the video
     /// connection is kept at 0 so the frames are never rotated twice.
     private var shownQuarters = 1
+    /// Clockwise quarter-turns the still is tagged with: the device
+    /// orientation, which also moves on the portrait-locked phone. Only the
+    /// DNG's orientation tag reads it.
+    private var stillQuarters = 1
     private var observers: [NSKeyValueObservation] = []
     private var orientationObserver: (any NSObjectProtocol)?
+    private var sessionObservers: [any NSObjectProtocol] = []
     private var exposure = ExposureSettings()
     private var flash: FlashMode = .off
     private var processor: PhotoProcessor?
@@ -99,6 +100,12 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
         videoOutput.alwaysDiscardsLateVideoFrames = true
         videoOutput.setSampleBufferDelegate(self, queue: queue)
+        observeSession()
+    }
+
+    deinit {
+        for o in sessionObservers { NotificationCenter.default.removeObserver(o) }
+        if let o = orientationObserver { NotificationCenter.default.removeObserver(o) }
     }
 
     // MARK: lifecycle
@@ -106,11 +113,12 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     /// Open `lens` with a Bayer RAW photo output. Throws when the lens
     /// offers no Bayer RAW (the caller tries the next one).
     func start(_ lens: LensInfo) async throws {
-        let q = await MainActor.run { CaptureSession.currentQuarters() }
+        let o = await MainActor.run { CaptureSession.currentOrientation() }
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             queue.async {
                 do {
-                    self.shownQuarters = q
+                    self.shownQuarters = o.shown
+                    self.stillQuarters = o.still
                     try self.configure(lens)
                     if !self.session.isRunning { self.session.startRunning() }
                     cont.resume()
@@ -126,6 +134,64 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         queue.async {
             if self.session.isRunning { self.session.stopRunning() }
             self.teardown()
+        }
+    }
+
+    /// Interruptions (a call, the iPad's Split View, system pressure) and
+    /// runtime errors. The session keeps its configuration across an
+    /// interruption and resumes on its own once it ends; a runtime error
+    /// (media services reset) needs the lens opened again.
+    private func observeSession() {
+        let nc = NotificationCenter.default
+        sessionObservers = [
+            nc.addObserver(forName: AVCaptureSession.wasInterruptedNotification, object: session, queue: nil) { [weak self] n in
+                let raw = n.userInfo?[AVCaptureSessionInterruptionReasonKey] as? Int
+                let reason = raw.flatMap { AVCaptureSession.InterruptionReason(rawValue: $0) }
+                self?.queue.async { self?.interrupted(reason) }
+            },
+            nc.addObserver(forName: AVCaptureSession.interruptionEndedNotification, object: session, queue: nil) { [weak self] _ in
+                self?.queue.async { self?.interruptionEnded() }
+            },
+            nc.addObserver(forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: nil) { [weak self] n in
+                let error = n.userInfo?[AVCaptureSessionErrorKey] as? NSError
+                self?.queue.async { self?.runtimeError(error) }
+            },
+        ]
+    }
+
+    private func interrupted(_ reason: AVCaptureSession.InterruptionReason?) {
+        guard lens != nil else { return }
+        let why: String
+        switch reason {
+        case .videoDeviceNotAvailableInBackground: why = "the app is in the background"
+        case .videoDeviceInUseByAnotherClient: why = "another app is using the camera"
+        case .videoDeviceNotAvailableWithMultipleForegroundApps: why = "the camera is not available beside another app (open Mimizan Lab in full screen)"
+        case .videoDeviceNotAvailableDueToSystemPressure: why = "the system is under pressure"
+        case .audioDeviceInUseByAnotherClient: why = "the audio device is in use"
+        default: why = "interrupted"
+        }
+        log.warning("session interrupted: \(why)")
+        Task { @MainActor in self.state.error = "Camera paused: \(why)." }
+    }
+
+    private func interruptionEnded() {
+        guard lens != nil else { return }
+        log.info("session interruption ended")
+        if !session.isRunning { session.startRunning() }
+        Task { @MainActor in self.state.error = nil }
+    }
+
+    private func runtimeError(_ error: NSError?) {
+        guard let lens else { return }
+        log.error("session runtime error: \(error?.localizedDescription ?? "unknown")")
+        // Open the same lens again; `configure` tears the old graph down first.
+        do {
+            try configure(lens)
+            if !session.isRunning { session.startRunning() }
+        } catch {
+            teardown()
+            let message = error.localizedDescription
+            Task { @MainActor in self.state.error = message }
         }
     }
 
@@ -164,18 +230,15 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
             log.warning("finder configuration: \(error.localizedDescription)")
         }
 
-        _ = CaptureSession.orientation
+        // The app subscribes to device orientation notifications in
+        // `MimizanLabApp.init`; the interface may turn a moment after the
+        // device does, so the screen also calls `refreshOrientation` when
+        // its size changes.
         if orientationObserver == nil {
             orientationObserver = NotificationCenter.default.addObserver(
                 forName: UIDevice.orientationDidChangeNotification, object: nil, queue: .main
             ) { [weak self] _ in
-                Task { @MainActor in
-                    let q = CaptureSession.currentQuarters()
-                    self?.queue.async {
-                        self?.shownQuarters = q
-                        self?.applyOrientation()
-                    }
-                }
+                Task { @MainActor in self?.refreshOrientation() }
             }
         }
         applyOrientation()
@@ -185,7 +248,9 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                 Task { @MainActor in self?.state.iso = iso }
             },
             device.observe(\.exposureDuration, options: [.new]) { [weak self] d, _ in
+                // An invalid CMTime reads as NaN: keep the last good value then.
                 let s = d.exposureDuration.seconds
+                guard s.isFinite, s > 0 else { return }
                 Task { @MainActor in self?.state.exposureSeconds = s }
             },
             device.observe(\.isAdjustingFocus, options: [.new]) { [weak self] d, _ in
@@ -215,33 +280,57 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     }
 
     /// Clockwise quarter-turns that stand the back camera's sensor buffer
-    /// upright. The buffer arrives in the sensor's own orientation (the
-    /// video connection is pinned at 0 below), so this is the whole rotation.
-    /// `.landscapeLeft` needs none: that is the orientation the sensor
-    /// already scans in.
+    /// upright for a device held this way. The buffer arrives in the
+    /// sensor's own orientation (the video connection is pinned at 0
+    /// below). `.landscapeLeft` needs none: that is the orientation the
+    /// sensor already scans in. Flat or unknown is nil: the interface
+    /// decides then.
     static func quarters(for o: UIDeviceOrientation) -> Int? {
         switch o {
         case .landscapeLeft: return 0
-        case .portrait, .faceUp: return 1
+        case .portrait: return 1
         case .landscapeRight: return 2
         case .portraitUpsideDown: return 3
         default: return nil
         }
     }
 
-    /// The quarter-turns to show now. The device orientation wins once the
-    /// device has reported one; before the first movement it reads
-    /// `.unknown`, so the window's orientation fills in. The interface
-    /// landscapes are mirrored against the device's.
-    @MainActor
-    static func currentQuarters() -> Int {
-        if let q = quarters(for: UIDevice.current.orientation) { return q }
-        let iface = (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.interfaceOrientation
-        switch iface {
+    /// The same for the interface: what the screen shows has to be
+    /// rotated against the screen, and the screen is the interface. The
+    /// interface landscapes are mirrored against the device's.
+    static func quarters(for o: UIInterfaceOrientation) -> Int {
+        switch o {
         case .landscapeRight: return 0
         case .portraitUpsideDown: return 3
         case .landscapeLeft: return 2
         default: return 1
+        }
+    }
+
+    /// `shown`: the shader's turns, from the interface. `still`: the turns
+    /// the DNG is tagged with, from the device (so a landscape frame taken
+    /// on the portrait-locked phone is a landscape frame), falling back to
+    /// the interface while the device lies flat.
+    @MainActor
+    static func currentOrientation() -> (shown: Int, still: Int) {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        let shown = scene.map { CaptureSession.quarters(for: $0.interfaceOrientation) } ?? 1
+        let still = CaptureSession.quarters(for: UIDevice.current.orientation) ?? shown
+        return (shown, still)
+    }
+
+    /// Read both orientations again and apply them. Called on a device
+    /// orientation change and when the screen's size changes (the iPad's
+    /// interface turning).
+    @MainActor
+    func refreshOrientation() {
+        let o = CaptureSession.currentOrientation()
+        queue.async {
+            self.stillQuarters = o.still
+            guard self.shownQuarters != o.shown else { return }
+            self.shownQuarters = o.shown
+            self.applyOrientation()
         }
     }
 
@@ -359,15 +448,20 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                     return
                 }
                 let settings = AVCapturePhotoSettings(rawPixelFormatType: self.rawFormat)
+                // With the exposure set by hand the automatics cannot decide,
+                // so Auto does not fire; On fires once, as on Android. Whether
+                // AVFoundation fires the flash under a custom exposure is to
+                // be verified on a device.
                 let wanted: AVCaptureDevice.FlashMode
                 switch self.flash {
                 case .off: wanted = .off
-                case .auto: wanted = .auto
+                case .auto: wanted = self.exposure.manual ? .off : .auto
                 case .on: wanted = .on
                 }
-                settings.flashMode = (!self.exposure.manual && self.photoOutput.supportedFlashModes.contains(wanted)) ? wanted : .off
+                settings.flashMode = self.photoOutput.supportedFlashModes.contains(wanted) ? wanted : .off
+                // The DNG's orientation tag follows the device, not the screen.
                 if let c = self.photoOutput.connection(with: .video) {
-                    let a = CGFloat(self.shownQuarters * 90)
+                    let a = CGFloat(self.stillQuarters * 90)
                     if c.isVideoRotationAngleSupported(a) { c.videoRotationAngle = a }
                 }
                 let processor = PhotoProcessor { [weak self] result in
@@ -392,8 +486,9 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         }
     }
 
-    /// 64-bin histogram of the viewfinder's luminance, the same weights
-    /// the monochrome finder uses.
+    /// 64-bin histogram of the viewfinder's luminance. The weights are the
+    /// Rec. 709 luma the monochrome finder uses (`Finder.metal`), scaled to
+    /// 256: 0.2126, 0.7152, 0.0722 become 54, 183, 19.
     private func analyse(_ pb: CVPixelBuffer) {
         CVPixelBufferLockBaseAddress(pb, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }

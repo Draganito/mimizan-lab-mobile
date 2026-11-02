@@ -51,8 +51,18 @@ final class ReviewViewModel {
     /// Last 1:1 window asked for, so a slider change can refresh it.
     private var detailRegion: (Int, Int, Int, Int)?
     private var observing = false
-    /// The core's `Developed` is not re-entrant with itself: one call at a time.
-    private let gate = Gate()
+    /// The core's `Developed` is not re-entrant with itself: one call at a
+    /// time, on the gate's own thread, never on the main one (an export
+    /// holds the core's lock for seconds).
+    private let gate = Gate(label: "ch.bojovic.mimizanlab.review")
+    /// This negative's zone shift at the base exposures, in stops. It does
+    /// not depend on the grade (both exposures move together), only on the
+    /// mix, so it is measured once per mix, in the gate, and nil until then.
+    private var zoneShift: Double?
+    /// The stops the placement actually added to both sliders (the shift
+    /// and the compensation after the snap and the clamp), so exactly those
+    /// come back off when the user moves a slider.
+    private var placedShift: Double = 0
 
     var shot: Shot? { darkroom.shots.first { $0.name == name } }
     var shotSettings: DevelopSettings? { shot?.settings }
@@ -128,10 +138,14 @@ final class ReviewViewModel {
             peakMeasured = neg.peak
             needsDevelop = false
             detail = nil
+            // The shift is measured by the first render; until then the sliders show the stored grade.
+            zoneShift = nil
             showStandingPaper()
             render()
         } else {
             developed = nil
+            zoneShift = nil
+            placedShift = 0
             needsDevelop = true
             preview = nil
             detail = nil
@@ -187,14 +201,23 @@ final class ReviewViewModel {
         if let r = detailRegion { requestDetail(x: r.0, y: r.1, w: r.2, h: r.3) }
     }
 
-    /// The stored grade, then the zone shift when balance is on. The shift is not written back.
+    /// The stored grade, then the balance when it is on: this negative's
+    /// shift (measured at zero, where both sliders have the full ±3 of
+    /// room, so the clamp does not eat it) and the compensation, as one
+    /// delta through `shiftGrade`. Nothing is written back. Before the
+    /// shift is measured the sliders show the stored grade. The same
+    /// arithmetic as the Android `GradeMath.place`.
     private func showStandingPaper() {
-        soft = darkroom.prefs.soft
-        hard = darkroom.prefs.hard
-        if darkroom.prefs.zoneAuto, let d = developed, let shift = try? d.zoneShift(soft: soft, hard: hard) {
-            let pair = Prefs.shiftGrade(soft: soft, hard: hard, by: shift + darkroom.prefs.zoneBias)
+        let stored = (soft: darkroom.prefs.soft, hard: darkroom.prefs.hard)
+        if darkroom.prefs.zoneAuto, let shift = zoneShift {
+            let pair = Prefs.shiftGrade(soft: stored.soft, hard: stored.hard, by: shift + darkroom.prefs.zoneBias)
             soft = pair.0
             hard = pair.1
+            placedShift = pair.0 - stored.soft
+        } else {
+            soft = stored.soft
+            hard = stored.hard
+            placedShift = 0
         }
     }
 
@@ -206,12 +229,17 @@ final class ReviewViewModel {
         setGrade(soft: soft, hard: stops)
     }
 
-    /// Both exposures as they stand on this print. With the balance on, the sliders include this negative's shift and the compensation; those come back off before the grade is stored, so the next picture adds them once.
+    /// Both exposures as they stand on this print. With the balance on,
+    /// the sliders include this negative's shift and the compensation;
+    /// exactly the stops the placement added (`placedShift`) come back off
+    /// before the grade is stored (each exposure snapped and clamped on
+    /// its own, `Prefs.setSoft`), so the next picture adds its own shift
+    /// once. Then the pair is placed again from what was stored. The same
+    /// arithmetic as the Android `GradeMath.unplace`.
     func setGrade(soft: Double, hard: Double) {
-        if darkroom.prefs.zoneAuto, let d = developed {
-            let standing = Prefs.shiftGrade(soft: soft, hard: hard, by: -automaticStops(d))
-            darkroom.prefs.setSoft(standing.0)
-            darkroom.prefs.setHard(standing.1)
+        if darkroom.prefs.zoneAuto, developed != nil {
+            darkroom.prefs.setSoft(soft - placedShift)
+            darkroom.prefs.setHard(hard - placedShift)
             showStandingPaper()
         } else {
             darkroom.prefs.setSoft(soft)
@@ -220,13 +248,6 @@ final class ReviewViewModel {
             self.hard = darkroom.prefs.hard
         }
         schedule { await self.renderNow() }
-    }
-
-    /// Stops the balance adds on top of the stored grade: this negative's shift, then the compensation.
-    private func automaticStops(_ d: Developed) -> Double {
-        // At zero both sliders have the full ±3 of room, so the clamp does not eat the shift.
-        let shift = (try? d.zoneShift(soft: 0, hard: 0)) ?? 0
-        return shift + darkroom.prefs.zoneBias
     }
 
     private func remixAndRender() {
@@ -254,64 +275,84 @@ final class ReviewViewModel {
         var preview: CGImage?
         var histogram: [Float]
         var histogramRgb: [Float]
+        /// The zone shift measured in this pass, when one was.
+        var shift: Double?
     }
 
     /// Draw the picture as it stands. `remix` applies the sliders and the
     /// standing process first (the mix, or the plate's filters and
-    /// primaries). A plate is always shown with the lamps at zero.
+    /// primaries). A plate is always shown with the lamps at zero. With
+    /// the balance on and the shift not yet measured (a fresh negative, or
+    /// a new mix), the shift is measured here, after the remix, and the
+    /// picture is drawn at the placed exposures.
     private func renderNow(remix: Bool = false) async {
         guard let d = developed else { return }
         busy = true
+        defer { busy = false }
+        // The mix moves the middle of the picture: measure the shift again
+        // after a remix. The old value stays in place until the new one is
+        // in, so a slider moved meanwhile is still un-placed with a shift.
+        let needShift = darkroom.prefs.zoneAuto && (remix || zoneShift == nil)
+        let stored = (soft: darkroom.prefs.soft, hard: darkroom.prefs.hard, bias: darkroom.prefs.zoneBias)
         let s = (soft: soft, hard: hard, weights: weights, filter: filter, plate: plate)
         let standing = (process: darkroom.prefs.process, filters: darkroom.prefs.plateFilters, space: darkroom.prefs.plateSpace)
-        let gate = self.gate
-        let result: Result<Rendered, Error> = await Task.detached(priority: .userInitiated) {
-            await gate.run { () -> Result<Rendered, Error> in
-                do {
-                    var effective: Weights?
-                    if remix {
-                        if standing.process == .plate {
-                            _ = try d.setPlate(filters: standing.filters, space: standing.space)
-                            try d.setLamps(red: 0, blue: 0)
-                        } else {
-                            effective = try d.remix(weights: normaliseWeights(w: s.weights), space: .balanced, filter: s.filter)
-                        }
-                    } else if s.plate != nil {
+        let result: Result<Rendered, Error> = await gate.run { () -> Result<Rendered, Error> in
+            do {
+                var effective: Weights?
+                if remix {
+                    if standing.process == .plate {
+                        _ = try d.setPlate(filters: standing.filters, space: standing.space)
                         try d.setLamps(red: 0, blue: 0)
-                    }
-                    let info = d.info()
-                    let hist = Images.normalised(try d.histogram(soft: s.soft, hard: s.hard))
-                    let image: CGImage?
-                    let rgb: [Float]
-                    if info.plate != nil {
-                        image = Images.cgImage(try d.previewRgb(soft: s.soft, hard: s.hard, extraQuarterTurns: 0))
-                        rgb = Images.normalised(try d.histogramRgb(soft: s.soft, hard: s.hard))
                     } else {
-                        image = Images.cgImage(try d.preview(soft: s.soft, hard: s.hard, extraQuarterTurns: 0))
-                        rgb = []
+                        effective = try d.remix(weights: normaliseWeights(w: s.weights), space: .balanced, filter: s.filter)
                     }
-                    return .success(Rendered(info: info, effective: effective, preview: image, histogram: hist, histogramRgb: rgb))
-                } catch {
-                    return .failure(error)
+                } else if s.plate != nil {
+                    try d.setLamps(red: 0, blue: 0)
                 }
+                var shift: Double?
+                var paper = (soft: s.soft, hard: s.hard)
+                if needShift {
+                    // Measured at zero, as `showStandingPaper` expects; a failure counts as no shift.
+                    let z = (try? d.zoneShift(soft: 0, hard: 0)) ?? 0
+                    shift = z
+                    let placed = Prefs.shiftGrade(soft: stored.soft, hard: stored.hard, by: z + stored.bias)
+                    paper = (soft: placed.0, hard: placed.1)
+                }
+                let info = d.info()
+                let hist = Images.normalised(try d.histogram(soft: paper.soft, hard: paper.hard))
+                let image: CGImage?
+                let rgb: [Float]
+                if info.plate != nil {
+                    image = Images.cgImage(try d.previewRgb(soft: paper.soft, hard: paper.hard, extraQuarterTurns: 0))
+                    rgb = Images.normalised(try d.histogramRgb(soft: paper.soft, hard: paper.hard))
+                } else {
+                    image = Images.cgImage(try d.preview(soft: paper.soft, hard: paper.hard, extraQuarterTurns: 0))
+                    rgb = []
+                }
+                return .success(Rendered(info: info, effective: effective, preview: image, histogram: hist, histogramRgb: rgb, shift: shift))
+            } catch {
+                return .failure(error)
             }
-        }.value
+        }
         guard developed === d else { return }
         switch result {
         case let .success(r):
             info = r.info
             plate = r.info.plate
             if let e = r.effective { effective = e }
+            if let z = r.shift {
+                // The picture was drawn at this placement; the sliders follow it.
+                zoneShift = z
+                showStandingPaper()
+            }
             preview = r.preview
             histogram = r.histogram
             histogramRgb = r.histogramRgb
             detail = nil
-            busy = false
             // A zoomed-in view has to follow the new tones.
             if let reg = detailRegion { requestDetail(x: reg.0, y: reg.1, w: reg.2, h: reg.3) }
         case let .failure(error):
             log.error("render: \(error.localizedDescription)")
-            busy = false
             message = error.localizedDescription
         }
     }
@@ -327,20 +368,17 @@ final class ReviewViewModel {
             guard let d = developed else { return }
             let pair = self.peakApplied
             let soft = self.soft, hard = self.hard, radius = pair.radius, amount = pair.amount, isPlate = self.plate != nil
-            let gate = self.gate
-            let image: CGImage? = await Task.detached(priority: .userInitiated) {
-                await gate.run { () -> CGImage? in
-                    do {
-                        if isPlate {
-                            return Images.cgImage(try d.detailRgb(x: UInt32(x), y: UInt32(y), width: UInt32(w), height: UInt32(h), soft: soft, hard: hard, extraQuarterTurns: 0, peakRadius: radius, peakAmount: amount))
-                        }
-                        return Images.cgImage(try d.detail(x: UInt32(x), y: UInt32(y), width: UInt32(w), height: UInt32(h), soft: soft, hard: hard, extraQuarterTurns: 0, peakRadius: radius, peakAmount: amount))
-                    } catch {
-                        log.warning("detail: \(error.localizedDescription)")
-                        return nil
+            let image: CGImage? = await gate.run { () -> CGImage? in
+                do {
+                    if isPlate {
+                        return Images.cgImage(try d.detailRgb(x: UInt32(x), y: UInt32(y), width: UInt32(w), height: UInt32(h), soft: soft, hard: hard, extraQuarterTurns: 0, peakRadius: radius, peakAmount: amount))
                     }
+                    return Images.cgImage(try d.detail(x: UInt32(x), y: UInt32(y), width: UInt32(w), height: UInt32(h), soft: soft, hard: hard, extraQuarterTurns: 0, peakRadius: radius, peakAmount: amount))
+                } catch {
+                    log.warning("detail: \(error.localizedDescription)")
+                    return nil
                 }
-            }.value
+            }
             if Task.isCancelled || developed !== d { return }
             if let image { detail = Detail(x: x, y: y, image: image) }
         }
@@ -381,12 +419,9 @@ final class ReviewViewModel {
         let suffix = plate.map { Darkroom.suffix(for: $0) } ?? Darkroom.suffix(for: filter)
         let name = self.name
         let exporter = darkroom.exporter
-        let gate = self.gate
         exporting = label
         Task {
-            let result: Result<[URL], Error> = await Task.detached(priority: .userInitiated) {
-                await gate.run { Result { try f(d, name, suffix, exporter) } }
-            }.value
+            let result: Result<[URL], Error> = await gate.run { Result<[URL], Error> { try f(d, name, suffix, exporter) } }
             switch result {
             case let .success(urls):
                 lastExport = urls.first
@@ -405,9 +440,4 @@ final class ReviewViewModel {
 
     /// What the share sheet offers: the last export, else the automatic JPEG.
     var shareURL: URL? { lastExport ?? shot?.jpegURL }
-}
-
-/// A serial gate for the core's calls on one `Developed`.
-actor Gate {
-    func run<T>(_ body: () -> T) -> T { body() }
 }

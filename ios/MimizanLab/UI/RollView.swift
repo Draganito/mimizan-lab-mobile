@@ -29,7 +29,9 @@ struct RollView: View {
                             .disabled(shot.status == .saving || shot.status == .developing)
                     }
                     .contextMenu {
+                        // Not while the frame is being written or developed, like the swipe.
                         Button(role: .destructive) { toDelete = shot.name } label: { Label("Delete frame", systemImage: "trash") }
+                            .disabled(shot.status == .saving || shot.status == .developing)
                     }
             }
         }

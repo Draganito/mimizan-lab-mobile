@@ -9,8 +9,9 @@ import org.json.JSONObject
 
 /**
  * App-private copy of every frame (`<name>.raw` = packed 16-bit samples,
- * `<name>.json` = [RawMeta]) so a shot can be developed again later without
- * a DNG decoder on the phone. Oldest frames go first when the cache exceeds
+ * `<name>.json` = [RawMeta], and once developed `<name>.jpg` = the roll's
+ * thumbnail) so a shot can be developed again later without a DNG decoder
+ * on the phone. Oldest frames go first when the cache exceeds
  * [budgetBytes].
  */
 class RawCache(context: Context, private val budgetBytes: Long = 1_500L shl 20) {
@@ -50,9 +51,19 @@ class RawCache(context: Context, private val budgetBytes: Long = 1_500L shl 20) 
         return meta to rawFile(name).readBytes()
     }
 
-    /** A JPEG of the thumbnail the development already made. Nothing is decoded from the raw. */
+    /**
+     * A JPEG of the thumbnail the development already made. Nothing is
+     * decoded from the raw. Written beside and renamed into place, so a
+     * crash mid-write leaves a `.tmp` the next [trim] sweeps away, never a
+     * half picture.
+     */
     fun saveThumb(name: String, bitmap: Bitmap) {
-        thumbFile(name).outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 55, it) }
+        val tmp = File(dir, "$name.jpg.tmp")
+        tmp.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 55, it) }
+        if (!tmp.renameTo(thumbFile(name))) {
+            tmp.delete()
+            error("could not store the frame's thumbnail")
+        }
     }
 
     fun loadThumb(name: String): Bitmap? {
@@ -81,15 +92,27 @@ class RawCache(context: Context, private val budgetBytes: Long = 1_500L shl 20) 
             ?.map { it.nameWithoutExtension }
             ?: emptyList()
 
+    /**
+     * Oldest frames first until the directory fits the budget. The budget
+     * counts everything in the directory: pixels, metadata and thumbnails.
+     * Leftovers of an interrupted write (`.tmp` older than a minute, so a
+     * thumbnail being written right now is left alone) go first, and a
+     * `.raw` without its metadata is never a frame, so it goes regardless.
+     */
     private fun trim(keep: String) {
-        val raws = dir.listFiles { f -> f.extension == "raw" }?.sortedBy { it.lastModified() } ?: return
-        var total = raws.sumOf { it.length() }
+        val all = dir.listFiles() ?: return
+        var total = all.sumOf { it.length() }
+        val stale = System.currentTimeMillis() - 60_000L
+        for (f in all.filter { it.name.endsWith(".tmp") && it.lastModified() < stale }) {
+            total -= f.length()
+            f.delete()
+        }
+        val raws = all.filter { it.extension == "raw" }.sortedBy { it.lastModified() }
         for (f in raws) {
             val name = f.nameWithoutExtension
             if (name == keep) continue
-            // An orphan from an interrupted put() is never a frame; it goes regardless of the budget.
             if (total <= budgetBytes && metaFile(name).exists()) continue
-            total -= f.length()
+            total -= f.length() + metaFile(name).length() + thumbFile(name).length()
             remove(name)
         }
     }

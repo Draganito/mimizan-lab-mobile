@@ -1,7 +1,7 @@
 // App-private copy of every frame: `<name>.dng` as AVFoundation wrote it
-// (or as the user imported it) and `<name>.json`, the metadata the roll
-// shows. A shot can be developed again later from the file alone. Oldest
-// frames go first when the cache exceeds the budget.
+// and `<name>.json`, the metadata the roll shows. A shot can be developed
+// again later from the file alone. Oldest frames go first when the cache
+// exceeds the budget.
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -74,16 +74,9 @@ final class RawCache: @unchecked Sendable {
     /// Pixels first (`putRaw`), metadata last (`commit`), each written
     /// atomically: a frame only counts (`has`, `names`) once both files
     /// are complete, so a crash mid-write leaves at most an orphan `.dng`
-    /// that the next trim sweeps away.
+    /// that a later trim sweeps away once it is a minute old.
     func putRaw(_ name: String, dng: Data) throws {
         try dng.write(to: rawFile(name), options: .atomic)
-    }
-
-    /// The same for a file that already exists (an import): copied in.
-    func putRaw(_ name: String, copying source: URL) throws {
-        let dst = rawFile(name)
-        try? fm.removeItem(at: dst)
-        try fm.copyItem(at: source, to: dst)
     }
 
     func commit(_ name: String, meta: ShotMeta) throws {
@@ -145,14 +138,27 @@ final class RawCache: @unchecked Sendable {
             .map { $0.deletingPathExtension().lastPathComponent }
     }
 
+    /// A `.dng` without its `.json` is an orphan only once it is old: a
+    /// frame whose `putRaw` has run and whose `commit` is still reading
+    /// the file looks the same for a moment, and must not be swept by a
+    /// sibling's trim.
+    private static let orphanAge: TimeInterval = 60
+
     private func trim(keep: String) {
         let raws = files().filter { $0.pathExtension == "dng" }.sorted { modified($0) < modified($1) }
         var total = raws.reduce(0) { $0 + size(of: $1) }
+        let now = Date()
         for f in raws {
             let name = f.deletingPathExtension().lastPathComponent
             if name == keep { continue }
-            // An orphan from an interrupted put() is never a frame; it goes regardless of the budget.
-            if total <= budgetBytes && fm.fileExists(atPath: metaFile(name).path) { continue }
+            if fm.fileExists(atPath: metaFile(name).path) {
+                // A frame: goes only while the cache is over budget, oldest first.
+                if total <= budgetBytes { continue }
+            } else if now.timeIntervalSince(modified(f)) < RawCache.orphanAge {
+                // A frame still being written, whatever the budget says.
+                continue
+            }
+            // An old orphan from an interrupted put() is never a frame; it goes regardless of the budget.
             total -= size(of: f)
             remove(name)
         }

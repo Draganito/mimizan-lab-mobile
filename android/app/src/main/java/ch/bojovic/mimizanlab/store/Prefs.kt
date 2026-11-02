@@ -7,7 +7,6 @@ import ch.bojovic.mimizanlab.engine.PeakMeasured
 import ch.bojovic.mimizanlab.engine.PlateFilters
 import ch.bojovic.mimizanlab.engine.PlateSpace
 import ch.bojovic.mimizanlab.engine.Process
-import ch.bojovic.mimizanlab.engine.lampLimit
 import ch.bojovic.mimizanlab.engine.paperStopLimit
 import ch.bojovic.mimizanlab.engine.peakLimits
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,27 +41,43 @@ enum class PeakMode {
 class Prefs(context: Context) {
     private val sp = context.getSharedPreferences("mimizan", Context.MODE_PRIVATE)
 
-    private val _soft = MutableStateFlow(snapStops(finiteOrZero(sp.getFloat(KEY_SOFT, 0f))))
+    private val _grade = MutableStateFlow(
+        Grade(snapStops(finiteOrZero(sp.getFloat(KEY_SOFT, 0f))), snapStops(finiteOrZero(sp.getFloat(KEY_HARD, 0f)))),
+    )
+    /**
+     * Both paper exposures as one value, so a move of the zone strip is
+     * one emission for the viewfinder; [soft] and [hard] are the same
+     * numbers one by one for the sliders.
+     */
+    val grade: StateFlow<Grade> = _grade.asStateFlow()
+
+    private val _soft = MutableStateFlow(_grade.value.soft)
     /** Soft-pass time in stops from the base exposure, for the viewfinder, the automatic JPEG and the start of review. */
     val soft: StateFlow<Double> = _soft.asStateFlow()
 
-    fun setSoft(stops: Double) {
-        val v = snapStops(stops)
-        _soft.value = v
-        sp.edit { putFloat(KEY_SOFT, v.toFloat()) }
-    }
-
-    private val _hard = MutableStateFlow(snapStops(finiteOrZero(sp.getFloat(KEY_HARD, 0f))))
+    private val _hard = MutableStateFlow(_grade.value.hard)
     /** Hard-pass time in stops from the base exposure. */
     val hard: StateFlow<Double> = _hard.asStateFlow()
 
-    fun setHard(stops: Double) {
-        val v = snapStops(stops)
-        _hard.value = v
-        sp.edit { putFloat(KEY_HARD, v.toFloat()) }
+    fun setSoft(stops: Double) = setGrade(stops, _grade.value.hard)
+
+    fun setHard(stops: Double) = setGrade(_grade.value.soft, stops)
+
+    /** Both exposures at once: one write, one emission of [grade]. */
+    fun setGrade(soft: Double, hard: Double) {
+        val g = Grade(snapStops(soft), snapStops(hard))
+        _grade.value = g
+        _soft.value = g.soft
+        _hard.value = g.hard
+        sp.edit {
+            putFloat(KEY_SOFT, g.soft.toFloat())
+            putFloat(KEY_HARD, g.hard.toFloat())
+        }
     }
 
-    private val _peakMode = MutableStateFlow(loadPeakMode())
+    private val _peakMode = MutableStateFlow(
+        GradeMath.peakModeOf(sp.getString(KEY_PEAK_MODE, null), if (sp.contains(KEY_PEAK)) sp.getBoolean(KEY_PEAK, true) else null),
+    )
     /**
      * Peak's high-pass on the automatic JPEG and the full-size exports.
      * Auto measures each negative. Custom keeps a hand pair. Auto on a fresh install.
@@ -93,15 +108,7 @@ class Prefs(context: Context) {
         }
     }
 
-    /** A bool from before the three states: on was the measurement, off was none. */
-    private fun loadPeakMode(): PeakMode {
-        val named = sp.getString(KEY_PEAK_MODE, null)
-        if (named != null) return enumOr(named, PeakMode.AUTO)
-        if (!sp.contains(KEY_PEAK)) return PeakMode.AUTO
-        return if (sp.getBoolean(KEY_PEAK, true)) PeakMode.AUTO else PeakMode.OFF
-    }
-
-    private val _process = MutableStateFlow(enumOr(sp.getString(KEY_PROCESS, null), Process.MONO))
+    private val _process = MutableStateFlow(GradeMath.enumOr(sp.getString(KEY_PROCESS, null), Process.MONO))
     /** The darkroom's process: the monochrome negative, or the three-colour plate. The next shot opens in it. */
     val process: StateFlow<Process> = _process.asStateFlow()
 
@@ -110,7 +117,7 @@ class Prefs(context: Context) {
         sp.edit { putString(KEY_PROCESS, p.name) }
     }
 
-    private val _plateFilters = MutableStateFlow(enumOr(sp.getString(KEY_PLATE_FILTERS, null), PlateFilters.CAMERA))
+    private val _plateFilters = MutableStateFlow(GradeMath.enumOr(sp.getString(KEY_PLATE_FILTERS, null), PlateFilters.CAMERA))
     /** The plate's taking filters. */
     val plateFilters: StateFlow<PlateFilters> = _plateFilters.asStateFlow()
 
@@ -119,7 +126,7 @@ class Prefs(context: Context) {
         sp.edit { putString(KEY_PLATE_FILTERS, f.name) }
     }
 
-    private val _plateSpace = MutableStateFlow(enumOr(sp.getString(KEY_PLATE_SPACE, null), PlateSpace.SRGB))
+    private val _plateSpace = MutableStateFlow(GradeMath.enumOr(sp.getString(KEY_PLATE_SPACE, null), PlateSpace.SRGB))
     /** The plate's projection primaries, the colour space of the file. sRGB on the phone: the gallery shows it as it is. */
     val plateSpace: StateFlow<PlateSpace> = _plateSpace.asStateFlow()
 
@@ -128,7 +135,12 @@ class Prefs(context: Context) {
         sp.edit { putString(KEY_PLATE_SPACE, s.name) }
     }
 
-    private val _shotMode = MutableStateFlow(loadShotMode())
+    private val _shotMode = MutableStateFlow(
+        GradeMath.shotModeOf(
+            sp.getString(KEY_SHOT_MODE, null),
+            if (sp.contains(KEY_STAY_ON_FINDER)) sp.getBoolean(KEY_STAY_ON_FINDER, true) else null,
+        ),
+    )
     /**
      * What the shutter does. JPEG on a fresh install: the viewfinder is
      * already the paper, so the picture is written and the finder stays.
@@ -138,14 +150,6 @@ class Prefs(context: Context) {
     fun setShotMode(mode: ShotMode) {
         _shotMode.value = mode
         sp.edit { putString(KEY_SHOT_MODE, mode.name) }
-    }
-
-    /** The old stay-on-finder switch: on was JPEG, off was Developer. */
-    private fun loadShotMode(): ShotMode {
-        val named = sp.getString(KEY_SHOT_MODE, null)
-        if (named != null) return enumOr(named, ShotMode.JPEG)
-        if (!sp.contains(KEY_STAY_ON_FINDER)) return ShotMode.JPEG
-        return if (sp.getBoolean(KEY_STAY_ON_FINDER, true)) ShotMode.JPEG else ShotMode.DEVELOPER
     }
 
     private val _zebra = MutableStateFlow(sp.getBoolean(KEY_ZEBRA, false))
@@ -200,42 +204,12 @@ class Prefs(context: Context) {
         sp.edit { putFloat(KEY_ZONE_BIAS, v.toFloat()) }
     }
 
-    private val _lampRed = MutableStateFlow(snapLamp(finiteOrZero(sp.getFloat(KEY_LAMP_RED, 0f))))
-    /** The red lamp of the plate's projector, stops; the start value in review and the automatic JPEG's. */
-    val lampRed: StateFlow<Double> = _lampRed.asStateFlow()
-
-    fun setLampRed(stops: Double) {
-        val v = snapLamp(stops)
-        _lampRed.value = v
-        sp.edit { putFloat(KEY_LAMP_RED, v.toFloat()) }
-    }
-
-    private val _lampBlue = MutableStateFlow(snapLamp(finiteOrZero(sp.getFloat(KEY_LAMP_BLUE, 0f))))
-    /** The blue lamp. */
-    val lampBlue: StateFlow<Double> = _lampBlue.asStateFlow()
-
-    fun setLampBlue(stops: Double) {
-        val v = snapLamp(stops)
-        _lampBlue.value = v
-        sp.edit { putFloat(KEY_LAMP_BLUE, v.toFloat()) }
-    }
-
     companion object {
         /** How far either paper exposure may move, in stops: the core's `paper::STOP_LIMIT`, asked once. */
         val STOP_LIMIT: Double = paperStopLimit()
 
         /** Extra paper time a balanced picture may take, in stops. The grade stays inside [STOP_LIMIT]. */
         const val ZONE_BIAS_LIMIT: Double = 2.0
-
-        /** How far either lamp may move, in stops: the core's `print::LAMP_LIMIT`. */
-        val LAMP_LIMIT: Double = lampLimit()
-
-        /** Twelfths of a stop, inside ±[LAMP_LIMIT]. */
-        fun snapLamp(v: Double): Double =
-            (kotlin.math.round(finiteOrZero(v) * 12.0) / 12.0).coerceIn(-LAMP_LIMIT, LAMP_LIMIT)
-
-        private inline fun <reified E : Enum<E>> enumOr(name: String?, default: E): E =
-            name?.let { n -> enumValues<E>().firstOrNull { it.name == n } } ?: default
 
         /** The range of the peak fields: the core's `recipe::PEAK_*`, asked once. */
         val PEAK: PeakLimits = peakLimits()
@@ -245,33 +219,31 @@ class Prefs(context: Context) {
             (if (v.isFinite()) v else PEAK.radiusDefault).coerceIn(PEAK.radiusMin, PEAK.radiusMax)
 
         /** A peak amount inside the core's range; a non-finite value is zero. */
-        fun clampPeakAmount(v: Double): Double = finiteOrZero(v).coerceIn(0.0, PEAK.amountMax)
+        fun clampPeakAmount(v: Double): Double = GradeMath.finiteOrZero(v).coerceIn(0.0, PEAK.amountMax)
 
         /** Radius and amount a print uses. Off applies nothing. Auto uses the measurement. */
         fun peakApplied(mode: PeakMode, radius: Double, amount: Double, measured: PeakMeasured?): Pair<Double, Double> =
-            when (mode) {
-                PeakMode.OFF -> radius to 0.0
-                PeakMode.AUTO -> (measured?.radius ?: PEAK.radiusDefault) to (measured?.amount ?: 0.0)
-                PeakMode.CUSTOM -> radius to amount
-            }
+            GradeMath.peakApplied(mode, radius, amount, measured, PEAK.radiusDefault)
 
         /** Add [delta] stops to both exposures, snapped to a twelfth, and stop at the limit so the gap stays. */
-        fun shiftGrade(soft: Double, hard: Double, delta: Double): Pair<Double, Double> {
-            val lo = -STOP_LIMIT - minOf(soft, hard)
-            val hi = STOP_LIMIT - maxOf(soft, hard)
-            val d = (kotlin.math.round(delta * 12.0) / 12.0).coerceIn(lo, hi)
-            return soft + d to hard + d
-        }
-        fun snapStops(v: Double): Double =
-            (kotlin.math.round(finiteOrZero(v) * 12.0) / 12.0).coerceIn(-STOP_LIMIT, STOP_LIMIT)
+        fun shiftGrade(soft: Double, hard: Double, delta: Double): Pair<Double, Double> =
+            GradeMath.shiftGrade(soft, hard, delta, STOP_LIMIT).grade.let { it.soft to it.hard }
+
+        /**
+         * The stored grade with the balance on it: this negative's shift
+         * (`Developed.zoneShift(0, 0)`, the stops before the room is
+         * considered) plus the compensation, through [shiftGrade]. The same
+         * call places the automatic JPEG, the thumbnail and the review.
+         */
+        fun place(stored: Grade, shift: Double, bias: Double): Placed = GradeMath.place(stored, shift, bias, STOP_LIMIT)
+
+        /** Twelfths of a stop, inside ±[STOP_LIMIT]; a non-finite value snaps to zero. */
+        fun snapStops(v: Double): Double = GradeMath.snapStops(v, STOP_LIMIT)
 
         /** Twelfths of a stop, inside ±[ZONE_BIAS_LIMIT]. */
-        fun snapZoneBias(v: Double): Double =
-            (kotlin.math.round(finiteOrZero(v) * 12.0) / 12.0).coerceIn(-ZONE_BIAS_LIMIT, ZONE_BIAS_LIMIT)
+        fun snapZoneBias(v: Double): Double = GradeMath.snapStops(v, ZONE_BIAS_LIMIT)
 
-        /** A stored float that was never finite (a damaged preferences file) reads as zero. */
-        private fun finiteOrZero(v: Float): Double = finiteOrZero(v.toDouble())
-        private fun finiteOrZero(v: Double): Double = if (v.isFinite()) v else 0.0
+        private fun finiteOrZero(v: Float): Double = GradeMath.finiteOrZero(v.toDouble())
 
         private const val KEY_SOFT = "paper_soft"
         private const val KEY_HARD = "paper_hard"
@@ -282,8 +254,6 @@ class Prefs(context: Context) {
         private const val KEY_PROCESS = "process"
         private const val KEY_PLATE_FILTERS = "plate_filters"
         private const val KEY_PLATE_SPACE = "plate_space"
-        private const val KEY_LAMP_RED = "lamp_red"
-        private const val KEY_LAMP_BLUE = "lamp_blue"
         private const val KEY_STAY_ON_FINDER = "stay_on_finder"
         private const val KEY_SHOT_MODE = "shot_mode"
         private const val KEY_ZEBRA = "finder_zebra"

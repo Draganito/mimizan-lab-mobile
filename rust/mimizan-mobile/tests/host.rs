@@ -167,9 +167,42 @@ fn paper_lut_is_the_print_curve() {
     assert!((paper_stop_limit() - 3.0).abs() < 1e-12);
 }
 
+/// The sign and the size of the placement (`flat_input` below). The paper's exposure axis is
+/// `t − γ·log2(l)` (`paper::log_exposure`), so a middle one stop under the
+/// grey card wants `−γ` stops of paper time (less: it prints lighter), one
+/// stop over wants `+γ`, and the grey card itself wants nothing. At the
+/// limit the shift stops where the sliders stop.
+#[test]
+fn zone_shift_sign_size_and_clamp() {
+    use mimizan_core::paper::NEGATIVE_GAMMA as G;
+    use mimizan_core::zone::GRAY_CARD;
+    let params = DevelopParams { preview_long_edge: 96, ..DevelopParams::default() };
+    let shift_of = |v: f64, soft: f64, hard: f64| {
+        develop(flat_input(160, 120, v), params.clone()).unwrap().zone_shift(soft, hard).unwrap()
+    };
+    let grey = shift_of(GRAY_CARD, 0.0, 0.0);
+    assert!(grey.abs() < 0.05, "the grey card is already placed: {grey}");
+    let dark = shift_of(GRAY_CARD / 2.0, 0.0, 0.0);
+    assert!((dark + G).abs() < 0.05, "one stop under wants -γ = {} stops of paper, got {dark}", -G);
+    let light = shift_of(GRAY_CARD * 2.0, 0.0, 0.0);
+    assert!((light - G).abs() < 0.05, "one stop over wants +γ = {G} stops of paper, got {light}");
+    // The room both sliders still have: 0.1 up at (2.9, 2.9), 0.1 down at (-2.9, -2.9).
+    let pinned_high = shift_of(GRAY_CARD * 2.0, 2.9, 2.9);
+    assert!((pinned_high - 0.1).abs() < 1e-9, "clamped to the room above: {pinned_high}");
+    let pinned_low = shift_of(GRAY_CARD / 2.0, -2.9, -2.9);
+    assert!((pinned_low + 0.1).abs() < 1e-9, "clamped to the room below: {pinned_low}");
+    // The gap sets the room: the higher slider stops first.
+    let gap = shift_of(GRAY_CARD * 2.0, 1.0, 2.95);
+    assert!((gap - 0.05).abs() < 1e-9, "the hard slider has 0.05 left: {gap}");
+}
+
 #[test]
 fn zone_shift_places_the_middle_without_a_preview_it_refuses() {
-    let dev = develop(synthetic_input(160, 120, 1), DevelopParams { preview_long_edge: 96, ..DevelopParams::default() }).unwrap();
+    let dev = develop(
+        synthetic_input(160, 120, 1),
+        DevelopParams { preview_long_edge: 96, ..DevelopParams::default() },
+    )
+    .unwrap();
     let shift = dev.zone_shift(0.0, 0.0).unwrap();
     assert!(shift.is_finite() && shift.abs() <= 3.0, "{shift}");
     let again = dev.zone_shift(0.0, 0.0).unwrap();
@@ -181,9 +214,16 @@ fn zone_shift_places_the_middle_without_a_preview_it_refuses() {
     assert!((shift - elsewhere).abs() < 1e-6, "grade must not change the shift: {shift} vs {elsewhere}");
     if shift.abs() < 2.5 {
         let parked = dev.zone_shift(shift, shift).unwrap();
-        assert!((parked - shift).abs() < 1e-6, "an already placed pair still wants the full shift, got {parked}");
+        assert!(
+            (parked - shift).abs() < 1e-6,
+            "an already placed pair still wants the full shift, got {parked}"
+        );
     }
-    let bare = develop(synthetic_input(80, 60, 1), DevelopParams { preview_long_edge: 0, separation: SeparationMode::Off, ..DevelopParams::default() }).unwrap();
+    let bare = develop(
+        synthetic_input(80, 60, 1),
+        DevelopParams { preview_long_edge: 0, separation: SeparationMode::Off, ..DevelopParams::default() },
+    )
+    .unwrap();
     assert!(bare.zone_shift(0.0, 0.0).is_err());
 }
 

@@ -35,6 +35,8 @@ final class CaptureViewModel {
     private(set) var pendingReview: String?
 
     private var startTask: Task<Void, Never>?
+    /// A start is under way and has not been cancelled.
+    private var starting = false
     private var observing = false
 
     var state: CaptureState { session.state }
@@ -84,15 +86,33 @@ final class CaptureViewModel {
 
     // MARK: lifecycle
 
+    /// Open the camera. `onAppear` and the scene turning active both call
+    /// this at launch; a start that is still under way is left to finish
+    /// rather than configured a second time.
     func resume() {
+        if starting, let t = startTask, !t.isCancelled { return }
+        restart()
+    }
+
+    /// Open the camera again whatever is under way (a lens change).
+    private func restart() {
         startTask?.cancel()
-        startTask = Task { await start() }
+        starting = true
+        startTask = Task {
+            await start()
+            // A cancelled start has been replaced; the replacement owns the flag.
+            if !Task.isCancelled { starting = false }
+        }
     }
 
     func stop() {
         startTask?.cancel()
+        starting = false
         session.stop()
     }
+
+    /// The screen's size changed (the iPad turned): the finder's rotation follows the interface.
+    func refreshOrientation() { session.refreshOrientation() }
 
     private func start() async {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -113,6 +133,8 @@ final class CaptureViewModel {
             if Task.isCancelled { return }
             do {
                 try await session.start(candidate)
+                // Replaced while the session was opening: the newer start owns the state.
+                if Task.isCancelled { return }
                 session.setExposure(exposure)
                 if candidate.key != l.key {
                     lens = candidate
@@ -131,7 +153,7 @@ final class CaptureViewModel {
         guard lens?.key != l.key else { return }
         lens = l
         exposure = ExposureSettings(bias: exposure.bias)
-        resume()
+        restart()
     }
 
     func nextLens() {
@@ -148,6 +170,8 @@ final class CaptureViewModel {
     }
 
     func setManual(iso: Double, seconds: Double) {
+        // An invalid CMTime reads as NaN; it must not reach the device or a slider.
+        guard iso.isFinite, seconds.isFinite, seconds > 0 else { return }
         exposure.iso = iso
         exposure.seconds = seconds
         session.setExposure(exposure)
@@ -163,7 +187,8 @@ final class CaptureViewModel {
     func enterManual() {
         guard let l = lens else { return }
         let iso = min(max(Double(state.iso ?? 100), l.isoRange.lowerBound), l.isoRange.upperBound)
-        let t = min(max(state.exposureSeconds ?? 1.0 / 125, l.exposureRange.lowerBound), l.exposureRange.upperBound)
+        let measured = state.exposureSeconds ?? 1.0 / 125
+        let t = min(max(measured.isFinite && measured > 0 ? measured : 1.0 / 125, l.exposureRange.lowerBound), l.exposureRange.upperBound)
         setManual(iso: iso, seconds: t)
     }
 

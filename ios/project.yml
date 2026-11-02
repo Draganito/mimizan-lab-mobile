@@ -30,7 +30,6 @@ targets:
     sources:
       - path: MimizanLab
         excludes:
-          - "Info.plist"
           - "MimizanLab.entitlements"
       - path: ../cameras
         type: folder
@@ -46,6 +45,12 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_MACCATALYST: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # There is no Info.plist in the source tree: Xcode generates it from
+        # these INFOPLIST_KEY_* settings (plus the CFBundle* defaults), so the
+        # App Store export keeps orientations, permissions and the launch
+        # screen. A usage description, an orientation or a launch-screen
+        # setting is added here, nowhere else. The privacy manifest is
+        # PrivacyInfo.xcprivacy, the entitlements MimizanLab.entitlements.
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: "Mimizan Lab"
         INFOPLIST_KEY_NSCameraUsageDescription: "Mimizan Lab reads the sensor's raw frame to develop the negative. Nothing leaves the device."
@@ -57,7 +62,6 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
         INFOPLIST_KEY_UIStatusBarStyle: UIStatusBarStyleLightContent
-        INFOPLIST_KEY_AVCaptureVideoRotationAngleEnabled: YES
         # The Rust static library needs these beyond what the package declares.
         OTHER_LDFLAGS: "-liconv -lresolv"
         MTL_ENABLE_DEBUG_INFO: NO

@@ -903,9 +903,10 @@ impl Developed {
     /// inside the room both sliders still have.
     pub fn zone_shift(&self, soft: f64, hard: f64) -> Result<f64> {
         let g = lock_msg(self.inner.lock());
-        let pv = g.preview.as_ref().ok_or_else(|| MimizanError::Invalid {
-            msg: "developed without preview planes".into(),
-        })?;
+        let pv = g
+            .preview
+            .as_ref()
+            .ok_or_else(|| MimizanError::Invalid { msg: "developed without preview planes".into() })?;
         // The monochrome mix, kept while a plate is on: one exposure for the paper.
         let plane = mix_planes(&pv.lum, &pv.c1, &pv.c2, &g.weights);
         let mut samples: Vec<f64> = plane
@@ -918,8 +919,10 @@ impl Developed {
         if samples.is_empty() {
             return Ok(0.0);
         }
-        samples.sort_by(f64::total_cmp);
-        let mid = samples[samples.len() / 2];
+        // The median alone: a selection, not a sort of the whole sample.
+        let k = samples.len() / 2;
+        let (_, mid, _) = samples.select_nth_unstable_by(k, f64::total_cmp);
+        let mid = *mid;
         let curve = crate::types::split_grade(soft, hard)?.curve();
         let shift = curve.shift_for(mid, curve.eval(mimizan_core::zone::GRAY_CARD));
         let limit = mimizan_core::paper::STOP_LIMIT;

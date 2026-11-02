@@ -103,16 +103,27 @@ class IspControls(c: CameraCharacteristics) {
             if (vendorCurve(c.keys.map { it.name })) return true
             if (vendorCurve(c.availableCaptureRequestKeys.map { it.name })) return true
             if (vendorCurve(c.availableCaptureResultKeys.map { it.name })) return true
-            if (vendorCurve(c.availableSessionKeys.map { it.name })) return true
+            // Null on Android 13 and 14 when the HAL lists no session keys.
+            if (vendorCurve(c.availableSessionKeys.orEmpty().map { it.name })) return true
             if (Build.SOC_MANUFACTURER.equals("Qualcomm", ignoreCase = true)) return true
             return Build.HARDWARE.equals("qcom", ignoreCase = true)
         }
 
-        private fun vendorCurve(names: List<String>): Boolean =
+        /** A Qualcomm camera stack: its vendor tags carry these prefixes. */
+        internal fun vendorCurve(names: List<String>): Boolean =
             names.any { it.startsWith("org.codeaurora.") || it.startsWith("org.quic.camera.") }
 
-        /** The HAL interpolates linearly between control points; squared spacing puts most of them where sRGB bends. */
         private fun srgbCurve(points: Int): TonemapCurve {
+            val pts = srgbCurvePoints(points)
+            return TonemapCurve(pts, pts, pts)
+        }
+
+        /**
+         * The control points of the sRGB curve as `(in, out)` pairs. The
+         * HAL interpolates linearly between them; squared spacing puts most
+         * of them where sRGB bends. Starts at (0, 0), ends at (1, 1).
+         */
+        internal fun srgbCurvePoints(points: Int): FloatArray {
             val pts = FloatArray(points * 2)
             for (i in 0 until points) {
                 val t = i.toFloat() / (points - 1)
@@ -120,10 +131,10 @@ class IspControls(c: CameraCharacteristics) {
                 pts[2 * i] = lin
                 pts[2 * i + 1] = encode(lin)
             }
-            return TonemapCurve(pts, pts, pts)
+            return pts
         }
 
-        private fun encode(lin: Float): Float =
+        internal fun encode(lin: Float): Float =
             if (lin <= 0.0031308f) 12.92f * lin else 1.055f * lin.toDouble().pow(1.0 / 2.4).toFloat() - 0.055f
 
         fun decode(code: Float): Float =

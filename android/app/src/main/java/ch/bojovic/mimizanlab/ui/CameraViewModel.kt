@@ -23,6 +23,7 @@ import ch.bojovic.mimizanlab.engine.SeparationMode
 import ch.bojovic.mimizanlab.engine.mixWeights
 import ch.bojovic.mimizanlab.engine.paperLut
 import ch.bojovic.mimizanlab.engine.plateWeights
+import ch.bojovic.mimizanlab.store.Grade
 import ch.bojovic.mimizanlab.store.PeakMode
 import ch.bojovic.mimizanlab.store.ShotMode
 import kotlinx.coroutines.CancellationException
@@ -77,35 +78,32 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private val _pendingReview = MutableStateFlow<String?>(null)
     val pendingReview: StateFlow<String?> = _pendingReview.asStateFlow()
 
-    /** The paper's two exposures, the standing values. The lamps stay at zero for a new frame. */
-    private data class Paper(val soft: Double, val hard: Double)
-
-    private val paper = combine(darkroom.prefs.soft, darkroom.prefs.hard) { s, h -> Paper(s, h) }
-
     /**
      * What the viewfinder shader applies to the camera preview: the still's
      * mix weights for the current filter and this frame's balance, pulled
      * back through the ISP's colour matrix, and the paper the automatic
      * JPEG uses; in the plate process the three taking filters the same
-     * way, and the lamps. Recomputed when the ISP colour moves (white
-     * balance), a develop setting changes, or an exposure or lamp changes.
+     * way (the lamps stay at zero for a new frame). Recomputed when the
+     * ISP colour moves (white balance), a develop setting changes, or the
+     * grade changes; the grade is one value, so the zone strip is one
+     * emission.
      */
     val tone: StateFlow<FinderTone> = combine(
         controller.ispColor,
         _develop,
-        paper,
+        darkroom.prefs.grade,
         _viewfinder,
         _lens,
-    ) { color, dev, pl, vf, lens ->
-        buildTone(color ?: IspColor.IDENTITY, dev, pl, vf.zebra, lens)
+    ) { color, dev, grade, vf, lens ->
+        buildTone(color ?: IspColor.IDENTITY, dev, grade, vf.zebra, lens)
     }.flowOn(Dispatchers.Default).stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
         buildTone(
             IspColor.IDENTITY,
             _develop.value,
-            Paper(darkroom.prefs.soft.value, darkroom.prefs.hard.value),
-            false,
+            darkroom.prefs.grade.value,
+            darkroom.prefs.zebra.value,
             _lens.value,
         ),
     )
@@ -125,7 +123,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private fun buildTone(
         color: IspColor,
         dev: DevelopSettings,
-        pl: Paper,
+        pl: Grade,
         zebra: Boolean,
         lens: LensInfo?,
     ): FinderTone {
@@ -218,7 +216,11 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun resume() = restart()
+    /** Back in the foreground: the camera again, and a development the background refused. */
+    fun resume() {
+        darkroom.resumeQueue()
+        restart()
+    }
 
     fun stop() {
         startJob?.cancel()
@@ -278,13 +280,9 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun setPlateSpace(s: PlateSpace) = darkroom.prefs.setPlateSpace(s)
     fun setSeparation(m: SeparationMode) = _develop.update { it.copy(separation = m) }
     fun setQuick(quick: Boolean) = _develop.update { it.copy(binning = if (quick) 2 else 1) }
-    fun setAutoJpeg(on: Boolean) = _develop.update { it.copy(autoJpeg = on) }
     fun setSoft(stops: Double) = darkroom.prefs.setSoft(stops)
     fun setHard(stops: Double) = darkroom.prefs.setHard(stops)
-    fun setGrade(soft: Double, hard: Double) {
-        darkroom.prefs.setSoft(soft)
-        darkroom.prefs.setHard(hard)
-    }
+    fun setGrade(soft: Double, hard: Double) = darkroom.prefs.setGrade(soft, hard)
     fun setZoneAuto(on: Boolean) = darkroom.prefs.setZoneAuto(on)
     fun setZoneBias(stops: Double) = darkroom.prefs.setZoneBias(stops)
     fun setPeakMode(mode: PeakMode) = darkroom.prefs.setPeakMode(mode)

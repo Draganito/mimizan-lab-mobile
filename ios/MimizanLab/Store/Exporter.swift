@@ -1,8 +1,8 @@
 // Where finished pictures go. Every export lands in `Documents/Mimizan Lab`,
 // which the Files app shows (the Android app's `Pictures/Mimizan Lab`);
-// prints (JPEG, TIFF) are added to Photos as well when the user allows it.
-// Linear negatives and plates stay in Files only: Photos would show them
-// dark and would gain nothing.
+// JPEGs are added to Photos as well when the user allows it. TIFFs,
+// linear negatives and plates stay in Files only: Photos would show the
+// linear files dark and would gain nothing.
 import Foundation
 import Photos
 
@@ -16,24 +16,42 @@ final class Exporter: Sendable {
     }
 
     /// Rust writes to a path: a scratch file, then the move into the folder.
-    /// Returns the file in `Documents/Mimizan Lab`.
+    /// Returns the file in `Documents/Mimizan Lab`. The scratch file and a
+    /// `.mask.tif` sidecar the core may have written beside it are removed
+    /// when the write fails, so a later export does not adopt a stale mask.
     func place(fileName: String, write: (String) throws -> Void) throws -> URL {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+        let tmpMask = Exporter.sidecar(of: tmp)
         try? FileManager.default.removeItem(at: tmp)
-        defer { try? FileManager.default.removeItem(at: tmp) }
-        try write(tmp.path)
-        let dst = unique(dir.appendingPathComponent(fileName))
-        try FileManager.default.moveItem(at: tmp, to: dst)
-        return dst
+        try? FileManager.default.removeItem(at: tmpMask)
+        do {
+            try write(tmp.path)
+            let dst = unique(dir.appendingPathComponent(fileName))
+            try FileManager.default.moveItem(at: tmp, to: dst)
+            return dst
+        } catch {
+            try? FileManager.default.removeItem(at: tmp)
+            try? FileManager.default.removeItem(at: tmpMask)
+            throw error
+        }
     }
 
-    /// A sidecar Rust may have written next to the scratch file (the mask
-    /// of a negative): moved in beside the main file when it exists.
-    func placeSidecar(_ name: String) -> URL? {
-        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(name)
-        guard FileManager.default.fileExists(atPath: tmp.path) else { return nil }
-        let dst = unique(dir.appendingPathComponent(name))
-        return (try? FileManager.default.moveItem(at: tmp, to: dst)) != nil ? dst : nil
+    /// The mask the core writes next to a negative or plate: `<stem>.mask.tif`
+    /// beside `<stem>.tif`, so `MLM_x.negative (2).tif` pairs with
+    /// `MLM_x.negative (2).mask.tif`, which is what the desktop looks for.
+    static func sidecar(of main: URL) -> URL {
+        main.deletingPathExtension().appendingPathExtension("mask").appendingPathExtension("tif")
+    }
+
+    /// The sidecar Rust wrote next to the scratch file `fileName` (the mask
+    /// of a negative), moved in beside `placed`, the file `place` returned,
+    /// under that file's name. nil when there is none.
+    func placeSidecar(scratchOf fileName: String, beside placed: URL) -> URL? {
+        let src = Exporter.sidecar(of: FileManager.default.temporaryDirectory.appendingPathComponent(fileName))
+        guard FileManager.default.fileExists(atPath: src.path) else { return nil }
+        let dst = Exporter.sidecar(of: placed)
+        try? FileManager.default.removeItem(at: dst)
+        return (try? FileManager.default.moveItem(at: src, to: dst)) != nil ? dst : nil
     }
 
     /// `name.ext`, `name (2).ext`, ... so a second export of the same

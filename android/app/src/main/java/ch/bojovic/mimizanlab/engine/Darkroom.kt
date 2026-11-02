@@ -217,48 +217,74 @@ class Darkroom private constructor(private val context: Context) {
         onProgress(name)
         developLock.withLock {
             updateShot(name) { it.copy(status = ShotStatus.Developing) }
+            // The development proper: anything thrown here is a failed
+            // frame. The handle is closed unless it reached `_current`.
+            var developed: Developed? = null
             try {
                 val (meta, pixels) = withContext(Dispatchers.IO) { cache.load(name) } ?: error("frame not in cache")
                 val input = meta.toRawInput(pixels)
                 val params = paramsFor(meta, shot.settings)
                 val t0 = System.nanoTime()
-                val developed = develop(input, params)
+                val d = develop(input, params)
+                developed = d
                 if (shot.settings.isPlate) {
                     // The plate is a re-mix of the separation just made; the
                     // lamps start from the settings, as the paper does.
-                    val w = developed.setPlate(shot.settings.plateFilters, shot.settings.plateSpace)
-                    developed.setLamps(0.0, 0.0)
+                    val w = d.setPlate(shot.settings.plateFilters, shot.settings.plateSpace)
+                    d.setLamps(0.0, 0.0)
                     Log.i(TAG, "plate ${w.filters}: R ${w.red} G ${w.green} B ${w.blue}")
                 }
-                val info = developed.info()
+                val info = d.info()
                 Log.i(TAG, "developed $name in ${(System.nanoTime() - t0) / 1_000_000} ms: ${info.timing}")
-                val paper = placed(developed)
-                val thumb = thumbnail(developed, paper.first, paper.second)
-                cache.saveThumb(name, thumb)
+                // From here on the negative is good. The thumbnail, its
+                // file, Peak's measurement and the JPEG each fail on their
+                // own, with a log line, and the development stays Ready.
+                val paper = placed(d)
+                val thumb = runCatching { thumbnail(d, paper.first, paper.second) }
+                    .onFailure { Log.w(TAG, "thumbnail $name", it) }
+                    .getOrNull()
+                if (thumb != null) {
+                    runCatching { cache.saveThumb(name, thumb) }.onFailure { Log.w(TAG, "thumbnail file $name", it) }
+                }
                 // Peak's radius and amount for this negative, as the
                 // desktop measures them on opening a picture. Measured even
                 // with the checkbox off: review can turn it on without a
                 // second pass.
-                val peak = measurePeak(developed, name, paper.first, paper.second)
+                val peak = measurePeak(d, name, paper.first, paper.second)
                 // Replace the negative kept in memory.
-                _current.getAndUpdate { Negative(name, developed, info, shot.settings, peak) }?.developed?.close()
-                updateShot(name) { it.copy(status = ShotStatus.Ready(info), thumbnail = thumb) }
+                _current.getAndUpdate { Negative(name, d, info, shot.settings, peak) }?.developed?.close()
+                developed = null
+                updateShot(name) { it.copy(status = ShotStatus.Ready(info), thumbnail = thumb ?: it.thumbnail) }
                 // A second development of the same frame does not add a second JPEG.
                 if (shot.settings.autoJpeg && shot.jpegUri == null) {
                     val applied = Prefs.peakApplied(prefs.peakMode.value, prefs.peakRadius.value, prefs.peakAmount.value, peak)
-                    val uri = exportJpeg(
-                        developed, name, suffixFor(shot.settings, info),
-                        soft = paper.first, hard = paper.second,
-                        peakRadius = applied.first, peakAmount = applied.second,
-                    )
-                    updateShot(name) { it.copy(jpegUri = uri) }
+                    runCatching {
+                        exportJpeg(
+                            d, name, suffixFor(shot.settings, info),
+                            soft = paper.first, hard = paper.second,
+                            peakRadius = applied.first, peakAmount = applied.second,
+                        )
+                    }.onSuccess { uri -> updateShot(name) { it.copy(jpegUri = uri) } }
+                        .onFailure { Log.e(TAG, "automatic JPEG $name", it) }
                 }
             } catch (t: Throwable) {
                 Log.e(TAG, "develop $name", t)
+                developed?.close()
                 updateShot(name) { it.copy(status = ShotStatus.Failed(t.message ?: t.javaClass.simpleName)) }
             }
         }
         return true
+    }
+
+    /**
+     * Start the service for frames still queued. A foreground start is
+     * refused while the app is in the background, so a frame queued at the
+     * wrong moment waits here; the camera calls this when it comes back.
+     */
+    fun resumeQueue() {
+        scope.launch {
+            if (queueLock.withLock { queue.isNotEmpty() }) DevelopService.start(context)
+        }
     }
 
     /** The same, before any frame exists: camera file by device and sensor CFA. */
@@ -276,13 +302,17 @@ class Darkroom private constructor(private val context: Context) {
     private fun paramsFor(meta: RawMeta, s: DevelopSettings): DevelopParams =
         developParamsFor(meta.make, meta.model, meta.cfa, s)
 
-    /** The standing grade, plus the zone shift when balance is on. The shift is not stored. */
+    /**
+     * The standing grade, plus the zone shift and the compensation when
+     * balance is on: the same `Prefs.place` the review shows, so the
+     * automatic JPEG and the opened picture start on one pair. The shift
+     * is not stored.
+     */
     private fun placed(d: Developed): Pair<Double, Double> {
-        val soft = prefs.soft.value
-        val hard = prefs.hard.value
-        if (!prefs.zoneAuto.value) return soft to hard
-        val shift = runCatching { d.zoneShift(soft, hard) }.getOrDefault(0.0)
-        return Prefs.shiftGrade(soft, hard, shift + prefs.zoneBias.value)
+        val stored = prefs.grade.value
+        if (!prefs.zoneAuto.value) return stored.soft to stored.hard
+        val shift = runCatching { d.zoneShift(0.0, 0.0) }.getOrDefault(0.0)
+        return Prefs.place(stored, shift, prefs.zoneBias.value).grade.let { it.soft to it.hard }
     }
 
     /** 256 px box of the preview, grey or, in the plate process, colour. */

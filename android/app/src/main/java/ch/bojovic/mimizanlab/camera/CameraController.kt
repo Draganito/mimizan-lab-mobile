@@ -182,42 +182,45 @@ class CameraController(context: Context) {
         this.lens = lens
         val previewSize = previewSizeFor(lens)
         texture.setDefaultBufferSize(previewSize.width, previewSize.height)
-        previewSurface = Surface(texture)
-        // Sensor-level characteristics (CFA, black level, arrays): the
-        // physical camera's when the streams are routed to one.
-        characteristics = manager.getCameraCharacteristics(lens.sensorId)
-        // Request keys are judged by the camera the requests go to.
-        isp = IspControls(manager.getCameraCharacteristics(lens.cameraId)).also { Log.i(TAG, "isp: ${it.description}") }
-        _ispColor.value = null
+        // Everything made from here on is reclaimed by closeSessionLocked()
+        // when any step fails or the start is cancelled, so a lens that
+        // refuses to open leaves no reader or surface behind.
+        try {
+            previewSurface = Surface(texture)
+            // Sensor-level characteristics (CFA, black level, arrays): the
+            // physical camera's when the streams are routed to one.
+            characteristics = manager.getCameraCharacteristics(lens.sensorId)
+            // Request keys are judged by the camera the requests go to.
+            isp = IspControls(manager.getCameraCharacteristics(lens.cameraId)).also { Log.i(TAG, "isp: ${it.description}") }
+            _ispColor.value = null
 
-        rawReader = ImageReader.newInstance(lens.rawSize.width, lens.rawSize.height, ImageFormat.RAW_SENSOR, 2)
-        val an = analysisSizeFor(lens)
-        yuvReader = an?.let { size ->
-            ImageReader.newInstance(size.width, size.height, ImageFormat.YUV_420_888, 2).apply {
-                setOnImageAvailableListener({ reader ->
-                    val img = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
-                    // A HAL quirk in the plane layout must cost one histogram, not the app.
-                    runCatching {
-                        img.use {
-                            val now = SystemClock.elapsedRealtime()
-                            if (now - lastAnalysisMs >= ANALYSIS_PERIOD_MS) {
-                                lastAnalysisMs = now
-                                analyse(it)
+            rawReader = ImageReader.newInstance(lens.rawSize.width, lens.rawSize.height, ImageFormat.RAW_SENSOR, 2)
+            val an = analysisSizeFor(lens)
+            yuvReader = an?.let { size ->
+                ImageReader.newInstance(size.width, size.height, ImageFormat.YUV_420_888, 2).apply {
+                    setOnImageAvailableListener({ reader ->
+                        val img = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
+                        // A HAL quirk in the plane layout must cost one histogram, not the app.
+                        runCatching {
+                            img.use {
+                                val now = SystemClock.elapsedRealtime()
+                                if (now - lastAnalysisMs >= ANALYSIS_PERIOD_MS) {
+                                    lastAnalysisMs = now
+                                    analyse(it)
+                                }
                             }
-                        }
-                    }.onFailure { Log.w(TAG, "analysis frame", it) }
-                }, analysisHandler)
+                        }.onFailure { Log.w(TAG, "analysis frame", it) }
+                    }, analysisHandler)
+                }
             }
-        }
-        orientationListener.enable()
+            orientationListener.enable()
 
-        val dev = openDevice(lens.cameraId)
-        device = dev
-        val preview = previewSurface!!
-        val rawSurface = rawReader!!.surface
-        val withAnalysis = listOfNotNull(preview, yuvReader?.surface, rawSurface)
-        session = try {
-            try {
+            val dev = openDevice(lens.cameraId)
+            device = dev
+            val preview = previewSurface!!
+            val rawSurface = rawReader!!.surface
+            val withAnalysis = listOfNotNull(preview, yuvReader?.surface, rawSurface)
+            session = try {
                 createSession(dev, withAnalysis, lens.physicalId)
             } catch (e: IllegalStateException) {
                 if (e.message != "session configuration failed" || yuvReader == null) throw e
@@ -228,10 +231,10 @@ class CameraController(context: Context) {
                 yuvReader = null
                 createSession(dev, listOf(preview, rawSurface), lens.physicalId)
             }
-        } catch (e: Exception) {
+        } catch (t: Throwable) {
             orientationListener.disable()
             closeSessionLocked()
-            throw e
+            throw t
         }
         _state.update { it.copy(lens = lens, previewSize = previewSize, error = null, focusPoint = null, flash = flash) }
         afRegion = null
@@ -261,7 +264,12 @@ class CameraController(context: Context) {
     @SuppressLint("MissingPermission")
     private suspend fun openDevice(id: String): CameraDevice = suspendCancellableCoroutine { cont ->
         manager.openCamera(id, executor, object : CameraDevice.StateCallback() {
-            override fun onOpened(camera: CameraDevice) { if (cont.isActive) cont.resume(camera) }
+            override fun onOpened(camera: CameraDevice) {
+                // Nobody waits any more (the screen was left while the
+                // camera opened): close it, or it stays open until the
+                // system reclaims it and the next open fails.
+                if (cont.isActive) cont.resume(camera) else camera.close()
+            }
             override fun onDisconnected(camera: CameraDevice) {
                 camera.close()
                 if (cont.isActive) cont.resumeWithException(IllegalStateException("camera disconnected"))

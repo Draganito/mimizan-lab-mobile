@@ -20,21 +20,14 @@
 			</array>
 		</dict>
 		<dict>
-			<!-- File timestamps: the raw cache trims by age. -->
+			<!-- File timestamps: the raw cache trims by age. The cache budget
+			     is summed from file sizes, which is not a disk-space API, so
+			     that category is not declared. -->
 			<key>NSPrivacyAccessedAPIType</key>
 			<string>NSPrivacyAccessedAPICategoryFileTimestamp</string>
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
 				<string>C617.1</string>
-			</array>
-		</dict>
-		<dict>
-			<!-- Disk space: the cache budget. -->
-			<key>NSPrivacyAccessedAPIType</key>
-			<string>NSPrivacyAccessedAPICategoryDiskSpace</string>
-			<key>NSPrivacyAccessedAPITypeReasons</key>
-			<array>
-				<string>E174.1</string>
 			</array>
 		</dict>
 	</array>

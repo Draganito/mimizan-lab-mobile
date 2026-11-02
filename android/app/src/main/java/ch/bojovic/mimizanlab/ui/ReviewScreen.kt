@@ -328,7 +328,10 @@ fun ZoomableNegative(
     var offset by remember { mutableStateOf(Offset.Zero) }
     val img = remember(preview) { preview.asImageBitmap() }
     val detailPaint = remember { Paint(Paint.FILTER_BITMAP_FLAG) }
-    val frostNode = remember { RenderNode("review-frost") }
+    // The blur is set once; the node is only re-recorded per frame.
+    val frostNode = remember {
+        RenderNode("review-frost").apply { setRenderEffect(RenderEffect.createBlurEffect(24f, 24f, Shader.TileMode.CLAMP)) }
+    }
     val frostPaint = remember { Paint(Paint.FILTER_BITMAP_FLAG) }
 
     // Fit the full picture into the view at scale 1.
@@ -427,7 +430,6 @@ fun ZoomableNegative(
                 val w = size.width.toInt().coerceAtLeast(1)
                 val h = size.height.toInt().coerceAtLeast(1)
                 frostNode.setPosition(0, 0, w, h)
-                frostNode.setRenderEffect(RenderEffect.createBlurEffect(24f, 24f, Shader.TileMode.CLAMP))
                 val rec = frostNode.beginRecording()
                 rec.save()
                 rec.translate(offset.x, offset.y)

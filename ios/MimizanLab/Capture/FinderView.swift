@@ -16,11 +16,13 @@ private struct FinderUniforms {
 }
 
 final class FinderRenderer: NSObject, MTKViewDelegate {
-    private let device: MTLDevice
+    let device: MTLDevice
     private let queue: MTLCommandQueue
     private let pipeline: MTLComputePipelineState
     private var textureCache: CVMetalTextureCache?
     private let lock = OSAllocatedUnfairLock<(CVPixelBuffer?, FinderTone?, Int)>(initialState: (nil, nil, 0))
+    /// Draws since the texture cache was last flushed (main thread, from `draw`).
+    private var drawsSinceFlush = 0
 
     /// nil without a Metal device or the `finder` kernel in the bundle.
     static func make() -> FinderRenderer? {
@@ -84,7 +86,20 @@ final class FinderRenderer: NSObject, MTKViewDelegate {
         enc.dispatchThreadgroups(groups, threadsPerThreadgroup: MTLSize(width: tw, height: th, depth: 1))
         enc.endEncoding()
         cmd.present(drawable)
+        // The texture and the pixel buffer behind it must outlive the GPU's
+        // read: the camera may hand the next frame in before this pass has
+        // run, and the buffer would go back to the pool while it is sampled.
+        cmd.addCompletedHandler { _ in
+            _ = cvTex
+            _ = frame
+        }
         cmd.commit()
+        // Housekeeping the cache asks for now and then; every four seconds at 30 fps.
+        drawsSinceFlush += 1
+        if drawsSinceFlush >= 120 {
+            drawsSinceFlush = 0
+            CVMetalTextureCacheFlush(cache, 0)
+        }
     }
 }
 
@@ -94,7 +109,8 @@ struct FinderView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> MTKView {
         let v = MTKView()
-        v.device = MTLCreateSystemDefaultDevice()
+        // The drawable has to come from the device the kernel was built on.
+        v.device = renderer.device
         v.delegate = renderer
         v.framebufferOnly = false
         v.colorPixelFormat = .bgra8Unorm

@@ -30,10 +30,13 @@ class DevelopService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var worker: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    /** The id of the latest start, so the worker stops only when no newer start has been delivered. */
+    @Volatile private var lastStartId = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        lastStartId = startId
         goForeground(notification(getString(R.string.developing), null))
         if (worker?.isActive != true) {
             worker = scope.launch { drain() }
@@ -41,16 +44,28 @@ class DevelopService : Service() {
         return START_NOT_STICKY
     }
 
+    /**
+     * Drain the queue, then stop. The start id is read before the queue is
+     * found empty: a frame queued and a start delivered in between carry a
+     * newer id, `stopSelfResult` refuses, and the loop takes the frame. A
+     * start that lands after the stop was accepted creates the service
+     * again.
+     */
     private suspend fun drain() {
         val darkroom = Darkroom.get(this)
         val pm = getSystemService(PowerManager::class.java)
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "mimizan:develop").apply { acquire(10 * 60_000L) }
         try {
-            while (darkroom.runNext { name -> notify(getString(R.string.developing), name) }) Unit
+            while (true) {
+                val startId = lastStartId
+                if (darkroom.runNext { name -> notify(getString(R.string.developing), name) }) continue
+                if (stopSelfResult(startId)) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    break
+                }
+            }
         } finally {
             wakeLock?.takeIf { it.isHeld }?.release()
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
         }
     }
 
@@ -87,8 +102,9 @@ class DevelopService : Service() {
 
         /**
          * Ask the service to drain the queue. Android refuses a foreground
-         * start from a backgrounded app; the frame stays queued and the
-         * next start (the next shot, or the next visit to the roll) takes it.
+         * start from a backgrounded app; the frame stays queued, and the
+         * camera asks again when the app comes back to the foreground
+         * (`Darkroom.resumeQueue`), as does the next shot.
          */
         fun start(context: Context) {
             runCatching { context.startForegroundService(Intent(context, DevelopService::class.java)) }

@@ -82,7 +82,9 @@ Samsung's Exynos phones are the open gap. The curve for the paper is
 on, and it is not yet known whether that meter follows it and settles
 dark. That is the S24 and S24+ in Europe, the S26 and S26+ in Europe,
 and the S25 FE in every market. Older European S models on an Exynos
-chip are in the same gap. It is being checked on a Galaxy S25 FE.
+chip are in the same gap. It is being checked on a Galaxy S25 FE. A
+MediaTek phone that offers RAW takes the same path as Exynos and has
+not been checked either.
 
 ### Why the Pixel 9 sensor is already binned
 
@@ -277,7 +279,10 @@ The darkroom is the same on both phones. The finder is not.
    Compensation, shown only then, adds paper time on top of that
    placement: plus prints darker, and the same amount is kept for the
    next picture. Moving the strip or a grade slider keeps what you set. The standing
-   pair is not overwritten by the balance itself.
+   pair is not overwritten by the balance itself. When the balance pins a
+   slider at the limit (±3), there is less on the screen than the picture
+   wanted; a slider moved then stores the grade that shows what you set,
+   so the stored pair moves by the part the limit cut off.
 4. **Peak** is Off, Auto, or Custom. Auto measures radius and amount on
    each negative. Custom shows the two sliders and remembers them. Off
    leaves the exports unsharpened. The 1:1 view shows the result. The

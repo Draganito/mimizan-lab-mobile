@@ -65,23 +65,29 @@ final class Darkroom {
 
     private var queue: [String] = []
     private var running = false
+    /// The development runs here: a thread of its own, not Swift's
+    /// cooperative pool, which a call of several seconds would block.
+    private let worker = Gate(label: "ch.bojovic.mimizanlab.develop")
+    /// Writing and reading the frame just taken, one at a time: the
+    /// cache's orphan sweep then never sees a second frame half written.
+    private let intake = Gate(label: "ch.bojovic.mimizanlab.intake")
 
     private init() {
         initLogging()
         // Frames from an earlier run are still in the cache: list them so
         // they can be developed again.
         let cache = cache
-        Task.detached(priority: .utility) {
-            let restored: [Shot] = cache.names().compactMap { name in
-                cache.loadMeta(name).map {
-                    Shot(name: name, meta: $0, settings: DevelopSettings(), status: .cached, thumbnail: cache.loadThumb(name))
+        Task {
+            let (restored, bytes) = await intake.run { () -> ([Shot], Int64) in
+                let restored: [Shot] = cache.names().compactMap { name in
+                    cache.loadMeta(name).map {
+                        Shot(name: name, meta: $0, settings: DevelopSettings(), status: .cached, thumbnail: cache.loadThumb(name))
+                    }
                 }
+                return (restored, cache.sizeBytes())
             }
-            let bytes = cache.sizeBytes()
-            await MainActor.run {
-                if !restored.isEmpty { self.shots = restored + self.shots }
-                self.cacheBytes = bytes
-            }
+            if !restored.isEmpty { self.shots = restored + self.shots }
+            self.cacheBytes = bytes
         }
     }
 
@@ -93,12 +99,14 @@ final class Darkroom {
         )
     }
 
-    /// The standing grade, plus the zone shift when balance is on. The shift is not stored.
+    /// The standing grade, plus the zone shift when balance is on. The
+    /// shift is measured at zero, where both sliders have the full room
+    /// (the same number review caches), and added with the compensation
+    /// as one delta. A failed measurement counts as no shift. Not stored.
     nonisolated static func placed(_ developed: Developed, _ paper: PaperSettings) -> (soft: Double, hard: Double) {
-        if paper.zoneAuto, let shift = try? developed.zoneShift(soft: paper.soft, hard: paper.hard) {
-            return Prefs.shiftGrade(soft: paper.soft, hard: paper.hard, by: shift + paper.zoneBias)
-        }
-        return (paper.soft, paper.hard)
+        guard paper.zoneAuto else { return (paper.soft, paper.hard) }
+        let shift = (try? developed.zoneShift(soft: 0, hard: 0)) ?? 0
+        return Prefs.shiftGrade(soft: paper.soft, hard: paper.hard, by: shift + paper.zoneBias)
     }
 
     // MARK: intake
@@ -111,62 +119,31 @@ final class Darkroom {
         let provisional = ShotMeta(info: FrameInfo.empty, lens: lens, capturedAt: capturedAt, imported: false)
         shots.insert(Shot(name: name, meta: provisional, settings: settings, status: .saving), at: 0)
         let cache = cache
-        Task.detached(priority: .userInitiated) {
-            do {
-                try cache.putRaw(name, dng: dng)
-                let info = try frameInfo(path: cache.rawFile(name).path)
-                let meta = ShotMeta(info: info, lens: lens, capturedAt: capturedAt, imported: false)
-                try cache.commit(name, meta: meta)
-                await MainActor.run {
-                    self.updateShot(name) { $0.meta = meta }
-                    self.syncWithCache()
-                    if developNow {
-                        self.enqueue(name, settings)
-                    } else {
-                        self.updateShot(name) { $0.status = .cached }
-                    }
+        Task {
+            let saved: Result<ShotMeta, Error> = await intake.run {
+                Result<ShotMeta, Error> {
+                    try cache.putRaw(name, dng: dng)
+                    let info = try frameInfo(path: cache.rawFile(name).path)
+                    let meta = ShotMeta(info: info, lens: lens, capturedAt: capturedAt, imported: false)
+                    try cache.commit(name, meta: meta)
+                    return meta
                 }
-            } catch {
+            }
+            switch saved {
+            case let .success(meta):
+                self.updateShot(name) { $0.meta = meta }
+                self.syncWithCache()
+                if developNow {
+                    self.enqueue(name, settings)
+                } else {
+                    self.updateShot(name) { $0.status = .cached }
+                }
+            case let .failure(error):
                 log.error("save \(name): \(error.localizedDescription)")
-                await MainActor.run {
-                    self.updateShot(name) { $0.status = .failed(error.localizedDescription) }
-                }
+                self.updateShot(name) { $0.status = .failed(error.localizedDescription) }
             }
         }
         return name
-    }
-
-    /// A RAW file from Files or Photos: copied into the cache under a
-    /// fresh name and developed in the standing process.
-    func importFile(_ url: URL, settings: DevelopSettings) {
-        let now = Date()
-        let name = Darkroom.nameFor(now) + "_import"
-        let cache = cache
-        let scoped = url.startAccessingSecurityScopedResource()
-        Task.detached(priority: .userInitiated) {
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            do {
-                try cache.putRaw(name, copying: url)
-                let info = try frameInfo(path: cache.rawFile(name).path)
-                let meta = ShotMeta(info: info, lens: url.lastPathComponent, capturedAt: now, imported: true)
-                try cache.commit(name, meta: meta)
-                await MainActor.run {
-                    self.shots.insert(Shot(name: name, meta: meta, settings: settings, status: .saving), at: 0)
-                    self.syncWithCache()
-                    self.enqueue(name, settings)
-                }
-            } catch {
-                cache.remove(name)
-                log.error("import \(url.lastPathComponent): \(error.localizedDescription)")
-                await MainActor.run {
-                    self.shots.insert(
-                        Shot(name: name, meta: ShotMeta(info: FrameInfo.empty, lens: url.lastPathComponent, capturedAt: now, imported: true),
-                             settings: settings, status: .failed(error.localizedDescription)),
-                        at: 0
-                    )
-                }
-            }
-        }
     }
 
     /// Forget a frame: the DNG and its metadata leave the cache, the
@@ -237,21 +214,23 @@ final class Darkroom {
         running = true
         developing = name
         updateShot(name) { $0.status = .developing }
-        let bg = UIApplication.shared.beginBackgroundTask(withName: "develop \(name)") {}
+        let bg = BackgroundTask(name: "develop \(name)")
         let params = developParams(for: shot.meta, shot.settings)
         let paper = paperSettings
         let path = cache.rawFile(name).path
         let settings = shot.settings
         let hadJpeg = shot.jpegURL != nil
         let exporter = exporter
-        Task.detached(priority: .userInitiated) {
-            let outcome = Darkroom.develop(
-                name: name, path: path, params: params, settings: settings, paper: paper, exporter: exporter,
-                wantJpeg: settings.autoJpeg && !hadJpeg
-            )
-            await MainActor.run {
-                switch outcome {
-                case let .success(result):
+        Task {
+            let outcome = await worker.run {
+                Darkroom.develop(
+                    name: name, path: path, params: params, settings: settings, paper: paper, exporter: exporter,
+                    wantJpeg: settings.autoJpeg && !hadJpeg
+                )
+            }
+            switch outcome {
+            case let .success(result):
+                if self.shots.contains(where: { $0.name == name }) {
                     self.current = result.negative
                     if let thumb = result.thumbnail { self.cache.saveThumb(name, thumb) }
                     self.updateShot(name) {
@@ -262,14 +241,19 @@ final class Darkroom {
                     if let url = result.jpeg {
                         Task { _ = await exporter.addToPhotos(url) }
                     }
-                case let .failure(error):
-                    self.updateShot(name) { $0.status = .failed(error.localizedDescription) }
+                } else {
+                    // Deleted while it developed: the negative is dropped here
+                    // (the handle frees the core's memory when its last reference
+                    // goes), and no thumbnail is written for a frame that is gone.
+                    log.info("developed \(name) after its deletion; dropped")
                 }
-                self.running = false
-                self.developing = nil
-                UIApplication.shared.endBackgroundTask(bg)
-                self.pump()
+            case let .failure(error):
+                self.updateShot(name) { $0.status = .failed(error.localizedDescription) }
             }
+            self.running = false
+            self.developing = nil
+            bg.end()
+            self.pump()
         }
     }
 
@@ -382,11 +366,14 @@ final class Darkroom {
     /// (`<name>.plate.tif`), which `mimizan print` prints in colour.
     nonisolated static func exportNegative(_ d: Developed, name: String, exporter: Exporter) throws -> [URL] {
         let stem = d.info().plate != nil ? "\(name).plate" : "\(name).negative"
-        let main = try exporter.place(fileName: "\(stem).tif") { p in
+        let fileName = "\(stem).tif"
+        let main = try exporter.place(fileName: fileName) { p in
             _ = try d.exportNegative(path: p)
         }
         var out = [main]
-        if let mask = exporter.placeSidecar("\(stem).mask.tif") { out.append(mask) }
+        // The core wrote `<stem>.mask.tif` beside the scratch file; it goes
+        // beside the final file under the final name, so a `(2)` pair stays a pair.
+        if let mask = exporter.placeSidecar(scratchOf: fileName, beside: main) { out.append(mask) }
         return out
     }
 
@@ -423,6 +410,46 @@ final class Darkroom {
     /// The file-name suffix of a development as it stands: the plate it is in, else its filter.
     nonisolated static func suffix(for settings: DevelopSettings, info: DevelopInfo) -> String {
         info.plate.map { suffix(for: $0) } ?? suffix(for: settings.filter)
+    }
+}
+
+/// A serial queue for the core's calls: one `Developed` is used from one
+/// `Gate`, so its calls never overlap, and the work runs on a thread of
+/// the queue's own rather than on Swift's cooperative pool, which a call
+/// of several seconds would otherwise block.
+final class Gate: @unchecked Sendable {
+    private let queue: DispatchQueue
+
+    init(label: String = "ch.bojovic.mimizanlab.gate") {
+        queue = DispatchQueue(label: label, qos: .userInitiated)
+    }
+
+    func run<T>(_ body: @escaping () -> T) async -> T {
+        await withCheckedContinuation { (cont: CheckedContinuation<T, Never>) in
+            queue.async { cont.resume(returning: body()) }
+        }
+    }
+}
+
+/// One `beginBackgroundTask`, ended exactly once: by `end()` when the work
+/// is done, or by the expiry handler, which must end it or the system
+/// terminates the app. The development itself cannot be cut short; ended
+/// on expiry, the app is suspended instead and the development finishes
+/// when it comes back.
+@MainActor
+final class BackgroundTask {
+    private var id: UIBackgroundTaskIdentifier = .invalid
+
+    init(name: String) {
+        id = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
+            MainActor.assumeIsolated { self?.end() }
+        }
+    }
+
+    func end() {
+        guard id != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(id)
+        id = .invalid
     }
 }
 

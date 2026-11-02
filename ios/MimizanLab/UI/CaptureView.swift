@@ -32,6 +32,9 @@ struct CaptureView: View {
                 }
                 .frame(width: w, height: h)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // The iPad's interface turns a moment after the device does;
+                // the new size is the sign that it has.
+                .onChange(of: geo.size) { _, _ in vm.refreshOrientation() }
             }
 
             HStack(spacing: 16) {
