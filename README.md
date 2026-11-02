@@ -325,7 +325,7 @@ settings. Android keeps packed samples plus metadata. iOS keeps the DNG.
 
 ## Status
 
-Android 0.14.21 runs on the Pixel 9: main and ultrawide (the ultrawide
+Android 0.14.22 runs on the Pixel 9: main and ultrawide (the ultrawide
 through its physical camera id), RAW capture, gallery JPEG, review,
 the plate, the split-grade paper, Peak, the zone strip, the roll.
 Development of a 12.5 MP frame was measured at 2.3–4.5 s before core
@@ -336,7 +336,7 @@ still wrote DNGs). The fitted camera file for the Pixel 9 is still the
 core defaults for noise and weights. `OTHER_SENSORS` and Android 17
 have been checked on this one device.
 
-iOS 0.14.21 is the same darkroom, built for device and uploaded to
+iOS 0.14.22 is the same darkroom, built for device and uploaded to
 TestFlight from a `v*` tag. The finder is the camera preview. Import
 of a RAW from Files or Photos is switched off.
 
