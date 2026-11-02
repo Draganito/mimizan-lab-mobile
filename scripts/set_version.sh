@@ -15,7 +15,11 @@
 # diff is yours to read and commit ("<version>: ...").
 #
 # Then: build the APK (cd android && ./gradlew assembleRelease), commit, and
-#   gh release create v<version> android/app/build/outputs/apk/release/app-release.apk#mimizan-lab-mobile-<version>.apk --title <version> --notes "..."
+#   cp android/app/build/outputs/apk/release/app-release.apk \
+#      android/app/build/outputs/apk/release/mimizan-lab-mobile-<version>.apk
+#   gh release create v<version> \
+#     android/app/build/outputs/apk/release/mimizan-lab-mobile-<version>.apk \
+#     --title <version> --notes "..."
 # A v* tag starts the TestFlight upload. For Android alone, tag
 # android-<version> instead; nothing on the iOS side listens to that.
 set -euo pipefail

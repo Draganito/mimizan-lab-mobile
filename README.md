@@ -229,10 +229,12 @@ nothing.
 ```bash
 scripts/set_version.sh 0.14.22
 cd android && ./gradlew assembleRelease && cd ..
+cp android/app/build/outputs/apk/release/app-release.apk \
+  android/app/build/outputs/apk/release/mimizan-lab-mobile-0.14.22.apk
 git commit -am "0.14.22: ..."
 git push
 gh release create v0.14.22 \
-  android/app/build/outputs/apk/release/app-release.apk#mimizan-lab-mobile-0.14.22.apk \
+  android/app/build/outputs/apk/release/mimizan-lab-mobile-0.14.22.apk \
   --title 0.14.22 --notes "..."
 ```
 
