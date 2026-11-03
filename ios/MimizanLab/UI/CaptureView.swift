@@ -12,7 +12,12 @@ struct CaptureView: View {
 
     @Environment(\.scenePhase) private var scenePhase
     @State private var showSettings = false
-    @State private var exposureOpen = false
+    // Open from the start: the EV slider and the balance are the two
+    // hands a user needs when the print comes out dark.
+    @State private var exposureOpen = true
+
+    /// Manual is amber, so a dark finder in M reads as a setting, not a fault.
+    private let manualInk = Color(red: 1, green: 0.72, blue: 0.3)
 
     var body: some View {
         let state = vm.state
@@ -44,8 +49,9 @@ struct CaptureView: View {
                 .font(.subheadline.weight(.semibold))
                 Spacer()
                 Button { exposureOpen.toggle() } label: {
-                    Text(exposureLine(state))
+                    Text(Format.exposureLine(iso: state.iso, seconds: state.exposureSeconds, manual: exposure.manual, bias: exposure.bias))
                         .font(.subheadline.monospaced())
+                        .foregroundStyle(exposure.manual ? manualInk : .white)
                 }
                 .buttonStyle(.plain)
                 if lens?.hasFlash == true {
@@ -59,6 +65,7 @@ struct CaptureView: View {
                     exposureOpen = true
                 }
                 .font(.subheadline.bold())
+                .foregroundStyle(exposure.manual ? manualInk : .white)
                 .disabled(lens?.hasManualExposure != true)
             }
             .padding(.horizontal, 20)
@@ -154,11 +161,18 @@ struct CaptureView: View {
             .allowsHitTesting(false)
         }
         if let f = state.focusPoint {
-            RoundedRectangle(cornerRadius: 4)
-                .stroke(state.adjustingFocus ? Color.white : Color(red: 0.73, green: 1, blue: 0.4), lineWidth: 1.5)
-                .frame(width: 72, height: 72)
-                .position(x: f.x * size.width, y: f.y * size.height)
-                .allowsHitTesting(false)
+            // The tap also meters here. Say so, and how to let go.
+            VStack(spacing: 2) {
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(state.adjustingFocus ? Color.white : Color(red: 0.73, green: 1, blue: 0.4), lineWidth: 1.5)
+                    .frame(width: 72, height: 72)
+                Text("focus · meter\nhold to clear")
+                    .font(.caption2)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.white.opacity(0.8))
+            }
+            .position(x: f.x * size.width, y: f.y * size.height + 16)
+            .allowsHitTesting(false)
         }
         if vm.viewfinder.showHistogram {
             VStack {
@@ -221,11 +235,6 @@ struct CaptureView: View {
         vm.lens.map { "\($0.label)  \($0.equivalentMm) mm" } ?? ""
     }
 
-    private func exposureLine(_ state: CaptureState) -> String {
-        let iso = state.iso.map(String.init) ?? "—"
-        return "\(iso)  ·  \(Format.shutter(seconds: state.exposureSeconds ?? 0))"
-    }
-
     /// iPad targets are twice the phone's. A 32 pt symbol is too small to hit on the mini.
     private var pad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
@@ -262,13 +271,35 @@ struct CaptureView: View {
                             set: { vm.setManual(iso: iso, seconds: Format.sliderToSeconds($0, lo: l.exposureRange.lowerBound, hi: l.exposureRange.upperBound)) }
                         )
                     )
-                } else if l.biasRange.upperBound > l.biasRange.lowerBound {
-                    LabeledSlider(
-                        label: "EV \(Format.ev(exposure.bias))",
-                        value: Binding(get: { exposure.bias }, set: { vm.setBias($0) }),
-                        range: l.biasRange,
-                        step: 1.0 / 3
-                    )
+                    Text(l.hasFlash
+                        ? "Manual: the finder shows this exposure. Auto flash does not fire; On fires once. A is the automatics."
+                        : "Manual: the finder shows this exposure. A is the automatics.")
+                        .font(.caption).foregroundStyle(.gray)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    if l.biasRange.upperBound > l.biasRange.lowerBound {
+                        LabeledSlider(
+                            label: "EV \(Format.ev(exposure.bias))",
+                            value: Binding(get: { exposure.bias }, set: { vm.setBias($0) }),
+                            range: l.biasRange,
+                            step: 1.0 / 3
+                        )
+                    }
+                    // The balance sits with EV: both are the answer to a
+                    // print that came out dark. EV moves the camera, the
+                    // balance moves the paper.
+                    SettingRow(label: "Balance the zone", on: Binding(get: { vm.prefs.zoneAuto }, set: vm.setZoneAuto))
+                    if vm.prefs.zoneAuto {
+                        LabeledSlider(
+                            label: Prefs.compensationLabel(vm.prefs.zoneBias),
+                            value: Binding(get: { vm.prefs.zoneBias }, set: vm.setZoneBias),
+                            range: -Prefs.zoneBiasLimit...Prefs.zoneBiasLimit,
+                            step: 1.0 / 12
+                        )
+                        Text("Each picture's middle is placed on the grey card; the grade stays. Snow and night scenes come out grey too: comp adds paper time, plus prints darker.")
+                            .font(.caption).foregroundStyle(.gray)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
         }
@@ -294,16 +325,7 @@ struct SettingsSheet: View {
                     PaperSliders(soft: vm.prefs.soft, hard: vm.prefs.hard, onSoft: vm.setSoft, onHard: vm.setHard)
                         .padding(.top, 8)
                     ZoneStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, onBoth: vm.setGrade)
-                    SettingRow(label: "Balance the zone", on: Binding(get: { vm.prefs.zoneAuto }, set: vm.setZoneAuto))
-                    if vm.prefs.zoneAuto {
-                        LabeledSlider(
-                            label: String(format: "comp %+.2f", vm.prefs.zoneBias),
-                            value: Binding(get: { vm.prefs.zoneBias }, set: vm.setZoneBias),
-                            range: -Prefs.zoneBiasLimit...Prefs.zoneBiasLimit,
-                            step: 1.0 / 12
-                        )
-                    }
-                    Text("On, a picture places its middle on the grey card and leaves the grade. Compensation adds paper time: plus prints darker. Moving the strip or a grade slider keeps what you set.")
+                    Text("Drag the strip: left prints darker, right lighter; the grade stays. Double-tap it for the base print (grade 2). Balance the zone sits under the finder, with EV.")
                         .font(.caption).foregroundStyle(.gray)
                     PeakRow(mode: vm.prefs.peakMode, onMode: vm.setPeakMode)
                     if vm.prefs.peakMode == .custom {

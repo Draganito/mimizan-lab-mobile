@@ -78,6 +78,22 @@ object GradeMath {
         return if (peakOn) PeakMode.AUTO else PeakMode.OFF
     }
 
+    /**
+     * The compensation slider's label. The number keeps the paper's sign
+     * (plus is more paper time, as on the soft and hard sliders); the
+     * word says what that does to the print, because a camera's EV runs
+     * the other way.
+     */
+    fun compensationLabel(bias: Double): String {
+        val v = finiteOrZero(bias)
+        val word = when {
+            v > 0.0 -> " darker"
+            v < 0.0 -> " lighter"
+            else -> ""
+        }
+        return String.format(java.util.Locale.US, "comp %+.2f%s", v, word)
+    }
+
     /** A stored float that was never finite (a damaged preferences file) reads as zero. */
     fun finiteOrZero(v: Double): Double = if (v.isFinite()) v else 0.0
 

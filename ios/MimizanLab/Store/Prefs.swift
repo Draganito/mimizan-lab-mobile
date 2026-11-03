@@ -69,7 +69,8 @@ final class Prefs {
     /// What the shutter does. Developer on a fresh install: the finder is
     /// the camera's picture, so a shot opens to be graded.
     private(set) var shotMode: ShotMode
-    /// Overexposure marks on the finder. Off for a fresh install.
+    /// Overexposure marks on the finder. On for a fresh install: the marks
+    /// are the one sign of lost highlights before the shot.
     private(set) var zebra: Bool
     /// The rule of thirds on the finder. Off for a fresh install.
     private(set) var grid: Bool
@@ -106,7 +107,7 @@ final class Prefs {
         } else {
             shotMode = .developer
         }
-        zebra = store.bool(forKey: Keys.zebra)
+        zebra = store.object(forKey: Keys.zebra) == nil ? true : store.bool(forKey: Keys.zebra)
         grid = store.bool(forKey: Keys.grid)
         histogram = store.bool(forKey: Keys.histogram)
         zoneAuto = store.bool(forKey: Keys.zoneAuto)
@@ -189,6 +190,22 @@ final class Prefs {
         store.set(zoneBias, forKey: Keys.zoneBias)
     }
 
+    /// Whether the one-time note after the first JPEG shot (the frame
+    /// stays on the roll and can be printed again) has been shown.
+    var rollHintShown: Bool { store.bool(forKey: Keys.rollHint) }
+
+    func markRollHintShown() { store.set(true, forKey: Keys.rollHint) }
+
+    /// The compensation slider's label. The number keeps the paper's sign
+    /// (plus is more paper time, as on the soft and hard sliders); the
+    /// word says what that does to the print, because a camera's EV runs
+    /// the other way.
+    nonisolated static func compensationLabel(_ bias: Double) -> String {
+        let v = finiteOrZero(bias)
+        let word = v > 0 ? " darker" : v < 0 ? " lighter" : ""
+        return String(format: "comp %+.2f", v) + word
+    }
+
     /// Add `delta` stops to both exposures, snapped to a twelfth, and stop
     /// at the limit so the gap between them stays.
     nonisolated static func shiftGrade(soft: Double, hard: Double, by delta: Double) -> (Double, Double) {
@@ -254,6 +271,7 @@ final class Prefs {
         static let histogram = "finder_histogram"
         static let zoneAuto = "zone_auto"
         static let zoneBias = "zone_bias"
+        static let rollHint = "hint_roll_shown"
     }
 }
 

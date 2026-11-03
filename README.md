@@ -73,12 +73,14 @@ printed through the paper at the standing exposures: the finder is the
 paper. On iOS the finder is the camera's own preview, desaturated in
 mono, untouched in colour; the grade shows where a picture opens.
 
-1. **Finder.** Zebra marks the highlights, a histogram sits in the
-   corner, a grid draws thirds; the three are remembered and start
-   off. Tap sets focus and metering; a long press clears it. Flash
-   cycles Off / Auto / On and fires on the still, not in the finder.
-   The exposure switch changes between automatic (with EV
-   compensation) and manual ISO and shutter.
+1. **Finder.** Zebra marks the highlights and starts on; a histogram
+   and a grid of thirds start off. The three are remembered. Tap sets
+   focus and metering (the label under the box says so); a long press
+   clears it. Flash cycles Off / Auto / On and fires on the still, not
+   in the finder. Under the finder sit the EV slider and Balance the
+   zone: EV moves the camera, the balance moves the paper. A and M
+   switch between the automatics and manual ISO and shutter; in M the
+   line turns amber, and Auto flash does not fire.
 2. **Process.** Mono or Plate, kept across starts. In Mono the filter
    row (Pan, Y8, YG11, O16, R25, G58, B47) is the film for the shot and
    can be changed in review without developing again. In Plate the row
@@ -87,11 +89,13 @@ mono, untouched in colour; the grade shows where a picture opens.
    Adobe RGB is in Settings.
 3. **Grade.** Soft and hard are the two paper exposures, in stops from
    the base print (±3, steps of 1/12); zero is about grade 2. The zone
-   strip moves both by the same stops and keeps the grade. Balance the
-   zone, off until you turn it on, places a picture's middle on the
-   grey card; Compensation adds paper time on top and is kept for the
-   next picture. A slider you move stores what you see, also when the
-   balance had pinned it at the limit.
+   strip moves both by the same stops and keeps the grade; a double
+   tap on it is the base print again. Balance the zone, off until you
+   turn it on, places a picture's middle on the grey card, snow and
+   night included; comp adds paper time on top (the label says darker
+   or lighter) and is kept for the next picture. A slider you move
+   stores what you see, also when the balance had pinned it at the
+   limit.
 4. **Peak** is Off, Auto or Custom. Auto measures radius and amount on
    each negative, Custom shows the two sliders, Off leaves the exports
    unsharpened. The preview is never sharpened; the 1:1 view is.
@@ -264,7 +268,7 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.14.23 on Android and iOS: RAW capture, the finder as the paper
+0.14.24 on Android and iOS: RAW capture, the finder as the paper
 (Android), Mono and Plate, the split-grade paper, the zone strip, Peak,
 review with remix and 1:1 detail, the exports, the roll. Checked on a
 Pixel 9 (main and ultrawide), a Pixel 4a and a Galaxy S25 FE. Open: a

@@ -314,6 +314,12 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
                 val frame = controller.capture(l.label)
                 val name = darkroom.submit(frame, settings, developNow = mode != ShotMode.RAW)
                 if (mode == ShotMode.DEVELOPER) _pendingReview.value = name
+                // Once: a JPEG that came out wrong is not lost. The frame
+                // is on the roll and prints again at another grade.
+                if (mode == ShotMode.JPEG && !darkroom.prefs.rollHintShown) {
+                    darkroom.prefs.markRollHintShown()
+                    _message.value = "The frame stays on the roll. Open it there to print it again, at another grade."
+                }
             } catch (t: Throwable) {
                 Log.e(TAG, "capture", t)
                 _message.value = t.message ?: "Capture failed"

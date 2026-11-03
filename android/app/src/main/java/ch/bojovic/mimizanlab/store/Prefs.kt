@@ -152,8 +152,12 @@ class Prefs(context: Context) {
         sp.edit { putString(KEY_SHOT_MODE, mode.name) }
     }
 
-    private val _zebra = MutableStateFlow(sp.getBoolean(KEY_ZEBRA, false))
-    /** Overexposure marks on the finder. Off for a fresh install. */
+    private val _zebra = MutableStateFlow(sp.getBoolean(KEY_ZEBRA, true))
+    /**
+     * Overexposure marks on the finder. On for a fresh install: the
+     * finder is the paper, and the marks are the one sign of lost
+     * highlights before the shot.
+     */
     val zebra: StateFlow<Boolean> = _zebra.asStateFlow()
 
     fun setZebra(on: Boolean) {
@@ -203,6 +207,15 @@ class Prefs(context: Context) {
         _zoneBias.value = v
         sp.edit { putFloat(KEY_ZONE_BIAS, v.toFloat()) }
     }
+
+    /**
+     * Whether the one-time note after the first JPEG shot (the frame stays
+     * on the roll and can be printed again) has been shown. Not a flow:
+     * read once, at the shot.
+     */
+    val rollHintShown: Boolean get() = sp.getBoolean(KEY_ROLL_HINT, false)
+
+    fun markRollHintShown() = sp.edit { putBoolean(KEY_ROLL_HINT, true) }
 
     companion object {
         /** How far either paper exposure may move, in stops: the core's `paper::STOP_LIMIT`, asked once. */
@@ -261,5 +274,6 @@ class Prefs(context: Context) {
         private const val KEY_HISTOGRAM = "finder_histogram"
         private const val KEY_ZONE_AUTO = "zone_auto"
         private const val KEY_ZONE_BIAS = "zone_bias"
+        private const val KEY_ROLL_HINT = "hint_roll_shown"
     }
 }

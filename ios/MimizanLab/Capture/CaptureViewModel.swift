@@ -233,6 +233,12 @@ final class CaptureViewModel {
                 let dng = try await session.capture()
                 let name = darkroom.submit(dng: dng, lens: l.label, capturedAt: Date(), settings: settings, developNow: mode != .raw)
                 if mode == .developer { pendingReview = name }
+                // Once: a JPEG that came out wrong is not lost. The frame
+                // is on the roll and prints again at another grade.
+                if mode == .jpeg, !prefs.rollHintShown {
+                    prefs.markRollHintShown()
+                    message = "The frame stays on the roll. Open it there to print it again, at another grade."
+                }
             } catch {
                 log.error("capture: \(error.localizedDescription)")
                 message = error.localizedDescription

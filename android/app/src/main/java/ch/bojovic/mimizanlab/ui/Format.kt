@@ -31,6 +31,20 @@ object Format {
         return if (v == 0.0) "±0" else String.format(Locale.US, "%+.1f", v)
     }
 
+    /**
+     * The line over the shutter: ISO and time as metered, `M` in front
+     * when they are set by hand, the compensation behind when the
+     * automatics are told to move.
+     */
+    fun exposureLine(iso: Int?, ns: Long?, manual: Boolean, evSteps: Int, evStep: Double): String {
+        val base = "${iso?.toString() ?: "—"}  ·  ${shutter(ns)}"
+        return when {
+            manual -> "M  $base"
+            evSteps != 0 -> "$base  ·  EV ${ev(evSteps, evStep)}"
+            else -> base
+        }
+    }
+
     fun filterShort(f: Filter): String = when (f) {
         Filter.NONE -> "Pan"
         Filter.YELLOW8 -> "Y8"

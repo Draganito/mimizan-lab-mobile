@@ -147,7 +147,8 @@ struct PaperSliders: View {
 }
 
 /// Drag left to print darker, right to print lighter. Both exposures move
-/// by the same stops, so the grade stays.
+/// by the same stops, so the grade stays. A double tap is the base print:
+/// both exposures back to zero, the one way out of a grade set yesterday.
 struct ZoneStrip: View {
     let soft: Double
     let hard: Double
@@ -159,6 +160,7 @@ struct ZoneStrip: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(LinearGradient(colors: [.black, .white], startPoint: .leading, endPoint: .trailing))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.35), lineWidth: 1))
+                .onTapGesture(count: 2) { onBoth(0, 0) }
                 .highPriorityGesture(
                     DragGesture(minimumDistance: 4)
                         .onChanged { v in

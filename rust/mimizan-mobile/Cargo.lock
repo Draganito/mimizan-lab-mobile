@@ -894,7 +894,7 @@ dependencies = [
 
 [[package]]
 name = "mimizan-mobile"
-version = "0.14.23"
+version = "0.14.24"
 dependencies = [
  "mimizan-core",
  "rayon",

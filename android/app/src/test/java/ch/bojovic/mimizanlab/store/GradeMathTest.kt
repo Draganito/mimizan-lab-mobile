@@ -22,6 +22,14 @@ class GradeMathTest {
     }
 
     @Test
+    fun compensationLabelSaysWhatThePrintDoes() {
+        assertEquals("comp +0.50 darker", GradeMath.compensationLabel(0.5))
+        assertEquals("comp -0.25 lighter", GradeMath.compensationLabel(-0.25))
+        assertEquals("comp +0.00", GradeMath.compensationLabel(0.0))
+        assertEquals("comp +0.00", GradeMath.compensationLabel(Double.NaN))
+    }
+
+    @Test
     fun shiftGradeMovesBothAndKeepsTheGap() {
         val p = GradeMath.shiftGrade(0.5, -0.25, 1.0, limit)
         assertEquals(1.5, p.grade.soft, eps)

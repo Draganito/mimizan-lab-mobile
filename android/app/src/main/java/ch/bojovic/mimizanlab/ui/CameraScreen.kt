@@ -88,6 +88,7 @@ import ch.bojovic.mimizanlab.engine.ShotStatus
 import ch.bojovic.mimizanlab.engine.coreVersion
 import ch.bojovic.mimizanlab.engine.version
 import ch.bojovic.mimizanlab.engine.workerThreads
+import ch.bojovic.mimizanlab.store.GradeMath
 import ch.bojovic.mimizanlab.store.PeakMode
 import ch.bojovic.mimizanlab.store.Prefs
 import ch.bojovic.mimizanlab.store.ShotMode
@@ -118,7 +119,9 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val message by vm.message.collectAsStateWithLifecycle()
     val pendingReview by vm.pendingReview.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
-    var exposureOpen by remember { mutableStateOf(false) }
+    // Open from the start: the EV slider and the balance are the two
+    // hands a user needs when the print comes out dark.
+    var exposureOpen by remember { mutableStateOf(true) }
     var confirmDeleteAll by remember { mutableStateOf(false) }
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
 
@@ -187,15 +190,31 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 stream.focusPoint?.let { (fx, fy) ->
                     val d = LocalDensity.current
                     val size = 72.dp
+                    val labelWidth = 120.dp
                     val px = with(d) { size.toPx() }
+                    val labelPx = with(d) { labelWidth.toPx() }
                     val locked = stream.afState == CaptureResult.CONTROL_AF_STATE_FOCUSED_LOCKED ||
                         stream.afState == CaptureResult.CONTROL_AF_STATE_PASSIVE_FOCUSED
-                    Box(
+                    Column(
                         Modifier
-                            .offset { IntOffset((fx * viewSize.width - px / 2).toInt(), (fy * viewSize.height - px / 2).toInt()) }
-                            .size(size)
-                            .border(1.5.dp, if (locked) Color(0xFFBBFF66) else Color.White, RoundedCornerShape(4.dp)),
-                    )
+                            .offset { IntOffset((fx * viewSize.width - labelPx / 2).toInt(), (fy * viewSize.height - px / 2).toInt()) }
+                            .width(labelWidth),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(size)
+                                .border(1.5.dp, if (locked) Color(0xFFBBFF66) else Color.White, RoundedCornerShape(4.dp)),
+                        )
+                        // The tap also meters here. Say so, and how to let go.
+                        Text(
+                            "focus · meter\nhold to clear",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White.copy(alpha = 0.8f),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
                 }
 
                 if (vf.showHistogram) {
@@ -247,10 +266,14 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 Text(if (develop.isPlate) "Color" else "Mono", fontWeight = FontWeight.SemiBold)
             }
             Spacer(Modifier.weight(1f))
+            // Manual is amber, so a dark finder in M reads as a setting,
+            // not a fault. In A a compensation that is not zero shows here too.
+            val manualInk = Color(0xFFFFB74D)
             TextButton(onClick = { exposureOpen = !exposureOpen }) {
                 Text(
-                    "${stream.iso?.toString() ?: "—"}  ·  ${Format.shutter(stream.exposureNs)}",
+                    Format.exposureLine(stream.iso, stream.exposureNs, exposure.manual, exposure.evSteps, lens?.evStep?.toDouble() ?: 0.0),
                     fontFamily = FontFamily.Monospace,
+                    color = if (exposure.manual) manualInk else Color.White,
                 )
             }
             if (lens?.hasFlash == true) {
@@ -272,7 +295,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                     exposureOpen = true
                 },
                 enabled = lens?.hasManualSensor == true,
-            ) { Text(if (exposure.manual) "M" else "A", fontWeight = FontWeight.Bold) }
+            ) { Text(if (exposure.manual) "M" else "A", fontWeight = FontWeight.Bold, color = if (exposure.manual) manualInk else Color.White) }
         }
         if (exposureOpen) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
@@ -291,14 +314,38 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                         value = Format.nsToSlider(t, l.exposureRangeNs.lower, minOf(l.exposureRangeNs.upper, 4_000_000_000L)),
                         onChange = { vm.setManual(iso, Format.sliderToNs(it, l.exposureRangeNs.lower, minOf(l.exposureRangeNs.upper, 4_000_000_000L))) },
                     )
-                } else if (l.evRange.upper > l.evRange.lower) {
-                    val step = l.evStep.toDouble()
-                    LabeledSlider(
-                        label = "EV ${Format.ev(exposure.evSteps, step)}",
-                        value = (exposure.evSteps - l.evRange.lower).toFloat() / (l.evRange.upper - l.evRange.lower),
-                        onChange = { vm.setEv((l.evRange.lower + it * (l.evRange.upper - l.evRange.lower)).roundToInt()) },
-                        steps = l.evRange.upper - l.evRange.lower - 1,
+                    Text(
+                        if (l.hasFlash) "Manual: the finder shows this exposure. Auto flash does not fire; On fires once. A is the automatics."
+                        else "Manual: the finder shows this exposure. A is the automatics.",
+                        style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                     )
+                } else {
+                    if (l.evRange.upper > l.evRange.lower) {
+                        val step = l.evStep.toDouble()
+                        LabeledSlider(
+                            label = "EV ${Format.ev(exposure.evSteps, step)}",
+                            value = (exposure.evSteps - l.evRange.lower).toFloat() / (l.evRange.upper - l.evRange.lower),
+                            onChange = { vm.setEv((l.evRange.lower + it * (l.evRange.upper - l.evRange.lower)).roundToInt()) },
+                            steps = l.evRange.upper - l.evRange.lower - 1,
+                        )
+                    }
+                    // The balance sits with EV: both are the answer to a print
+                    // that came out dark. EV moves the camera, the balance
+                    // moves the paper.
+                    SettingRow("Balance the zone", zoneAuto, vm::setZoneAuto)
+                    if (zoneAuto) {
+                        LabeledSlider(
+                            label = GradeMath.compensationLabel(zoneBias),
+                            value = zoneBias.toFloat(),
+                            onChange = { vm.setZoneBias(it.toDouble()) },
+                            range = -Prefs.ZONE_BIAS_LIMIT.toFloat()..Prefs.ZONE_BIAS_LIMIT.toFloat(),
+                            steps = 47,
+                        )
+                        Text(
+                            "Each picture's middle is placed on the grey card; the grade stays. Snow and night scenes come out grey too: comp adds paper time, plus prints darker.",
+                            style = MaterialTheme.typography.bodySmall, color = Color.Gray,
+                        )
+                    }
                 }
             }
         }
@@ -348,18 +395,8 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 Spacer(Modifier.height(8.dp))
                 PaperSliders(soft, hard, onSoft = vm::setSoft, onHard = vm::setHard)
                 ZoneStrip(soft, hard, onBoth = vm::setGrade)
-                SettingRow("Balance the zone", zoneAuto, vm::setZoneAuto)
-                if (zoneAuto) {
-                    LabeledSlider(
-                        label = String.format(Locale.US, "comp %+.2f", zoneBias),
-                        value = zoneBias.toFloat(),
-                        onChange = { vm.setZoneBias(it.toDouble()) },
-                        range = -Prefs.ZONE_BIAS_LIMIT.toFloat()..Prefs.ZONE_BIAS_LIMIT.toFloat(),
-                        steps = 47,
-                    )
-                }
                 Text(
-                    "On, a picture places its middle on the grey card and leaves the grade. Compensation adds paper time: plus prints darker. Moving the strip or a grade slider keeps what you set.",
+                    "Drag the strip: left prints darker, right lighter; the grade stays. Double-tap it for the base print (grade 2). Balance the zone sits under the finder, with EV.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 PeakRow(peakMode, onMode = vm::setPeakMode)
@@ -543,7 +580,11 @@ fun PaperSliders(soft: Double, hard: Double, onSoft: (Double) -> Unit, onHard: (
     )
 }
 
-/** Drag left to print darker, right to print lighter. Both exposures move by the same stops, so the grade stays. */
+/**
+ * Drag left to print darker, right to print lighter. Both exposures move
+ * by the same stops, so the grade stays. A double tap is the base print:
+ * both exposures back to zero, the one way out of a grade set yesterday.
+ */
 @Composable
 fun ZoneStrip(soft: Double, hard: Double, onBoth: (Double, Double) -> Unit) {
     val latest = rememberUpdatedState(soft to hard)
@@ -556,6 +597,9 @@ fun ZoneStrip(soft: Double, hard: Double, onBoth: (Double, Double) -> Unit) {
             .clip(RoundedCornerShape(6.dp))
             .background(Brush.horizontalGradient(listOf(Color.Black, Color.White)))
             .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+            .pointerInput(Unit) {
+                detectTapGestures(onDoubleTap = { onBoth(0.0, 0.0) })
+            }
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
                     onDragStart = {
