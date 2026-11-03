@@ -50,6 +50,14 @@ balance multipliers. The phone path uses the exact Camera2 floats.
 | as-shot WB (tungsten room) | R 1.20 B 2.99 | R 1.09 B 2.84 |
 | AE compensation | -24..24 in 1/6 EV | same |
 
+The Pixel 9 exposes its 50 MP quad-Bayer sensor to Camera2 as this
+12.5 MP regular mosaic: the hardware bins 2×2 before the frame leaves
+the ISP. The optional second, CFA-preserving 2× binning (Quick
+development, `binning = 2`) quarters the pixels again and finishes in
+about a quarter of the time. The deliverable is developed at full
+resolution unless Quick development was on for that frame. Other phones
+report their own RAW size; the pipeline does not assume 4080×3072.
+
 The ultrawide is not in `cameraIdList`; it is reached by routing all three
 output configurations to physical id "3" of logical camera "0"
 (`OutputConfiguration.setPhysicalCameraId`). Its metadata comes from
