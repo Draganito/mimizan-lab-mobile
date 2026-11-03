@@ -12,10 +12,14 @@ import kotlin.math.pow
  * A listed sRGB preset is requested. Where the preset is missing, the
  * fixed sRGB curve is installed, so backlight in the finder stays as dark
  * as the paper. A Qualcomm meter follows that curve and settles dark, so
- * on that chip the curve stays off and the shader assumes sRGB. Lens
- * shading stays off (the RAW has none), and so do noise reduction, edge
- * enhancement, distortion correction and stabilisation. What was pinned
- * is in [description].
+ * on that chip the curve stays off and the shader assumes sRGB. An
+ * Exynos meter (Galaxy S25 FE) does not follow the curve: the paper
+ * curve stays on, as on Tensor. Lens shading stays off on a Pixel,
+ * where the RAW has none. On Samsung the RAW is already shaded, so
+ * the preview keeps the correction or the finder is brighter in the
+ * middle than the print. Noise reduction, edge enhancement, distortion
+ * correction and stabilisation stay off. What was pinned is in
+ * [description].
  */
 class IspControls(c: CameraCharacteristics) {
     private val tonemapMode: Int?
@@ -47,8 +51,9 @@ class IspControls(c: CameraCharacteristics) {
                 curve = null
             }
         }
-        shadingOff = c.get(CameraCharacteristics.SHADING_AVAILABLE_MODES)
-            ?.contains(CameraMetadata.SHADING_MODE_OFF) == true
+        shadingOff = pinShadingOff() &&
+            c.get(CameraCharacteristics.SHADING_AVAILABLE_MODES)
+                ?.contains(CameraMetadata.SHADING_MODE_OFF) == true
         noiseOff = c.get(CameraCharacteristics.NOISE_REDUCTION_AVAILABLE_NOISE_REDUCTION_MODES)
             ?.contains(CameraMetadata.NOISE_REDUCTION_MODE_OFF) == true
         edgeOff = c.get(CameraCharacteristics.EDGE_AVAILABLE_EDGE_MODES)
@@ -65,7 +70,11 @@ class IspControls(c: CameraCharacteristics) {
                 declinedCurve -> "not pinned (qualcomm meter follows a custom curve)"
                 else -> "NOT pinned (assuming sRGB)"
             },
-            "shading " + if (shadingOff) "off" else "on (not pinned)",
+            "shading " + when {
+                shadingOff -> "off"
+                !pinShadingOff() -> "on (samsung RAW is shaded)"
+                else -> "on (not pinned)"
+            },
             "nr " + if (noiseOff) "off" else "on",
             "edge " + if (edgeOff) "off" else "on",
             "distortion " + if (distortionOff) "off" else "default",
@@ -97,7 +106,8 @@ class IspControls(c: CameraCharacteristics) {
         /**
          * The Qualcomm camera stack meters a curve we install and settles dark.
          * Vendor tags are not always in [CameraCharacteristics.getKeys], so the
-         * chip is the backstop. A Google Tensor phone is not this chip.
+         * chip is the backstop. Tensor and Exynos (Samsung) are not
+         * this chip: they keep the paper curve.
          */
         private fun qualcommMeter(c: CameraCharacteristics): Boolean {
             if (vendorCurve(c.keys.map { it.name })) return true
@@ -108,6 +118,14 @@ class IspControls(c: CameraCharacteristics) {
             if (Build.SOC_MANUFACTURER.equals("Qualcomm", ignoreCase = true)) return true
             return Build.HARDWARE.equals("qcom", ignoreCase = true)
         }
+
+        /**
+         * Samsung's HAL shades the RAW. Forcing [SHADING_MODE_OFF] on the
+         * preview then leaves the finder brighter in the middle than the
+         * print. A Pixel RAW has no shading, so the preview stays off there.
+         */
+        internal fun pinShadingOff(manufacturer: String = Build.MANUFACTURER): Boolean =
+            !manufacturer.equals("samsung", ignoreCase = true)
 
         /** A Qualcomm camera stack: its vendor tags carry these prefixes. */
         internal fun vendorCurve(names: List<String>): Boolean =

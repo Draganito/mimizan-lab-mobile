@@ -81,13 +81,15 @@ Motorola Edge that offers RAW, and a Galaxy S with a Snapdragon: the
 S23 and S25 series in every market, the Ultra models in every market,
 and the other S models in the US.
 
-Samsung's Exynos phones are the open gap. The curve for the paper is
-on, and it is not yet known whether that meter follows it and settles
-dark. That is the S24 and S24+ in Europe, the S26 and S26+ in Europe,
-and the S25 FE in every market. Older European S models on an Exynos
-chip are in the same gap. It is being checked on a Galaxy S25 FE. A
-MediaTek phone that offers RAW takes the same path as Exynos and has
-not been checked either.
+Samsung's Exynos phones keep the paper curve, like Tensor. Checked on
+a Galaxy S25 FE (SM-S731B, s5e9945): no sRGB preset, a 64-point
+contrast curve, the meter does not settle dark against a window. The
+RAW is already lens-shaded, so the preview keeps that correction;
+without it the finder is brighter in the middle than the print. That
+covers the S24 and S24+ in Europe, the S26 and S26+ in Europe, and the
+S25 FE in every market. Older European S models on Exynos take the
+same path and have not been checked themselves. A MediaTek phone that
+offers RAW takes that path too and has not been checked.
 
 ### Why the Pixel 9 sensor is already binned
 
@@ -335,7 +337,8 @@ Development of a 12.5 MP frame was measured at 2.3–4.5 s before core
 on a DNG of the same frame to 0.015 % RMS (measured with 0.1.0, which
 still wrote DNGs). The fitted camera file for the Pixel 9 is still the
 core defaults for noise and weights. `OTHER_SENSORS` and Android 17
-have been checked on this one device.
+have been checked on this one device. The finder on a Galaxy S25 FE
+(Exynos) was checked against a window: the paper curve stays on.
 
 iOS 0.14.22 is the same darkroom, built for device and uploaded to
 TestFlight from a `v*` tag. The finder is the camera preview. Import

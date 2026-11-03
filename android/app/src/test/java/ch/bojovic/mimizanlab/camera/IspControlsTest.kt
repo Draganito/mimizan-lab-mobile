@@ -50,4 +50,12 @@ class IspControlsTest {
         assertFalse(IspControls.vendorCurve(listOf("android.control.aeMode", "com.google.pixel.camera.something")))
         assertFalse(IspControls.vendorCurve(emptyList()))
     }
+
+    @Test
+    fun samsungKeepsLensShadingOnThePreview() {
+        assertFalse(IspControls.pinShadingOff("samsung"))
+        assertFalse(IspControls.pinShadingOff("Samsung"))
+        assertTrue(IspControls.pinShadingOff("Google"))
+        assertTrue(IspControls.pinShadingOff("Xiaomi"))
+    }
 }
