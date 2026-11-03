@@ -67,7 +67,9 @@ The Galaxy A56 does not offer it to another app. The Galaxy A17, the
 Moto G and the cheap Redmi phones are built the same way, and this app
 has no frame to develop there.
 
-Where a RAW frame is available, two groups are in use.
+Where a RAW frame is available, the three big chip families are
+covered: Tensor, Qualcomm, and Samsung (Exynos or Snapdragon). A
+MediaTek phone that offers RAW has not been checked.
 
 Pixel 6 and later use Google's Tensor chip. On the Pixel 9 the finder
 matches the paper. Pixel 6, 7, 8, 10 and 11 are the same chip family
@@ -88,8 +90,9 @@ RAW is already lens-shaded, so the preview keeps that correction;
 without it the finder is brighter in the middle than the print. That
 covers the S24 and S24+ in Europe, the S26 and S26+ in Europe, and the
 S25 FE in every market. Older European S models on Exynos take the
-same path and have not been checked themselves. A MediaTek phone that
-offers RAW takes that path too and has not been checked.
+same path and have not been checked themselves. Samsung's Snapdragon
+phones use the Qualcomm curve and still keep the shading, because
+that correction is the Samsung HAL, not the Exynos.
 
 ### Why the Pixel 9 sensor is already binned
 
@@ -328,7 +331,7 @@ settings. Android keeps packed samples plus metadata. iOS keeps the DNG.
 
 ## Status
 
-Android 0.14.22 runs on the Pixel 9: main and ultrawide (the ultrawide
+Android 0.14.23 runs on the Pixel 9: main and ultrawide (the ultrawide
 through its physical camera id), RAW capture, gallery JPEG, review,
 the plate, the split-grade paper, Peak, the zone strip, the roll.
 Development of a 12.5 MP frame was measured at 2.3–4.5 s before core
@@ -338,9 +341,10 @@ on a DNG of the same frame to 0.015 % RMS (measured with 0.1.0, which
 still wrote DNGs). The fitted camera file for the Pixel 9 is still the
 core defaults for noise and weights. `OTHER_SENSORS` and Android 17
 have been checked on this one device. The finder on a Galaxy S25 FE
-(Exynos) was checked against a window: the paper curve stays on.
+(Exynos) was checked against a window: the paper curve stays on, and
+the lens shading stays on so the middle matches the print.
 
-iOS 0.14.22 is the same darkroom, built for device and uploaded to
+iOS 0.14.23 is the same darkroom, built for device and uploaded to
 TestFlight from a `v*` tag. The finder is the camera preview. Import
 of a RAW from Files or Photos is switched off.
 
