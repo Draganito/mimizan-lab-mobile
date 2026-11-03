@@ -93,7 +93,6 @@ import ch.bojovic.mimizanlab.store.PeakMode
 import ch.bojovic.mimizanlab.store.Prefs
 import ch.bojovic.mimizanlab.store.ShotMode
 import java.util.Locale
-import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 @Composable
@@ -119,9 +118,6 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val message by vm.message.collectAsStateWithLifecycle()
     val pendingReview by vm.pendingReview.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
-    // Open from the start: the EV slider and the balance are the two
-    // hands a user needs when the print comes out dark.
-    var exposureOpen by remember { mutableStateOf(true) }
     var confirmDeleteAll by remember { mutableStateOf(false) }
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
 
@@ -267,15 +263,14 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
             }
             Spacer(Modifier.weight(1f))
             // Manual is amber, so a dark finder in M reads as a setting,
-            // not a fault. In A a compensation that is not zero shows here too.
+            // not a fault.
             val manualInk = Color(0xFFFFB74D)
-            TextButton(onClick = { exposureOpen = !exposureOpen }) {
-                Text(
-                    Format.exposureLine(stream.iso, stream.exposureNs, exposure.manual, exposure.evSteps, lens?.evStep?.toDouble() ?: 0.0),
-                    fontFamily = FontFamily.Monospace,
-                    color = if (exposure.manual) manualInk else Color.White,
-                )
-            }
+            Text(
+                Format.exposureLine(stream.iso, stream.exposureNs, exposure.manual),
+                fontFamily = FontFamily.Monospace,
+                color = if (exposure.manual) manualInk else Color.White,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            )
             if (lens?.hasFlash == true) {
                 IconButton(onClick = vm::cycleFlash) {
                     Icon(
@@ -290,65 +285,33 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 }
             }
             TextButton(
-                onClick = {
-                    if (exposure.manual) vm.setAuto() else vm.enterManual()
-                    exposureOpen = true
-                },
+                onClick = { if (exposure.manual) vm.setAuto() else vm.enterManual() },
                 enabled = lens?.hasManualSensor == true,
             ) { Text(if (exposure.manual) "M" else "A", fontWeight = FontWeight.Bold, color = if (exposure.manual) manualInk else Color.White) }
         }
-        if (exposureOpen) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-            val l = lens
-            if (l != null) {
-                if (exposure.manual) {
-                    val iso = exposure.iso ?: l.isoRange.lower
-                    val t = exposure.exposureNs ?: l.exposureRangeNs.lower
-                    LabeledSlider(
-                        label = "ISO $iso",
-                        value = Format.isoToSlider(iso, l.isoRange.lower, l.isoRange.upper),
-                        onChange = { vm.setManual(Format.sliderToIso(it, l.isoRange.lower, l.isoRange.upper), t) },
-                    )
-                    LabeledSlider(
-                        label = Format.shutter(t),
-                        value = Format.nsToSlider(t, l.exposureRangeNs.lower, minOf(l.exposureRangeNs.upper, 4_000_000_000L)),
-                        onChange = { vm.setManual(iso, Format.sliderToNs(it, l.exposureRangeNs.lower, minOf(l.exposureRangeNs.upper, 4_000_000_000L))) },
-                    )
-                    Text(
-                        if (l.hasFlash) "Manual: the finder shows this exposure. Auto flash does not fire; On fires once. A is the automatics."
-                        else "Manual: the finder shows this exposure. A is the automatics.",
-                        style = MaterialTheme.typography.bodySmall, color = Color.Gray,
-                    )
-                } else {
-                    if (l.evRange.upper > l.evRange.lower) {
-                        val step = l.evStep.toDouble()
-                        LabeledSlider(
-                            label = "EV ${Format.ev(exposure.evSteps, step)}",
-                            value = (exposure.evSteps - l.evRange.lower).toFloat() / (l.evRange.upper - l.evRange.lower),
-                            onChange = { vm.setEv((l.evRange.lower + it * (l.evRange.upper - l.evRange.lower)).roundToInt()) },
-                            steps = l.evRange.upper - l.evRange.lower - 1,
-                        )
-                    }
-                    // The balance sits with EV: both are the answer to a print
-                    // that came out dark. EV moves the camera, the balance
-                    // moves the paper.
-                    SettingRow("Balance the zone", zoneAuto, vm::setZoneAuto)
-                    if (zoneAuto) {
-                        LabeledSlider(
-                            label = GradeMath.compensationLabel(zoneBias),
-                            value = zoneBias.toFloat(),
-                            onChange = { vm.setZoneBias(it.toDouble()) },
-                            range = -Prefs.ZONE_BIAS_LIMIT.toFloat()..Prefs.ZONE_BIAS_LIMIT.toFloat(),
-                            steps = 47,
-                        )
-                        Text(
-                            "Each picture's middle is placed on the grey card; the grade stays. Snow and night scenes come out grey too: comp adds paper time, plus prints darker.",
-                            style = MaterialTheme.typography.bodySmall, color = Color.Gray,
-                        )
-                    }
-                }
+        // The hand's two sliders, only in M. In A the automatics expose and
+        // the paper is corrected in the developer, where the stops are real.
+        val l = lens
+        if (exposure.manual && l != null) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                val iso = exposure.iso ?: l.isoRange.lower
+                val t = exposure.exposureNs ?: l.exposureRangeNs.lower
+                LabeledSlider(
+                    label = "ISO $iso",
+                    value = Format.isoToSlider(iso, l.isoRange.lower, l.isoRange.upper),
+                    onChange = { vm.setManual(Format.sliderToIso(it, l.isoRange.lower, l.isoRange.upper), t) },
+                )
+                LabeledSlider(
+                    label = Format.shutter(t),
+                    value = Format.nsToSlider(t, l.exposureRangeNs.lower, minOf(l.exposureRangeNs.upper, 4_000_000_000L)),
+                    onChange = { vm.setManual(iso, Format.sliderToNs(it, l.exposureRangeNs.lower, minOf(l.exposureRangeNs.upper, 4_000_000_000L))) },
+                )
+                Text(
+                    if (l.hasFlash) "Manual: the finder shows this exposure. Auto flash does not fire; On fires once. A is the automatics."
+                    else "Manual: the finder shows this exposure. A is the automatics.",
+                    style = MaterialTheme.typography.bodySmall, color = Color.Gray,
+                )
             }
-        }
         }
 
         // Shutter row.
@@ -396,7 +359,21 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 PaperSliders(soft, hard, onSoft = vm::setSoft, onHard = vm::setHard)
                 ZoneStrip(soft, hard, onBoth = vm::setGrade)
                 Text(
-                    "Drag the strip: left prints darker, right lighter; the grade stays. Double-tap it for the base print (grade 2). Balance the zone sits under the finder, with EV.",
+                    "Drag the strip: left prints darker, right lighter; the grade stays. Double-tap it for the base print (grade 2).",
+                    style = MaterialTheme.typography.bodySmall, color = Color.Gray,
+                )
+                SettingRow("Balance the zone", zoneAuto, vm::setZoneAuto)
+                if (zoneAuto) {
+                    LabeledSlider(
+                        label = GradeMath.compensationLabel(zoneBias),
+                        value = zoneBias.toFloat(),
+                        onChange = { vm.setZoneBias(it.toDouble()) },
+                        range = -Prefs.ZONE_BIAS_LIMIT.toFloat()..Prefs.ZONE_BIAS_LIMIT.toFloat(),
+                        steps = 47,
+                    )
+                }
+                Text(
+                    "On, the automatic JPEG and the opened picture place their middle on the grey card; the finder does not follow. Snow and night come out grey too. Comp adds paper time on top. Moving the strip or a grade slider keeps what you set.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 PeakRow(peakMode, onMode = vm::setPeakMode)

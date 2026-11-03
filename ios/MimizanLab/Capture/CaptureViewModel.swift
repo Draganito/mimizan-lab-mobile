@@ -152,7 +152,8 @@ final class CaptureViewModel {
     func selectLens(_ l: LensInfo) {
         guard lens?.key != l.key else { return }
         lens = l
-        exposure = ExposureSettings(bias: exposure.bias)
+        // Another lens, another range: back to the automatics.
+        exposure = ExposureSettings()
         restart()
     }
 
@@ -163,11 +164,6 @@ final class CaptureViewModel {
     }
 
     // MARK: exposure
-
-    func setBias(_ ev: Double) {
-        exposure.bias = ev
-        session.setExposure(exposure)
-    }
 
     func setManual(iso: Double, seconds: Double) {
         // An invalid CMTime reads as NaN; it must not reach the device or a slider.

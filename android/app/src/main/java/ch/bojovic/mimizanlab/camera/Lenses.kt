@@ -6,7 +6,6 @@ import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CameraMetadata
 import android.util.Log
 import android.util.Range
-import android.util.Rational
 import android.util.Size
 import ch.bojovic.mimizanlab.raw.RawFrameBridge
 import kotlin.math.abs
@@ -40,8 +39,6 @@ data class LensInfo(
     val sensorOrientation: Int,
     val isoRange: Range<Int>,
     val exposureRangeNs: Range<Long>,
-    val evRange: Range<Int>,
-    val evStep: Rational,
     val hasManualSensor: Boolean,
     val hasAutoFocus: Boolean,
     /** LED of the camera that is opened (the logical one, also for a physical lens). */
@@ -140,8 +137,6 @@ object Lenses {
             isoRange = c.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE) ?: Range(100, 3200),
             exposureRangeNs = c.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)
                 ?: Range(100_000L, 1_000_000_000L),
-            evRange = c.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE) ?: Range(0, 0),
-            evStep = c.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP) ?: Rational(1, 1),
             hasManualSensor = CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR in caps,
             hasAutoFocus = minFocus > 0f,
             hasFlash = hasFlash,

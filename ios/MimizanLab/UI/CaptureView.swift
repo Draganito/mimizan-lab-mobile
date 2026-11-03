@@ -12,9 +12,6 @@ struct CaptureView: View {
 
     @Environment(\.scenePhase) private var scenePhase
     @State private var showSettings = false
-    // Open from the start: the EV slider and the balance are the two
-    // hands a user needs when the print comes out dark.
-    @State private var exposureOpen = true
 
     /// Manual is amber, so a dark finder in M reads as a setting, not a fault.
     private let manualInk = Color(red: 1, green: 0.72, blue: 0.3)
@@ -48,12 +45,9 @@ struct CaptureView: View {
                 }
                 .font(.subheadline.weight(.semibold))
                 Spacer()
-                Button { exposureOpen.toggle() } label: {
-                    Text(Format.exposureLine(iso: state.iso, seconds: state.exposureSeconds, manual: exposure.manual, bias: exposure.bias))
-                        .font(.subheadline.monospaced())
-                        .foregroundStyle(exposure.manual ? manualInk : .white)
-                }
-                .buttonStyle(.plain)
+                Text(Format.exposureLine(iso: state.iso, seconds: state.exposureSeconds, manual: exposure.manual))
+                    .font(.subheadline.monospaced())
+                    .foregroundStyle(exposure.manual ? manualInk : .white)
                 if lens?.hasFlash == true {
                     Button(action: vm.cycleFlash) {
                         Image(systemName: state.flash == .off ? "bolt.slash" : state.flash == .auto ? "bolt.badge.automatic" : "bolt.fill")
@@ -62,7 +56,6 @@ struct CaptureView: View {
                 }
                 Button(exposure.manual ? "M" : "A") {
                     if exposure.manual { vm.setAuto() } else { vm.enterManual() }
-                    exposureOpen = true
                 }
                 .font(.subheadline.bold())
                 .foregroundStyle(exposure.manual ? manualInk : .white)
@@ -72,8 +65,11 @@ struct CaptureView: View {
             .padding(.top, 10)
             .padding(.bottom, 4)
 
-            if exposureOpen {
-                exposureSliders
+            // The hand's two sliders, only in M. In A the automatics expose
+            // and the paper is corrected in the developer, where the stops
+            // are real.
+            if exposure.manual, let l = lens {
+                manualSliders(l)
             }
 
             HStack {
@@ -249,59 +245,30 @@ struct CaptureView: View {
         .buttonStyle(.plain)
     }
 
-    private var exposureSliders: some View {
-        let lens = vm.lens
+    private func manualSliders(_ l: LensInfo) -> some View {
         let exposure = vm.exposure
+        let iso = exposure.iso ?? l.isoRange.lowerBound
+        let t = exposure.seconds ?? l.exposureRange.lowerBound
         return VStack(spacing: 2) {
-            if let l = lens {
-                if exposure.manual {
-                    let iso = exposure.iso ?? l.isoRange.lowerBound
-                    let t = exposure.seconds ?? l.exposureRange.lowerBound
-                    LabeledSlider(
-                        label: "ISO \(Int(iso))",
-                        value: Binding(
-                            get: { Format.isoToSlider(iso, lo: l.isoRange.lowerBound, hi: l.isoRange.upperBound) },
-                            set: { vm.setManual(iso: Format.sliderToIso($0, lo: l.isoRange.lowerBound, hi: l.isoRange.upperBound), seconds: t) }
-                        )
-                    )
-                    LabeledSlider(
-                        label: Format.shutter(seconds: t),
-                        value: Binding(
-                            get: { Format.secondsToSlider(t, lo: l.exposureRange.lowerBound, hi: l.exposureRange.upperBound) },
-                            set: { vm.setManual(iso: iso, seconds: Format.sliderToSeconds($0, lo: l.exposureRange.lowerBound, hi: l.exposureRange.upperBound)) }
-                        )
-                    )
-                    Text(l.hasFlash
-                        ? "Manual: the finder shows this exposure. Auto flash does not fire; On fires once. A is the automatics."
-                        : "Manual: the finder shows this exposure. A is the automatics.")
-                        .font(.caption).foregroundStyle(.gray)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    if l.biasRange.upperBound > l.biasRange.lowerBound {
-                        LabeledSlider(
-                            label: "EV \(Format.ev(exposure.bias))",
-                            value: Binding(get: { exposure.bias }, set: { vm.setBias($0) }),
-                            range: l.biasRange,
-                            step: 1.0 / 3
-                        )
-                    }
-                    // The balance sits with EV: both are the answer to a
-                    // print that came out dark. EV moves the camera, the
-                    // balance moves the paper.
-                    SettingRow(label: "Balance the zone", on: Binding(get: { vm.prefs.zoneAuto }, set: vm.setZoneAuto))
-                    if vm.prefs.zoneAuto {
-                        LabeledSlider(
-                            label: Prefs.compensationLabel(vm.prefs.zoneBias),
-                            value: Binding(get: { vm.prefs.zoneBias }, set: vm.setZoneBias),
-                            range: -Prefs.zoneBiasLimit...Prefs.zoneBiasLimit,
-                            step: 1.0 / 12
-                        )
-                        Text("Each picture's middle is placed on the grey card; the grade stays. Snow and night scenes come out grey too: comp adds paper time, plus prints darker.")
-                            .font(.caption).foregroundStyle(.gray)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
+            LabeledSlider(
+                label: "ISO \(Int(iso))",
+                value: Binding(
+                    get: { Format.isoToSlider(iso, lo: l.isoRange.lowerBound, hi: l.isoRange.upperBound) },
+                    set: { vm.setManual(iso: Format.sliderToIso($0, lo: l.isoRange.lowerBound, hi: l.isoRange.upperBound), seconds: t) }
+                )
+            )
+            LabeledSlider(
+                label: Format.shutter(seconds: t),
+                value: Binding(
+                    get: { Format.secondsToSlider(t, lo: l.exposureRange.lowerBound, hi: l.exposureRange.upperBound) },
+                    set: { vm.setManual(iso: iso, seconds: Format.sliderToSeconds($0, lo: l.exposureRange.lowerBound, hi: l.exposureRange.upperBound)) }
+                )
+            )
+            Text(l.hasFlash
+                ? "Manual: the finder shows this exposure. Auto flash does not fire; On fires once. A is the automatics."
+                : "Manual: the finder shows this exposure. A is the automatics.")
+                .font(.caption).foregroundStyle(.gray)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 4)
@@ -325,7 +292,18 @@ struct SettingsSheet: View {
                     PaperSliders(soft: vm.prefs.soft, hard: vm.prefs.hard, onSoft: vm.setSoft, onHard: vm.setHard)
                         .padding(.top, 8)
                     ZoneStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, onBoth: vm.setGrade)
-                    Text("Drag the strip: left prints darker, right lighter; the grade stays. Double-tap it for the base print (grade 2). Balance the zone sits under the finder, with EV.")
+                    Text("Drag the strip: left prints darker, right lighter; the grade stays. Double-tap it for the base print (grade 2).")
+                        .font(.caption).foregroundStyle(.gray)
+                    SettingRow(label: "Balance the zone", on: Binding(get: { vm.prefs.zoneAuto }, set: vm.setZoneAuto))
+                    if vm.prefs.zoneAuto {
+                        LabeledSlider(
+                            label: Prefs.compensationLabel(vm.prefs.zoneBias),
+                            value: Binding(get: { vm.prefs.zoneBias }, set: vm.setZoneBias),
+                            range: -Prefs.zoneBiasLimit...Prefs.zoneBiasLimit,
+                            step: 1.0 / 12
+                        )
+                    }
+                    Text("On, the automatic JPEG and the opened picture place their middle on the grey card; the finder does not follow. Snow and night come out grey too. Comp adds paper time on top. Moving the strip or a grade slider keeps what you set.")
                         .font(.caption).foregroundStyle(.gray)
                     PeakRow(mode: vm.prefs.peakMode, onMode: vm.setPeakMode)
                     if vm.prefs.peakMode == .custom {

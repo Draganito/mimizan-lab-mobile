@@ -172,7 +172,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun selectLens(l: LensInfo) {
         if (_lens.value?.key == l.key) return
         _lens.value = l
-        _exposure.update { ExposureSettings(evSteps = it.evSteps) }
+        // Another lens, another range: back to the automatics.
+        _exposure.value = ExposureSettings()
         restart()
     }
 
@@ -227,18 +228,13 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { controller.stop() }
     }
 
-    fun setEv(steps: Int) {
-        _exposure.update { it.copy(evSteps = steps) }
-        push()
-    }
-
     fun setManual(iso: Int, exposureNs: Long) {
-        _exposure.update { it.copy(iso = iso, exposureNs = exposureNs) }
+        _exposure.value = ExposureSettings(iso = iso, exposureNs = exposureNs)
         push()
     }
 
     fun setAuto() {
-        _exposure.update { it.copy(iso = null, exposureNs = null) }
+        _exposure.value = ExposureSettings()
         push()
     }
 

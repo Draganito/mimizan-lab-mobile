@@ -25,7 +25,6 @@ struct LensInfo: Identifiable, Equatable {
         let hi = max(min(device.activeFormat.maxExposureDuration.seconds, 4.0), lo * 2)
         return lo...hi
     }
-    var biasRange: ClosedRange<Double> { Double(device.minExposureTargetBias)...Double(max(device.maxExposureTargetBias, device.minExposureTargetBias + 0.001)) }
     /// Sensor size of the still, as the photo output will deliver it.
     var rawSize: CGSize {
         let d = device.activeFormat.supportedMaxPhotoDimensions.first ?? device.activeFormat.formatDescription.dimensions

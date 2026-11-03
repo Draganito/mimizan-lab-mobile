@@ -24,20 +24,12 @@ enum Format {
         }
     }
 
-    static func ev(_ v: Double) -> String {
-        v == 0 ? "±0" : String(format: "%+.1f", v)
-    }
-
     static func stops(_ v: Double) -> String { String(format: "%+.2f", v) }
 
-    /// The line over the shutter: ISO and time as metered, `M` in front
-    /// when they are set by hand, the compensation behind when the
-    /// automatics are told to move.
-    static func exposureLine(iso: Int?, seconds: Double?, manual: Bool, bias: Double) -> String {
+    /// The line over the shutter: ISO and time as metered, `M` in front when they are set by hand.
+    static func exposureLine(iso: Int?, seconds: Double?, manual: Bool) -> String {
         let base = "\(iso.map(String.init) ?? "—")  ·  \(shutter(seconds: seconds ?? 0))"
-        if manual { return "M  \(base)" }
-        if bias != 0 { return "\(base)  ·  EV \(ev(bias))" }
-        return base
+        return manual ? "M  \(base)" : base
     }
 
     static func filterShort(_ f: Filter) -> String {

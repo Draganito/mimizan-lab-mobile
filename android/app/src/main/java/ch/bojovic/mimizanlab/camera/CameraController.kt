@@ -51,11 +51,15 @@ import kotlinx.coroutines.withTimeoutOrNull
 enum class FlashMode { Off, Auto, On }
 
 /** Exposure the user asked for. `null` = automatic. */
+/**
+ * ISO and time set by hand, or both null for the automatics. There is
+ * no exposure compensation: the HAL spreads it over time and ISO as it
+ * likes, with jumps at its limits, and the paper is corrected in the
+ * developer instead, where the stops are what they say.
+ */
 data class ExposureSettings(
     val iso: Int? = null,
     val exposureNs: Long? = null,
-    /** The EV slider on the viewfinder, in the HAL's compensation steps. */
-    val evSteps: Int = 0,
 ) {
     val manual: Boolean get() = iso != null && exposureNs != null
 }
@@ -349,7 +353,6 @@ class CameraController(context: Context) {
                 else -> CameraMetadata.CONTROL_AE_MODE_ON
             }
             b.set(CaptureRequest.CONTROL_AE_MODE, ae)
-            b.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, aeCompensationSteps(exposure, lens))
             b.set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_OFF)
         }
         b.set(CaptureRequest.CONTROL_AWB_MODE, CameraMetadata.CONTROL_AWB_MODE_AUTO)
@@ -680,9 +683,5 @@ class CameraController(context: Context) {
         private const val TAG = "CameraController"
         private const val ANALYSIS_PERIOD_MS = 66L
         private val SRGB_LINEAR = FloatArray(256) { IspControls.decode(it / 255f) }
-
-        /** The EV slider, in the HAL's compensation steps, within its range. */
-        internal fun aeCompensationSteps(e: ExposureSettings, lens: LensInfo): Int =
-            e.evSteps.coerceIn(lens.evRange.lower, lens.evRange.upper)
     }
 }

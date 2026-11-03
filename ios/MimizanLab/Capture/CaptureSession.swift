@@ -23,12 +23,13 @@ enum FlashMode: Equatable {
     }
 }
 
-/// Exposure the user asked for. `nil` = automatic.
+/// ISO and time set by hand, or both `nil` for the automatics. There is
+/// no exposure bias: the camera spreads it over time and ISO as it
+/// likes, with jumps at its limits, and the paper is corrected in the
+/// developer instead, where the stops are what they say.
 struct ExposureSettings: Equatable {
     var iso: Double?
     var seconds: Double?
-    /// The EV slider on the viewfinder, stops of exposure bias.
-    var bias: Double = 0
 
     var manual: Bool { iso != nil && seconds != nil }
 }
@@ -371,10 +372,8 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                 let isoC = Float(min(max(iso, Double(f.minISO)), Double(f.maxISO)))
                 let secC = min(max(s, f.minExposureDuration.seconds), f.maxExposureDuration.seconds)
                 d.setExposureModeCustom(duration: CMTime(seconds: secC, preferredTimescale: 1_000_000_000), iso: isoC, completionHandler: nil)
-            } else {
-                if d.isExposureModeSupported(.continuousAutoExposure) { d.exposureMode = .continuousAutoExposure }
-                let bias = Float(min(max(exposure.bias, Double(d.minExposureTargetBias)), Double(d.maxExposureTargetBias)))
-                d.setExposureTargetBias(bias, completionHandler: nil)
+            } else if d.isExposureModeSupported(.continuousAutoExposure) {
+                d.exposureMode = .continuousAutoExposure
             }
         } catch {
             log.warning("exposure: \(error.localizedDescription)")
