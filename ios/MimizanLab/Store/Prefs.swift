@@ -28,7 +28,7 @@ enum ShotMode: String, CaseIterable {
 }
 
 /// Peak on a print: off, the measurement of this negative, or a hand pair.
-enum PeakMode: String, CaseIterable {
+enum PeakMode: String, CaseIterable, Codable {
     case off = "OFF"
     case auto = "AUTO"
     case custom = "CUSTOM"
@@ -40,6 +40,9 @@ enum PeakMode: String, CaseIterable {
         case .custom: return "Custom"
         }
     }
+
+    /// The modes a standing Peak can be: a hand pair belongs to one negative, so Custom is the developer's alone.
+    static let standing: [PeakMode] = [.off, .auto]
 }
 
 /// The paper's two exposures, in stops from the base print. Same file
@@ -49,6 +52,76 @@ struct Grade: Codable, Equatable, Sendable {
     var hard: Double
 
     static let base = Grade(soft: 0, hard: 0)
+}
+
+/// Peak on a print. Off applies nothing. Auto is the measurement of the
+/// negative it is applied to. Custom is `radius` and `amount` by hand;
+/// the two are carried for the other modes too, so a return to Custom
+/// finds the pair again. Same file shape as the Android `Peak`.
+struct Peak: Equatable, Sendable {
+    var mode: PeakMode
+    var radius: Double
+    var amount: Double
+
+    /// The standing Peak of `mode`, with the pair a Custom print starts from when nothing was measured.
+    static func standing(_ mode: PeakMode) -> Peak {
+        Peak(mode: mode, radius: Prefs.peakLimits.radiusDefault, amount: 0)
+    }
+
+    /// Radius and amount the print uses. Auto without a measurement applies nothing.
+    func applied(_ measured: PeakMeasured?) -> (radius: Double, amount: Double) {
+        switch mode {
+        case .off: return (radius, 0)
+        case .auto: return (measured?.radius ?? radius, measured?.amount ?? 0)
+        case .custom: return (radius, amount)
+        }
+    }
+}
+
+extension Peak: Codable {
+    /// A missing or unknown field falls back to Auto, the default radius, no amount; the pair is clamped.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        mode = (try? c.decode(PeakMode.self, forKey: .mode)) ?? .auto
+        radius = Prefs.clampPeakRadius((try? c.decode(Double.self, forKey: .radius)) ?? Prefs.peakLimits.radiusDefault)
+        amount = Prefs.clampPeakAmount((try? c.decode(Double.self, forKey: .amount)) ?? 0)
+    }
+}
+
+/// What one frame is printed with: the grade and Peak, the desktop's
+/// recipe beside the RAW. A new frame takes the standing pair of the
+/// moment; the developer moves this one alone. The file is the grade's
+/// two fields with `peak` beside them, so a 0.15.0 file (the grade
+/// alone) still reads; its Peak is then the standing one.
+struct Print: Equatable, Sendable {
+    var grade: Grade
+    var peak: Peak
+}
+
+extension Print: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case soft, hard, peak
+    }
+
+    /// `standingPeak` for a file without one: set by `RawCache.loadPrint` through the decoder's `userInfo`.
+    static let standingPeakKey = CodingUserInfoKey(rawValue: "standingPeak")!
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        grade = Prefs.snapGrade(soft: try c.decode(Double.self, forKey: .soft), hard: try c.decode(Double.self, forKey: .hard))
+        if let p = try? c.decode(Peak.self, forKey: .peak) {
+            peak = p
+        } else {
+            peak = decoder.userInfo[Print.standingPeakKey] as? Peak ?? .standing(.auto)
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(grade.soft, forKey: .soft)
+        try c.encode(grade.hard, forKey: .hard)
+        try c.encode(peak, forKey: .peak)
+    }
 }
 
 @MainActor
@@ -64,13 +137,13 @@ final class Prefs {
     private(set) var soft: Double
     /// Hard-pass time in stops from the base exposure.
     private(set) var hard: Double
-    /// Peak's high-pass on the automatic JPEG and the full-size exports.
-    /// Auto measures each negative. Custom keeps a hand pair. Auto on a fresh install.
+    /// The standing Peak, Off or Auto: what a new frame starts with and
+    /// the automatic JPEG applies. Auto measures each negative. A hand
+    /// pair is set in the developer and lives with the frame. Auto on a
+    /// fresh install.
     private(set) var peakMode: PeakMode
-    /// Custom Peak radius, pixels of the negative.
-    private(set) var peakRadius: Double
-    /// Custom Peak amount.
-    private(set) var peakAmount: Double
+    /// What a frame taken now is printed with: the standing grade and the standing Peak.
+    var standingPrint: Print { Print(grade: grade, peak: .standing(peakMode)) }
     /// The darkroom's process; the next shot opens in it.
     private(set) var process: Process
     /// The plate's taking filters.
@@ -92,16 +165,15 @@ final class Prefs {
     init() {
         soft = Prefs.snapStops(store.double(forKey: Keys.soft))
         hard = Prefs.snapStops(store.double(forKey: Keys.hard))
-        if let raw = store.string(forKey: Keys.peakMode), let mode = PeakMode(rawValue: raw) {
+        if let raw = store.string(forKey: Keys.peakMode), let mode = PeakMode(rawValue: raw), PeakMode.standing.contains(mode) {
             peakMode = mode
-        } else if store.object(forKey: Keys.peak) != nil {
+        } else if store.string(forKey: Keys.peakMode) == nil, store.object(forKey: Keys.peak) != nil {
             // A bool from before the three states: on was the measurement, off was none.
             peakMode = store.bool(forKey: Keys.peak) ? .auto : .off
         } else {
+            // A fresh install, or a standing Custom from before 0.15.1: the hand pair belongs to a frame now.
             peakMode = .auto
         }
-        peakRadius = Prefs.clampPeakRadius(store.object(forKey: Keys.peakRadius) == nil ? Prefs.peakLimits.radiusDefault : store.double(forKey: Keys.peakRadius))
-        peakAmount = Prefs.clampPeakAmount(store.object(forKey: Keys.peakAmount) == nil ? 0 : store.double(forKey: Keys.peakAmount))
         process = Process(rawValue: store.string(forKey: Keys.process) ?? "") ?? .mono
         plateFilters = PlateFilters.fromName(store.string(forKey: Keys.plateFilters)) ?? .camera
         plateSpace = PlateSpace.fromName(store.string(forKey: Keys.plateSpace)) ?? .srgb
@@ -128,25 +200,16 @@ final class Prefs {
         store.set(hard, forKey: Keys.hard)
     }
 
+    /// The standing Peak, Off or Auto.
     func setPeakMode(_ mode: PeakMode) {
+        precondition(PeakMode.standing.contains(mode), "a standing Peak is Off or Auto")
         peakMode = mode
         store.set(mode.rawValue, forKey: Keys.peakMode)
     }
 
-    func setPeak(radius: Double, amount: Double) {
-        peakRadius = Prefs.clampPeakRadius(radius)
-        peakAmount = Prefs.clampPeakAmount(amount)
-        store.set(peakRadius, forKey: Keys.peakRadius)
-        store.set(peakAmount, forKey: Keys.peakAmount)
-    }
-
-    /// Radius and amount a print uses. Off applies nothing. Auto uses the measurement.
-    nonisolated static func peakApplied(mode: PeakMode, radius: Double, amount: Double, measured: PeakMeasured?) -> (radius: Double, amount: Double) {
-        switch mode {
-        case .off: return (radius, 0)
-        case .auto: return (measured?.radius ?? peakLimits.radiusDefault, measured?.amount ?? 0)
-        case .custom: return (radius, amount)
-        }
+    /// A hand pair inside the core's ranges.
+    nonisolated static func customPeak(radius: Double, amount: Double) -> Peak {
+        Peak(mode: .custom, radius: clampPeakRadius(radius), amount: clampPeakAmount(amount))
     }
 
     func setProcess(_ p: Process) {
@@ -241,8 +304,6 @@ final class Prefs {
         static let hard = "paper_hard"
         static let peak = "peak_on"
         static let peakMode = "peak_mode"
-        static let peakRadius = "peak_radius"
-        static let peakAmount = "peak_amount"
         static let process = "process"
         static let plateFilters = "plate_filters"
         static let plateSpace = "plate_space"

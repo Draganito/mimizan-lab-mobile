@@ -1,5 +1,6 @@
 package ch.bojovic.mimizanlab.store
 
+import ch.bojovic.mimizanlab.engine.PeakLimits
 import ch.bojovic.mimizanlab.engine.PeakMeasured
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -53,23 +54,37 @@ class GradeMathTest {
         assertEquals(0.0, GradeMath.shiftGrade(0.0, 0.0, Double.NaN, limit).soft, eps)
     }
 
+    private val peakLimits = PeakLimits(radiusDefault = 0.7, radiusMin = 0.3, radiusMax = 3.0, amountMax = 2.0)
+    private val standingPeak = Peak.standing(PeakMode.OFF, peakLimits)
+
     @Test
-    fun gradeRoundTripsThroughItsFileAndRefusesOtherText() {
-        val g = Grade(0.5, -1.25)
-        val back = Grade.fromJson(g.toJson().toString(), limit)
-        assertEquals(g, back)
-        assertEquals(Grade(3.0, -3.0), Grade.fromJson("""{"soft": 9, "hard": -9}""", limit))
-        assertEquals(null, Grade.fromJson("not a grade", limit))
-        assertEquals(null, Grade.fromJson("""{"soft": 1}""", limit))
+    fun printRoundTripsThroughItsFileAndRefusesOtherText() {
+        val p = Print(Grade(0.5, -1.25), Peak(PeakMode.CUSTOM, 1.1, 0.6))
+        assertEquals(p, Print.fromJson(p.toJson().toString(), limit, peakLimits, standingPeak))
+        // Out of range on every field: each is clamped, none refused.
+        val wide = Print.fromJson("""{"soft": 9, "hard": -9, "peak": {"mode": "CUSTOM", "radius": 9, "amount": 9}}""", limit, peakLimits, standingPeak)
+        assertEquals(Print(Grade(3.0, -3.0), Peak(PeakMode.CUSTOM, 3.0, 2.0)), wide)
+        assertEquals(null, Print.fromJson("not a print", limit, peakLimits, standingPeak))
+        assertEquals(null, Print.fromJson("""{"soft": 1}""", limit, peakLimits, standingPeak))
+    }
+
+    @Test
+    fun printFromBeforePeakTakesTheStandingPeak() {
+        // 0.15.0 wrote the grade alone.
+        val p = Print.fromJson("""{"soft": 0.25, "hard": 0}""", limit, peakLimits, standingPeak)
+        assertEquals(Print(Grade(0.25, 0.0), standingPeak), p)
+        // A peak object with an unknown mode is Auto at the defaults.
+        val odd = Print.fromJson("""{"soft": 0, "hard": 0, "peak": {"mode": "SHARP"}}""", limit, peakLimits, standingPeak)
+        assertEquals(Peak(PeakMode.AUTO, 0.7, 0.0), odd?.peak)
     }
 
     @Test
     fun peakAppliedByMode() {
         val measured = PeakMeasured(radius = 1.2, amount = 0.8, found = true)
-        assertEquals(0.9 to 0.0, GradeMath.peakApplied(PeakMode.OFF, 0.9, 0.5, measured, 0.7))
-        assertEquals(1.2 to 0.8, GradeMath.peakApplied(PeakMode.AUTO, 0.9, 0.5, measured, 0.7))
-        assertEquals(0.7 to 0.0, GradeMath.peakApplied(PeakMode.AUTO, 0.9, 0.5, null, 0.7))
-        assertEquals(0.9 to 0.5, GradeMath.peakApplied(PeakMode.CUSTOM, 0.9, 0.5, measured, 0.7))
+        assertEquals(0.9 to 0.0, Peak(PeakMode.OFF, 0.9, 0.5).applied(measured))
+        assertEquals(1.2 to 0.8, Peak(PeakMode.AUTO, 0.9, 0.5).applied(measured))
+        assertEquals(0.9 to 0.0, Peak(PeakMode.AUTO, 0.9, 0.5).applied(null))
+        assertEquals(0.9 to 0.5, Peak(PeakMode.CUSTOM, 0.9, 0.5).applied(measured))
     }
 
     @Test
@@ -86,7 +101,9 @@ class GradeMathTest {
         assertEquals(PeakMode.AUTO, GradeMath.peakModeOf(null, null))
         assertEquals(PeakMode.AUTO, GradeMath.peakModeOf(null, true))
         assertEquals(PeakMode.OFF, GradeMath.peakModeOf(null, false))
-        assertEquals(PeakMode.CUSTOM, GradeMath.peakModeOf("CUSTOM", false))
+        assertEquals(PeakMode.OFF, GradeMath.peakModeOf("OFF", true))
+        // A standing Custom from before 0.15.1 is Auto: the hand pair belongs to a frame now.
+        assertEquals(PeakMode.AUTO, GradeMath.peakModeOf("CUSTOM", false))
         assertEquals(PeakMode.AUTO, GradeMath.peakModeOf("legacy", false))
     }
 }

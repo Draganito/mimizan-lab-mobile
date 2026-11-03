@@ -29,16 +29,13 @@ final class Negative: @unchecked Sendable {
     }
 }
 
-/// The frame's grade, the plate's two lamps and Peak as they stand: read
-/// on the main actor, carried into the worker. Custom keeps its own
-/// radius and amount; Auto uses the measurement made below.
+/// The frame's print and the plate's two lamps: read on the main actor,
+/// carried into the worker. A Custom Peak keeps its own radius and
+/// amount; Auto uses the measurement made below.
 struct PaperSettings: Sendable {
-    var grade: Grade
+    var print: Print
     var lampRed: Double
     var lampBlue: Double
-    var peakMode: PeakMode
-    var peakRadius: Double
-    var peakAmount: Double
 }
 
 @MainActor
@@ -74,13 +71,14 @@ final class Darkroom {
         // Frames from an earlier run are still in the cache: list them so
         // they can be developed again.
         let cache = cache
-        let standing = prefs.grade
+        let standing = prefs.standingPrint
         Task {
             let (restored, bytes) = await intake.run { () -> ([Shot], Int64) in
                 let restored: [Shot] = cache.names().compactMap { name in
                     cache.loadMeta(name).map {
                         Shot(
-                            name: name, meta: $0, settings: DevelopSettings(), grade: cache.loadGrade(name) ?? standing,
+                            name: name, meta: $0, settings: DevelopSettings(),
+                            print: cache.loadPrint(name, standingPeak: standing.peak) ?? standing,
                             status: .cached, thumbnail: cache.loadThumb(name)
                         )
                     }
@@ -92,14 +90,6 @@ final class Darkroom {
         }
     }
 
-    /// Peak as it stands and the frame's own grade, for the worker.
-    private func paperSettings(grade: Grade) -> PaperSettings {
-        PaperSettings(
-            grade: grade, lampRed: 0, lampBlue: 0,
-            peakMode: prefs.peakMode, peakRadius: prefs.peakRadius, peakAmount: prefs.peakAmount
-        )
-    }
-
     // MARK: intake
 
     /// Called from the camera: persists the DNG, reads what it is, then
@@ -108,8 +98,8 @@ final class Darkroom {
     func submit(dng: Data, lens: String, capturedAt: Date, settings: DevelopSettings, developNow: Bool = true) -> String {
         let name = Darkroom.nameFor(capturedAt)
         let provisional = ShotMeta(info: FrameInfo.empty, lens: lens, capturedAt: capturedAt, imported: false)
-        let grade = prefs.grade
-        shots.insert(Shot(name: name, meta: provisional, settings: settings, grade: grade, status: .saving), at: 0)
+        let print = prefs.standingPrint
+        shots.insert(Shot(name: name, meta: provisional, settings: settings, print: print, status: .saving), at: 0)
         let cache = cache
         Task {
             let saved: Result<ShotMeta, Error> = await intake.run {
@@ -117,7 +107,7 @@ final class Darkroom {
                     try cache.putRaw(name, dng: dng)
                     let info = try frameInfo(path: cache.rawFile(name).path)
                     let meta = ShotMeta(info: info, lens: lens, capturedAt: capturedAt, imported: false)
-                    try cache.commit(name, meta: meta, grade: grade)
+                    try cache.commit(name, meta: meta, print: print)
                     return meta
                 }
             }
@@ -185,14 +175,14 @@ final class Darkroom {
         enqueue(name, settings)
     }
 
-    /// The developer moved this frame's grade: the roll's entry and the
-    /// file beside the frame follow. The standing grade is not touched.
-    func setGrade(_ name: String, _ grade: Grade) {
-        updateShot(name) { $0.grade = grade }
+    /// The developer moved this frame's print: the roll's entry and the
+    /// file beside the frame follow. The standing grade and Peak are not touched.
+    func setPrint(_ name: String, _ print: Print) {
+        updateShot(name) { $0.print = print }
         do {
-            try cache.saveGrade(name, grade)
+            try cache.savePrint(name, print)
         } catch {
-            log.warning("grade file \(name): \(error.localizedDescription)")
+            log.warning("print file \(name): \(error.localizedDescription)")
         }
     }
 
@@ -225,7 +215,7 @@ final class Darkroom {
         updateShot(name) { $0.status = .developing }
         let bg = BackgroundTask(name: "develop \(name)")
         let params = developParams(for: shot.meta, shot.settings)
-        let paper = paperSettings(grade: shot.grade)
+        let paper = PaperSettings(print: shot.print, lampRed: 0, lampBlue: 0)
         let path = cache.rawFile(name).path
         let settings = shot.settings
         let hadJpeg = shot.jpegURL != nil
@@ -290,7 +280,7 @@ final class Darkroom {
             }
             let info = developed.info()
             log.info("developed \(name) in \(Int(Date().timeIntervalSince(t0) * 1000)) ms: total \(info.timing.totalMs) ms")
-            let grade = paper.grade
+            let grade = paper.print.grade
             let thumb: CGImage?
             if info.plate != nil {
                 thumb = Images.thumbnail(try developed.previewRgb(soft: grade.soft, hard: grade.hard, extraQuarterTurns: 0))
@@ -314,7 +304,7 @@ final class Darkroom {
             if wantJpeg {
                 let suffix = suffix(for: settings, info: info)
                 jpeg = try exporter.place(fileName: "\(name)\(suffix).jpg") { p in
-                    let peakPair = Prefs.peakApplied(mode: paper.peakMode, radius: paper.peakRadius, amount: paper.peakAmount, measured: peak)
+                    let peakPair = paper.print.peak.applied(peak)
                     _ = try developed.exportJpeg(
                         path: p, soft: grade.soft, hard: grade.hard, extraQuarterTurns: 0,
                         peakRadius: peakPair.radius, peakAmount: peakPair.amount

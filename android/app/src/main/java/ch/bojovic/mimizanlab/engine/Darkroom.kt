@@ -6,7 +6,7 @@ import android.net.Uri
 import android.util.Log
 import ch.bojovic.mimizanlab.raw.RawCapture
 import ch.bojovic.mimizanlab.raw.RawMeta
-import ch.bojovic.mimizanlab.store.Grade
+import ch.bojovic.mimizanlab.store.Print
 import ch.bojovic.mimizanlab.store.MediaStoreWriter
 import ch.bojovic.mimizanlab.store.Prefs
 import ch.bojovic.mimizanlab.store.RawCache
@@ -69,11 +69,11 @@ data class Shot(
     val meta: RawMeta,
     val settings: DevelopSettings,
     /**
-     * This print's grade. A new frame takes the standing grade of the
-     * moment; the developer moves this one alone, and the finder and the
-     * next frame do not follow. Kept in the cache beside the frame.
+     * This print: its grade and Peak. A new frame takes the standing pair
+     * of the moment; the developer moves this one alone, and the finder
+     * and the next frame do not follow. Kept in the cache beside the frame.
      */
-    val grade: Grade,
+    val print: Print,
     val status: ShotStatus,
     val jpegUri: Uri? = null,
     val thumbnail: Bitmap? = null,
@@ -124,10 +124,11 @@ class Darkroom private constructor(private val context: Context) {
         // Frames from an earlier run are still in the cache: list them so
         // they can be developed again.
         scope.launch {
-            val standing = prefs.grade.value
+            val standing = prefs.standingPrint
             val restored = cache.names().mapNotNull { name ->
                 cache.loadMeta(name)?.let {
-                    Shot(name, it, DevelopSettings(), cache.loadGrade(name) ?: standing, ShotStatus.Cached, thumbnail = cache.loadThumb(name))
+                    val print = cache.loadPrint(name, standing.peak) ?: standing
+                    Shot(name, it, DevelopSettings(), print, ShotStatus.Cached, thumbnail = cache.loadThumb(name))
                 }
             }
             if (restored.isNotEmpty()) _shots.update { restored + it }
@@ -139,11 +140,11 @@ class Darkroom private constructor(private val context: Context) {
     fun submit(capture: RawCapture, settings: DevelopSettings, developNow: Boolean = true): String {
         val name = nameFor(capture.capturedAtEpochMs)
         val meta = capture.meta()
-        val grade = prefs.grade.value
-        _shots.update { listOf(Shot(name, meta, settings, grade, ShotStatus.Saving)) + it }
+        val print = prefs.standingPrint
+        _shots.update { listOf(Shot(name, meta, settings, print, ShotStatus.Saving)) + it }
         scope.launch(Dispatchers.IO) {
             try {
-                cache.put(name, capture.pixels, meta, grade)
+                cache.put(name, capture.pixels, meta, print)
             } catch (t: Throwable) {
                 Log.e(TAG, "save $name", t)
                 updateShot(name) { it.copy(status = ShotStatus.Failed(t.message ?: "could not save the frame")) }
@@ -248,7 +249,7 @@ class Darkroom private constructor(private val context: Context) {
                 // From here on the negative is good. The thumbnail, its
                 // file, Peak's measurement and the JPEG each fail on their
                 // own, with a log line, and the development stays Ready.
-                val paper = shot.grade
+                val paper = shot.print.grade
                 val thumb = runCatching { thumbnail(d, paper.soft, paper.hard) }
                     .onFailure { Log.w(TAG, "thumbnail $name", it) }
                     .getOrNull()
@@ -266,7 +267,7 @@ class Darkroom private constructor(private val context: Context) {
                 updateShot(name) { it.copy(status = ShotStatus.Ready(info), thumbnail = thumb ?: it.thumbnail) }
                 // A second development of the same frame does not add a second JPEG.
                 if (shot.settings.autoJpeg && shot.jpegUri == null) {
-                    val applied = Prefs.peakApplied(prefs.peakMode.value, prefs.peakRadius.value, prefs.peakAmount.value, peak)
+                    val applied = shot.print.peak.applied(peak)
                     runCatching {
                         exportJpeg(
                             d, name, suffixFor(shot.settings, info),
@@ -312,13 +313,13 @@ class Darkroom private constructor(private val context: Context) {
         developParamsFor(meta.make, meta.model, meta.cfa, s)
 
     /**
-     * The developer moved this frame's grade: the roll's entry and the
-     * file beside the frame follow. The standing grade is not touched.
+     * The developer moved this frame's print: the roll's entry and the
+     * file beside the frame follow. The standing grade and Peak are not touched.
      */
-    fun setGrade(name: String, grade: Grade) {
-        updateShot(name) { it.copy(grade = grade) }
+    fun setPrint(name: String, print: Print) {
+        updateShot(name) { it.copy(print = print) }
         scope.launch(Dispatchers.IO) {
-            runCatching { cache.saveGrade(name, grade) }.onFailure { Log.w(TAG, "grade file $name", it) }
+            runCatching { cache.savePrint(name, print) }.onFailure { Log.w(TAG, "print file $name", it) }
         }
     }
 

@@ -3,7 +3,6 @@ package ch.bojovic.mimizanlab.store
 import android.content.Context
 import androidx.core.content.edit
 import ch.bojovic.mimizanlab.engine.PeakLimits
-import ch.bojovic.mimizanlab.engine.PeakMeasured
 import ch.bojovic.mimizanlab.engine.PlateFilters
 import ch.bojovic.mimizanlab.engine.PlateSpace
 import ch.bojovic.mimizanlab.engine.Process
@@ -35,6 +34,11 @@ enum class PeakMode {
             AUTO -> "Auto"
             CUSTOM -> "Custom"
         }
+
+    companion object {
+        /** The modes a standing Peak can be: a hand pair belongs to one negative, so Custom is the developer's alone. */
+        val STANDING = listOf(OFF, AUTO)
+    }
 }
 
 /** The few settings that survive a restart. */
@@ -82,34 +86,24 @@ class Prefs(context: Context) {
         GradeMath.peakModeOf(sp.getString(KEY_PEAK_MODE, null), if (sp.contains(KEY_PEAK)) sp.getBoolean(KEY_PEAK, true) else null),
     )
     /**
-     * Peak's high-pass on the automatic JPEG and the full-size exports.
-     * Auto measures each negative. Custom keeps a hand pair. Auto on a fresh install.
+     * The standing Peak, Off or Auto: what a new frame starts with and
+     * the automatic JPEG applies. Auto measures each negative. A hand
+     * pair is set in the developer and lives with the frame. Auto on a
+     * fresh install.
      */
     val peakMode: StateFlow<PeakMode> = _peakMode.asStateFlow()
 
     fun setPeakMode(mode: PeakMode) {
+        require(mode in PeakMode.STANDING) { "a standing Peak is Off or Auto" }
         _peakMode.value = mode
         sp.edit { putString(KEY_PEAK_MODE, mode.name) }
     }
 
-    private val _peakRadius = MutableStateFlow(clampPeakRadius(sp.getFloat(KEY_PEAK_RADIUS, PEAK.radiusDefault.toFloat()).toDouble()))
-    /** Custom Peak radius, pixels of the negative. */
-    val peakRadius: StateFlow<Double> = _peakRadius.asStateFlow()
+    /** What a frame taken now is printed with: the standing grade and the standing Peak. */
+    val standingPrint: Print get() = Print(_grade.value, standingPeak)
 
-    private val _peakAmount = MutableStateFlow(clampPeakAmount(sp.getFloat(KEY_PEAK_AMOUNT, 0f).toDouble()))
-    /** Custom Peak amount. */
-    val peakAmount: StateFlow<Double> = _peakAmount.asStateFlow()
-
-    fun setPeak(radius: Double, amount: Double) {
-        val r = clampPeakRadius(radius)
-        val a = clampPeakAmount(amount)
-        _peakRadius.value = r
-        _peakAmount.value = a
-        sp.edit {
-            putFloat(KEY_PEAK_RADIUS, r.toFloat())
-            putFloat(KEY_PEAK_AMOUNT, a.toFloat())
-        }
-    }
+    /** The standing Peak as a print carries it. */
+    val standingPeak: Peak get() = Peak.standing(_peakMode.value, PEAK)
 
     private val _process = MutableStateFlow(GradeMath.enumOr(sp.getString(KEY_PROCESS, null), Process.MONO))
     /** The darkroom's process: the monochrome negative, or the three-colour plate. The next shot opens in it. */
@@ -202,16 +196,9 @@ class Prefs(context: Context) {
         /** The range of the peak fields: the core's `recipe::PEAK_*`, asked once. */
         val PEAK: PeakLimits = peakLimits()
 
-        /** A peak radius inside the core's range; a non-finite value is the default. */
-        fun clampPeakRadius(v: Double): Double =
-            (if (v.isFinite()) v else PEAK.radiusDefault).coerceIn(PEAK.radiusMin, PEAK.radiusMax)
-
-        /** A peak amount inside the core's range; a non-finite value is zero. */
-        fun clampPeakAmount(v: Double): Double = GradeMath.finiteOrZero(v).coerceIn(0.0, PEAK.amountMax)
-
-        /** Radius and amount a print uses. Off applies nothing. Auto uses the measurement. */
-        fun peakApplied(mode: PeakMode, radius: Double, amount: Double, measured: PeakMeasured?): Pair<Double, Double> =
-            GradeMath.peakApplied(mode, radius, amount, measured, PEAK.radiusDefault)
+        /** A hand pair inside the core's ranges. */
+        fun customPeak(radius: Double, amount: Double): Peak =
+            Peak(PeakMode.CUSTOM, GradeMath.clampPeakRadius(radius, PEAK), GradeMath.clampPeakAmount(amount, PEAK))
 
         /** Add [delta] stops to both exposures, snapped to a twelfth, and stop at the limit so the gap stays. */
         fun shiftGrade(soft: Double, hard: Double, delta: Double): Grade = GradeMath.shiftGrade(soft, hard, delta, STOP_LIMIT)
@@ -228,8 +215,6 @@ class Prefs(context: Context) {
         private const val KEY_HARD = "paper_hard"
         private const val KEY_PEAK = "peak_on"
         private const val KEY_PEAK_MODE = "peak_mode"
-        private const val KEY_PEAK_RADIUS = "peak_radius"
-        private const val KEY_PEAK_AMOUNT = "peak_amount"
         private const val KEY_PROCESS = "process"
         private const val KEY_PLATE_FILTERS = "plate_filters"
         private const val KEY_PLATE_SPACE = "plate_space"

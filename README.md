@@ -97,9 +97,12 @@ mono, untouched in colour.
    beside it on the roll: moving a slider in the developer changes
    that picture alone, and the next shot starts from the standing
    grade again, not from the last correction.
-4. **Peak** is Off, Auto or Custom. Auto measures radius and amount on
-   each negative, Custom shows the two sliders, Off leaves the exports
-   unsharpened. The preview is never sharpened; the 1:1 view is.
+4. **Peak** is Off or Auto in Settings, the standing choice for the
+   automatic JPEG and a new frame. Auto measures radius and amount on
+   each negative, Off leaves the exports unsharpened. In the developer
+   a picture can also go to Custom, which shows the two sliders and,
+   like the grade, stays with that picture alone. The preview is never
+   sharpened; the 1:1 view is.
 5. **A shot** is JPEG, Developer or Raw. JPEG writes the picture at
    this grade and stays on the finder. Developer opens the picture and
    the JPEG waits for Export. Raw keeps the frame on the roll and
@@ -269,10 +272,10 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.15.0 on Android and iOS: RAW capture, the finder as the paper
-(Android), Mono and Plate, the split-grade paper with a grade per frame,
-the zone strip, Peak, review with remix and 1:1 detail, the exports, the
-roll. Checked on a
+0.15.1 on Android and iOS: RAW capture, the finder as the paper
+(Android), Mono and Plate, the split-grade paper, the zone strip and
+Peak with a print per frame, review with remix and 1:1 detail, the
+exports, the roll. Checked on a
 Pixel 9 (main and ultrawide), a Pixel 4a and a Galaxy S25 FE. Open: a
 fitted camera file for any phone but the Pixel 9, and a MediaTek phone.
 

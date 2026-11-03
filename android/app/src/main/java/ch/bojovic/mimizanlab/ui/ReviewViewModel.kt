@@ -23,7 +23,9 @@ import ch.bojovic.mimizanlab.engine.WeightSpace
 import ch.bojovic.mimizanlab.engine.Weights
 import ch.bojovic.mimizanlab.engine.normaliseWeights
 import ch.bojovic.mimizanlab.store.Grade
+import ch.bojovic.mimizanlab.store.Peak
 import ch.bojovic.mimizanlab.store.PeakMode
+import ch.bojovic.mimizanlab.store.Print
 import ch.bojovic.mimizanlab.store.Prefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -31,7 +33,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -49,8 +50,8 @@ data class ReviewState(
     /** What the mix actually uses: [weights] with the filter applied. */
     val effective: Weights = Weights(0.25, 0.5, 0.25),
     val filter: Filter = Filter.NONE,
-    /** This print's grade: the frame's own, moved here and kept with the frame. The standing grade is not touched. */
-    val grade: Grade = Grade.BASE,
+    /** This print, grade and Peak: the frame's own, moved here and kept with the frame. The standing pair is not touched. */
+    val print: Print = Print(Grade.BASE, Peak(PeakMode.AUTO, Prefs.PEAK.radiusDefault, 0.0)),
     /** The plate process as the development stands; null is the monochrome negative. */
     val plate: PlateState? = null,
     /** What the algorithm measured on this negative; null until the development carries it. */
@@ -83,25 +84,16 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     /** Last 1:1 window asked for, so a slider change can refresh it. */
     private var detailRegion: IntArray? = null
 
-    init {
-        // Peak lives in the settings; a zoomed-in view follows the mode and the custom pair.
-        viewModelScope.launch {
-            combine(darkroom.prefs.peakMode, darkroom.prefs.peakRadius, darkroom.prefs.peakAmount) { _, _, _ -> }
-                .collect { detailRegion?.let { r -> requestDetail(r[0], r[1], r[2], r[3]) } }
-        }
-    }
-
     /** Bind to a shot; follows [Darkroom.current] so a (re)development shows up. */
     fun open(name: String) {
         if (_state.value.name == name && openJob?.isActive == true) {
-            // The collector stays alive; a second visit redraws (Peak's
-            // settings may have changed).
+            // The collector stays alive; a second visit redraws.
             render()
             return
         }
         openJob?.cancel()
         detailRegion = null
-        _state.value = ReviewState(name = name, grade = shotGrade(name))
+        _state.value = ReviewState(name = name, print = shotPrint(name))
         openJob = viewModelScope.launch {
             darkroom.current.collect { neg ->
                 if (neg != null && neg.name == name) {
@@ -109,7 +101,7 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                     // info.weights already include the filter of the first
                     // mix; the sliders start from the camera's base weights.
                     // The plate is the process the frame was developed in.
-                    // Lamps stay at zero. The grade is this frame's own.
+                    // Lamps stay at zero. The print is this frame's own.
                     _state.update {
                         it.copy(
                             info = neg.info,
@@ -120,21 +112,21 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                             peakMeasured = neg.peak,
                             needsDevelop = false,
                             detail = null,
-                            grade = shotGrade(name),
+                            print = shotPrint(name),
                         )
                     }
                     render()
                 } else {
                     developed = null
-                    _state.update { it.copy(needsDevelop = true, preview = null, detail = null, grade = shotGrade(name)) }
+                    _state.update { it.copy(needsDevelop = true, preview = null, detail = null, print = shotPrint(name)) }
                 }
             }
         }
     }
 
-    /** The frame's grade from the roll; the standing grade for a frame the roll no longer lists. */
-    private fun shotGrade(name: String): Grade =
-        darkroom.shots.value.firstOrNull { it.name == name }?.grade ?: darkroom.prefs.grade.value
+    /** The frame's print from the roll; the standing one for a frame the roll no longer lists. */
+    private fun shotPrint(name: String): Print =
+        darkroom.shots.value.firstOrNull { it.name == name }?.print ?: darkroom.prefs.standingPrint
 
     /** Develop (again) from the cache, in the process the darkroom stands in now. */
     fun develop(settings: DevelopSettings = shotSettings() ?: DevelopSettings()) {
@@ -171,26 +163,37 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
         if (_state.value.plate != null) remixAndRender()
     }
 
-    /** Custom, started from this negative's measurement. The 1:1 view follows; the preview is never sharpened. */
+    /**
+     * This print's Peak mode. Custom starts from the measurement of this
+     * negative when it is entered. The 1:1 view follows; the preview is
+     * never sharpened. Kept with the frame, like the grade.
+     */
     fun setPeakMode(mode: PeakMode) {
-        if (mode == PeakMode.CUSTOM && darkroom.prefs.peakMode.value != PeakMode.CUSTOM) {
-            _state.value.peakMeasured?.let { darkroom.prefs.setPeak(it.radius, it.amount) }
+        val s = _state.value
+        val cur = s.print.peak
+        val peak = if (mode == PeakMode.CUSTOM && cur.mode != PeakMode.CUSTOM) {
+            s.peakMeasured?.let { Prefs.customPeak(it.radius, it.amount) } ?: cur.copy(mode = mode)
+        } else {
+            cur.copy(mode = mode)
         }
-        darkroom.prefs.setPeakMode(mode)
+        setPeak(peak)
     }
 
-    /** Peak's radius and amount by hand. Remembered for the next picture and the automatic JPEG. */
-    fun setPeak(radius: Double, amount: Double) {
-        darkroom.prefs.setPeak(radius, amount)
+    /** Peak's radius and amount by hand, on this print. */
+    fun setPeak(radius: Double, amount: Double) = setPeak(Prefs.customPeak(radius, amount))
+
+    private fun setPeak(peak: Peak) {
+        _state.update { it.copy(print = it.print.copy(peak = peak)) }
+        darkroom.setPrint(_state.value.name, _state.value.print)
+        detailRegion?.let { r -> requestDetail(r[0], r[1], r[2], r[3]) }
     }
 
     /** Radius and amount the exports and the 1:1 view apply. */
-    private fun peakApplied(s: ReviewState): Pair<Double, Double> =
-        Prefs.peakApplied(darkroom.prefs.peakMode.value, darkroom.prefs.peakRadius.value, darkroom.prefs.peakAmount.value, s.peakMeasured)
+    private fun peakApplied(s: ReviewState): Pair<Double, Double> = s.print.peak.applied(s.peakMeasured)
 
-    fun setSoft(stops: Double) = setGrade(stops, _state.value.grade.hard)
+    fun setSoft(stops: Double) = setGrade(stops, _state.value.print.grade.hard)
 
-    fun setHard(stops: Double) = setGrade(_state.value.grade.soft, stops)
+    fun setHard(stops: Double) = setGrade(_state.value.print.grade.soft, stops)
 
     /**
      * Both exposures of this print. The frame keeps them; the finder and
@@ -198,8 +201,8 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun setGrade(soft: Double, hard: Double) {
         val g = Prefs.snapGrade(soft, hard)
-        _state.update { it.copy(grade = g) }
-        darkroom.setGrade(_state.value.name, g)
+        _state.update { it.copy(print = it.print.copy(grade = g)) }
+        darkroom.setPrint(_state.value.name, _state.value.print)
         renderJob?.cancel()
         renderJob = viewModelScope.launch {
             delay(60)
@@ -241,8 +244,8 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                     } else if (s.plate != null) {
                         d.setLamps(0.0, 0.0)
                     }
-                    val soft = s.grade.soft
-                    val hard = s.grade.hard
+                    val soft = s.print.grade.soft
+                    val hard = s.print.grade.hard
                     val info = d.info()
                     val h = d.histogram(soft, hard)
                     val hist = normalised(h)
@@ -293,9 +296,9 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                     val s = _state.value
                     val applied = peakApplied(s)
                     val bitmap = if (s.plate != null) {
-                        toBitmap(d.detailRgb(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.grade.soft, s.grade.hard, 0u, applied.first, applied.second))
+                        toBitmap(d.detailRgb(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.print.grade.soft, s.print.grade.hard, 0u, applied.first, applied.second))
                     } else {
-                        toBitmap(d.detail(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.grade.soft, s.grade.hard, 0u, applied.first, applied.second))
+                        toBitmap(d.detail(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.print.grade.soft, s.print.grade.hard, 0u, applied.first, applied.second))
                     }
                     _state.update { it.copy(detail = Detail(x, y, bitmap)) }
                 } catch (t: Throwable) {
@@ -314,13 +317,13 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     fun exportJpeg() = export("JPEG") { d, name, suffix ->
         val s = _state.value
         val applied = peakApplied(s)
-        darkroom.exportJpeg(d, name, suffix, s.grade.soft, s.grade.hard, applied.first, applied.second)
+        darkroom.exportJpeg(d, name, suffix, s.print.grade.soft, s.print.grade.hard, applied.first, applied.second)
     }
 
     fun exportTiff() = export("TIFF 16-bit") { d, name, suffix ->
         val s = _state.value
         val applied = peakApplied(s)
-        darkroom.exportTiff(d, name, suffix, s.grade.soft, s.grade.hard, applied.first, applied.second)
+        darkroom.exportTiff(d, name, suffix, s.print.grade.soft, s.print.grade.hard, applied.first, applied.second)
     }
 
     fun exportNegative() = export(if (_state.value.plate != null) "plate" else "negative") { d, name, _ ->

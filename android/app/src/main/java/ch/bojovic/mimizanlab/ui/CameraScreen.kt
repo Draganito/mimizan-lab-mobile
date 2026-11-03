@@ -108,8 +108,6 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val soft by vm.darkroom.prefs.soft.collectAsStateWithLifecycle()
     val hard by vm.darkroom.prefs.hard.collectAsStateWithLifecycle()
     val peakMode by vm.darkroom.prefs.peakMode.collectAsStateWithLifecycle()
-    val peakRadius by vm.darkroom.prefs.peakRadius.collectAsStateWithLifecycle()
-    val peakAmount by vm.darkroom.prefs.peakAmount.collectAsStateWithLifecycle()
     val shotMode by vm.darkroom.prefs.shotMode.collectAsStateWithLifecycle()
     val plateSpace by vm.darkroom.prefs.plateSpace.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
@@ -359,24 +357,9 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                     "The standing grade: the finder, the automatic JPEG, and where a new frame starts. Drag the strip: left prints darker, right lighter; the grade stays. Double-tap it for the base print (grade 2). In the developer the grade is the picture's own and stays with it.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
-                PeakRow(peakMode, onMode = vm::setPeakMode)
-                if (peakMode == PeakMode.CUSTOM) {
-                    val lim = Prefs.PEAK
-                    LabeledSlider(
-                        label = String.format(Locale.US, "peak σ %.2f", peakRadius),
-                        value = peakRadius.toFloat(),
-                        onChange = { vm.setPeak(it.toDouble(), peakAmount) },
-                        range = lim.radiusMin.toFloat()..lim.radiusMax.toFloat(),
-                    )
-                    LabeledSlider(
-                        label = String.format(Locale.US, "peak ×%.2f", peakAmount),
-                        value = peakAmount.toFloat(),
-                        onChange = { vm.setPeak(peakRadius, it.toDouble()) },
-                        range = 0f..lim.amountMax.toFloat(),
-                    )
-                }
+                PeakRow(peakMode, PeakMode.STANDING, onMode = vm::setPeakMode)
                 Text(
-                    "Peak is what the automatic JPEG and the exports use. The viewfinder does not follow it.",
+                    "The standing Peak: the automatic JPEG, and where a new frame starts. Auto measures each negative. A hand pair is set in the developer and stays with that picture. The viewfinder does not follow Peak.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 ShotRow(shotMode, vm::setShotMode)
@@ -498,12 +481,13 @@ fun ShotRow(mode: ShotMode, onMode: (ShotMode) -> Unit) {
     }
 }
 
+/** Peak's mode out of [modes]: Off and Auto for the standing Peak in the settings, Custom too in the developer. */
 @Composable
-fun PeakRow(mode: PeakMode, onMode: (PeakMode) -> Unit) {
+fun PeakRow(mode: PeakMode, modes: List<PeakMode>, onMode: (PeakMode) -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("Peak", Modifier.weight(1f))
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            for (m in PeakMode.entries) {
+            for (m in modes) {
                 FilterChip(
                     selected = m == mode,
                     onClick = { onMode(m) },

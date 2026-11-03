@@ -96,9 +96,6 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
     val darkroom = Darkroom.get(LocalContext.current)
     val shots by darkroom.shots.collectAsStateWithLifecycle()
     val shot = shots.firstOrNull { it.name == name }
-    val peakMode by darkroom.prefs.peakMode.collectAsStateWithLifecycle()
-    val peakRadius by darkroom.prefs.peakRadius.collectAsStateWithLifecycle()
-    val peakAmount by darkroom.prefs.peakAmount.collectAsStateWithLifecycle()
     val plateFilters by darkroom.prefs.plateFilters.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var showInfo by remember { mutableStateOf(false) }
@@ -209,8 +206,7 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                             Text(s.exporting?.let { "Saving $it…" } ?: "Export")
                         }
                         DropdownMenu(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
-                            val applied = Prefs.peakApplied(peakMode, peakRadius, peakAmount, s.peakMeasured)
-                            val peak = if (applied.second > 0.0) ", peak" else ""
+                            val peak = if (s.print.peak.applied(s.peakMeasured).second > 0.0) ", peak" else ""
                             val rgb = if (plate != null) " ${Format.plateSpace(plate.space)}" else ""
                             DropdownMenuItem(text = { Text("JPEG$rgb$peak") }, onClick = { exportMenu = false; vm.exportJpeg() })
                             DropdownMenuItem(text = { Text("TIFF 16-bit$rgb$peak") }, onClick = { exportMenu = false; vm.exportTiff() })
@@ -238,21 +234,22 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                             onSelect = vm::setPlateFilters,
                         )
                     }
-                    PaperSliders(s.grade.soft, s.grade.hard, onSoft = vm::setSoft, onHard = vm::setHard)
-                    ZoneStrip(s.grade.soft, s.grade.hard, onBoth = vm::setGrade)
-                    PeakRow(peakMode, onMode = vm::setPeakMode)
-                    if (peakMode == PeakMode.CUSTOM) {
+                    PaperSliders(s.print.grade.soft, s.print.grade.hard, onSoft = vm::setSoft, onHard = vm::setHard)
+                    ZoneStrip(s.print.grade.soft, s.print.grade.hard, onBoth = vm::setGrade)
+                    val peak = s.print.peak
+                    PeakRow(peak.mode, PeakMode.entries, onMode = vm::setPeakMode)
+                    if (peak.mode == PeakMode.CUSTOM) {
                         val lim = Prefs.PEAK
                         LabeledSlider(
-                            label = String.format(Locale.US, "peak σ %.2f", peakRadius),
-                            value = peakRadius.toFloat(),
-                            onChange = { vm.setPeak(it.toDouble(), peakAmount) },
+                            label = String.format(Locale.US, "peak σ %.2f", peak.radius),
+                            value = peak.radius.toFloat(),
+                            onChange = { vm.setPeak(it.toDouble(), peak.amount) },
                             range = lim.radiusMin.toFloat()..lim.radiusMax.toFloat(),
                         )
                         LabeledSlider(
-                            label = String.format(Locale.US, "peak ×%.2f", peakAmount),
-                            value = peakAmount.toFloat(),
-                            onChange = { vm.setPeak(peakRadius, it.toDouble()) },
+                            label = String.format(Locale.US, "peak ×%.2f", peak.amount),
+                            value = peak.amount.toFloat(),
+                            onChange = { vm.setPeak(peak.radius, it.toDouble()) },
                             range = 0f..lim.amountMax.toFloat(),
                         )
                     }

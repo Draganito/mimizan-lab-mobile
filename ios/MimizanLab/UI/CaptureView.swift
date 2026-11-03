@@ -294,13 +294,8 @@ struct SettingsSheet: View {
                     ZoneStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, onBoth: vm.setGrade)
                     Text("The standing grade: the automatic JPEG, and where a new frame starts. Drag the strip: left prints darker, right lighter; the grade stays. Double-tap it for the base print (grade 2). In the developer the grade is the picture's own and stays with it.")
                         .font(.caption).foregroundStyle(.gray)
-                    PeakRow(mode: vm.prefs.peakMode, onMode: vm.setPeakMode)
-                    if vm.prefs.peakMode == .custom {
-                        let lim = Prefs.peakLimits
-                        LabeledSlider(label: String(format: "peak σ %.2f", vm.prefs.peakRadius), value: Binding(get: { vm.prefs.peakRadius }, set: { vm.setPeak(radius: $0, amount: vm.prefs.peakAmount) }), range: lim.radiusMin...lim.radiusMax)
-                        LabeledSlider(label: String(format: "peak ×%.2f", vm.prefs.peakAmount), value: Binding(get: { vm.prefs.peakAmount }, set: { vm.setPeak(radius: vm.prefs.peakRadius, amount: $0) }), range: 0...lim.amountMax)
-                    }
-                    Text("Peak is what the automatic JPEG and the exports use. The viewfinder does not follow the grade or Peak.")
+                    PeakRow(mode: vm.prefs.peakMode, modes: PeakMode.standing, onMode: vm.setPeakMode)
+                    Text("The standing Peak: the automatic JPEG, and where a new frame starts. Auto measures each negative. A hand pair is set in the developer and stays with that picture. The viewfinder does not follow the grade or Peak.")
                         .font(.caption).foregroundStyle(.gray)
                     ShotRow(mode: vm.prefs.shotMode, onMode: vm.setShotMode)
                     Text("JPEG writes the picture and stays here. Developer opens it. Raw keeps the frame for later, and the picture waits for Export.")

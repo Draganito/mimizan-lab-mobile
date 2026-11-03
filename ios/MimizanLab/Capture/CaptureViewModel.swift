@@ -209,7 +209,6 @@ final class CaptureViewModel {
     func toggleGrid() { viewfinder.grid.toggle(); prefs.setGrid(viewfinder.grid) }
     func toggleHistogram() { viewfinder.showHistogram.toggle(); prefs.setHistogram(viewfinder.showHistogram) }
     func setPeakMode(_ mode: PeakMode) { prefs.setPeakMode(mode) }
-    func setPeak(radius: Double, amount: Double) { prefs.setPeak(radius: radius, amount: amount) }
     func setProcess(_ p: Process) { prefs.setProcess(p) }
     func setPlateFilters(_ f: PlateFilters) { prefs.setPlateFilters(f) }
     func setPlateSpace(_ s: PlateSpace) { prefs.setPlateSpace(s) }

@@ -9,8 +9,8 @@ import org.json.JSONObject
 
 /**
  * App-private copy of every frame (`<name>.raw` = packed 16-bit samples,
- * `<name>.json` = [RawMeta], `<name>.grade` = the print's two exposures,
- * and once developed `<name>.jpg` = the roll's thumbnail) so a shot can
+ * `<name>.json` = [RawMeta], `<name>.grade` = the [Print] (grade and
+ * Peak), and once developed `<name>.jpg` = the roll's thumbnail) so a shot can
  * be developed again later without a DNG decoder on the phone. Oldest
  * frames go first when the cache exceeds [budgetBytes].
  */
@@ -19,8 +19,8 @@ class RawCache(context: Context, private val budgetBytes: Long = 1_500L shl 20) 
 
     fun rawFile(name: String) = File(dir, "$name.raw")
     fun metaFile(name: String) = File(dir, "$name.json")
-    /** This frame's grade, as the developer last left it: the desktop's recipe beside the RAW. */
-    fun gradeFile(name: String) = File(dir, "$name.grade")
+    /** This frame's print, as the developer last left it: the desktop's recipe beside the RAW. */
+    fun printFile(name: String) = File(dir, "$name.grade")
     /** The developed preview, already reduced, kept so the roll can show it without developing again. */
     fun thumbFile(name: String) = File(dir, "$name.jpg")
 
@@ -29,9 +29,9 @@ class RawCache(context: Context, private val budgetBytes: Long = 1_500L shl 20) 
      * ([has], [names]) once both files are complete, so a crash mid-write
      * leaves at most an orphan `.raw` that the next [trim] sweeps away.
      */
-    fun put(name: String, pixels: ByteArray, meta: RawMeta, grade: Grade) {
+    fun put(name: String, pixels: ByteArray, meta: RawMeta, print: Print) {
         rawFile(name).writeBytes(pixels)
-        saveGrade(name, grade)
+        savePrint(name, print)
         val tmp = File(dir, "$name.json.tmp")
         tmp.writeText(meta.toJson().toString())
         if (!tmp.renameTo(metaFile(name))) {
@@ -41,16 +41,20 @@ class RawCache(context: Context, private val budgetBytes: Long = 1_500L shl 20) 
         trim(keep = name)
     }
 
-    /** Overwritten in place: the file is two numbers, and the old pair is no loss. */
-    fun saveGrade(name: String, grade: Grade) {
-        gradeFile(name).writeText(grade.toJson().toString())
+    /** Overwritten in place: the file is a few numbers, and the old ones are no loss. */
+    fun savePrint(name: String, print: Print) {
+        printFile(name).writeText(print.toJson().toString())
     }
 
-    /** The frame's grade; null when none was written (a frame from before 0.15) or the file is damaged. */
-    fun loadGrade(name: String): Grade? {
-        val f = gradeFile(name)
+    /**
+     * The frame's print; null when none was written (a frame from before
+     * 0.15) or the file is damaged. A file with the grade alone (0.15.0)
+     * takes [standingPeak].
+     */
+    fun loadPrint(name: String, standingPeak: Peak): Print? {
+        val f = printFile(name)
         if (!f.exists()) return null
-        return Grade.fromJson(f.readText(), Prefs.STOP_LIMIT)
+        return Print.fromJson(f.readText(), Prefs.STOP_LIMIT, Prefs.PEAK, standingPeak)
     }
 
     fun has(name: String) = rawFile(name).exists() && metaFile(name).exists()
@@ -90,7 +94,7 @@ class RawCache(context: Context, private val budgetBytes: Long = 1_500L shl 20) 
     fun remove(name: String) {
         rawFile(name).delete()
         metaFile(name).delete()
-        gradeFile(name).delete()
+        printFile(name).delete()
         thumbFile(name).delete()
     }
 
@@ -128,7 +132,7 @@ class RawCache(context: Context, private val budgetBytes: Long = 1_500L shl 20) 
             val name = f.nameWithoutExtension
             if (name == keep) continue
             if (total <= budgetBytes && metaFile(name).exists()) continue
-            total -= f.length() + metaFile(name).length() + gradeFile(name).length() + thumbFile(name).length()
+            total -= f.length() + metaFile(name).length() + printFile(name).length() + thumbFile(name).length()
             remove(name)
         }
     }

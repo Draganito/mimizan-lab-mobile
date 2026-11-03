@@ -28,8 +28,8 @@ final class ReviewViewModel {
     /// What the mix actually uses: `weights` with the filter applied.
     private(set) var effective = Weights.native
     private(set) var filter = Filter.none
-    /// This frame's grade: opened from the roll, written back to it on every move.
-    private(set) var grade = Grade.base
+    /// This frame's print, grade and Peak: opened from the roll, written back to it on every move.
+    private(set) var print = Print(grade: .base, peak: .standing(.auto))
     /// The plate process as the development stands; nil is the monochrome negative.
     private(set) var plate: PlateState?
     private(set) var peakMeasured: PeakMeasured?
@@ -59,9 +59,7 @@ final class ReviewViewModel {
     var shot: Shot? { darkroom.shots.first { $0.name == name } }
     var shotSettings: DevelopSettings? { shot?.settings }
     /// Radius and amount the 1:1 view and the exports apply.
-    var peakApplied: (radius: Double, amount: Double) {
-        Prefs.peakApplied(mode: darkroom.prefs.peakMode, radius: darkroom.prefs.peakRadius, amount: darkroom.prefs.peakAmount, measured: peakMeasured)
-    }
+    var peakApplied: (radius: Double, amount: Double) { print.peak.applied(peakMeasured) }
 
     /// Bind to a shot; follows `Darkroom.current` so a (re)development shows up.
     func open(_ name: String) {
@@ -77,12 +75,11 @@ final class ReviewViewModel {
         histogramRgb = []
         info = nil
         plate = nil
-        // The frame's own grade; a frame the roll does not know opens at the standing one.
-        grade = shot?.grade ?? darkroom.prefs.grade
+        // The frame's own print; a frame the roll does not know opens at the standing one.
+        print = shot?.print ?? darkroom.prefs.standingPrint
         if !observing {
             observing = true
             observeCurrent()
-            observePeak()
         }
         bind(darkroom.current)
     }
@@ -95,21 +92,6 @@ final class ReviewViewModel {
                 guard let self else { return }
                 self.bind(self.darkroom.current)
                 self.observeCurrent()
-            }
-        }
-    }
-
-    /// Peak lives in the settings; a zoomed-in view follows the mode and the custom pair.
-    private func observePeak() {
-        withObservationTracking {
-            _ = darkroom.prefs.peakMode
-            _ = darkroom.prefs.peakRadius
-            _ = darkroom.prefs.peakAmount
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if let r = self.detailRegion { self.requestDetail(x: r.0, y: r.1, w: r.2, h: r.3) }
-                self.observePeak()
             }
         }
     }
@@ -172,35 +154,44 @@ final class ReviewViewModel {
         if plate != nil { remixAndRender() }
     }
 
-    /// Custom, started from this negative's measurement. The 1:1 view follows; the preview is never sharpened.
+    /// This print's Peak mode. Custom starts from the measurement of this
+    /// negative when it is entered. The 1:1 view follows; the preview is
+    /// never sharpened. Kept with the frame, like the grade.
     func setPeakMode(_ mode: PeakMode) {
-        if mode == .custom, darkroom.prefs.peakMode != .custom, let m = peakMeasured {
-            darkroom.prefs.setPeak(radius: m.radius, amount: m.amount)
+        var peak = print.peak
+        if mode == .custom, peak.mode != .custom, let m = peakMeasured {
+            peak = Prefs.customPeak(radius: m.radius, amount: m.amount)
+        } else {
+            peak.mode = mode
         }
-        darkroom.prefs.setPeakMode(mode)
-        if let r = detailRegion { requestDetail(x: r.0, y: r.1, w: r.2, h: r.3) }
+        setPeak(peak)
     }
 
-    /// Peak's radius and amount by hand. Remembered for the next picture and the automatic JPEG.
+    /// Peak's radius and amount by hand, on this print.
     func setPeak(radius: Double, amount: Double) {
-        darkroom.prefs.setPeak(radius: radius, amount: amount)
+        setPeak(Prefs.customPeak(radius: radius, amount: amount))
+    }
+
+    private func setPeak(_ peak: Peak) {
+        print.peak = peak
+        darkroom.setPrint(name, print)
         if let r = detailRegion { requestDetail(x: r.0, y: r.1, w: r.2, h: r.3) }
     }
 
     func setSoft(_ stops: Double) {
-        setGrade(soft: stops, hard: grade.hard)
+        setGrade(soft: stops, hard: print.grade.hard)
     }
 
     func setHard(_ stops: Double) {
-        setGrade(soft: grade.soft, hard: stops)
+        setGrade(soft: print.grade.soft, hard: stops)
     }
 
     /// Both exposures of this print. The frame on the roll takes the new
     /// grade at once; the standing grade in the settings stays where it
     /// is, so the next frame does not inherit this correction.
     func setGrade(soft: Double, hard: Double) {
-        grade = Prefs.snapGrade(soft: soft, hard: hard)
-        darkroom.setGrade(name, grade)
+        print.grade = Prefs.snapGrade(soft: soft, hard: hard)
+        darkroom.setPrint(name, print)
         schedule { await self.renderNow() }
     }
 
@@ -242,7 +233,7 @@ final class ReviewViewModel {
         guard let d = developed else { return }
         busy = true
         defer { busy = false }
-        let s = (grade: grade, weights: weights, filter: filter, plate: plate)
+        let s = (grade: print.grade, weights: weights, filter: filter, plate: plate)
         let standing = (process: darkroom.prefs.process, filters: darkroom.prefs.plateFilters, space: darkroom.prefs.plateSpace)
         let result: Result<Rendered, Error> = await gate.run { () -> Result<Rendered, Error> in
             do {
@@ -307,7 +298,7 @@ final class ReviewViewModel {
             if Task.isCancelled { return }
             guard let d = developed else { return }
             let pair = self.peakApplied
-            let soft = grade.soft, hard = grade.hard, radius = pair.radius, amount = pair.amount, isPlate = self.plate != nil
+            let soft = print.grade.soft, hard = print.grade.hard, radius = pair.radius, amount = pair.amount, isPlate = self.plate != nil
             let image: CGImage? = await gate.run { () -> CGImage? in
                 do {
                     if isPlate {
@@ -334,7 +325,7 @@ final class ReviewViewModel {
 
     func exportJpeg() {
         let pair = peakApplied
-        let (soft, hard, radius, amount) = (grade.soft, grade.hard, pair.radius, pair.amount)
+        let (soft, hard, radius, amount) = (print.grade.soft, print.grade.hard, pair.radius, pair.amount)
         export("JPEG") { d, name, suffix, exporter in
             try [Darkroom.exportJpeg(d, name: name, suffix: suffix, soft: soft, hard: hard, peakRadius: radius, peakAmount: amount, exporter: exporter)]
         }
@@ -342,7 +333,7 @@ final class ReviewViewModel {
 
     func exportTiff() {
         let pair = peakApplied
-        let (soft, hard, radius, amount) = (grade.soft, grade.hard, pair.radius, pair.amount)
+        let (soft, hard, radius, amount) = (print.grade.soft, print.grade.hard, pair.radius, pair.amount)
         export("TIFF 16-bit") { d, name, suffix, exporter in
             try [Darkroom.exportTiff(d, name: name, suffix: suffix, soft: soft, hard: hard, peakRadius: radius, peakAmount: amount, exporter: exporter)]
         }

@@ -155,13 +155,15 @@ struct ReviewView: View {
             } else {
                 PlateFilterRow(selected: prefs.plateFilters, hasMatrix: vm.info?.hasColourMatrix ?? false, onSelect: vm.setPlateFilters)
             }
-            PaperSliders(soft: vm.grade.soft, hard: vm.grade.hard, onSoft: vm.setSoft, onHard: vm.setHard)
-            ZoneStrip(soft: vm.grade.soft, hard: vm.grade.hard, onBoth: vm.setGrade)
-            PeakRow(mode: prefs.peakMode, onMode: vm.setPeakMode)
-            if prefs.peakMode == .custom {
+            let grade = vm.print.grade
+            let peak = vm.print.peak
+            PaperSliders(soft: grade.soft, hard: grade.hard, onSoft: vm.setSoft, onHard: vm.setHard)
+            ZoneStrip(soft: grade.soft, hard: grade.hard, onBoth: vm.setGrade)
+            PeakRow(mode: peak.mode, modes: PeakMode.allCases, onMode: vm.setPeakMode)
+            if peak.mode == .custom {
                 let lim = Prefs.peakLimits
-                LabeledSlider(label: String(format: "peak σ %.2f", prefs.peakRadius), value: Binding(get: { prefs.peakRadius }, set: { vm.setPeak(radius: $0, amount: prefs.peakAmount) }), range: lim.radiusMin...lim.radiusMax)
-                LabeledSlider(label: String(format: "peak ×%.2f", prefs.peakAmount), value: Binding(get: { prefs.peakAmount }, set: { vm.setPeak(radius: prefs.peakRadius, amount: $0) }), range: 0...lim.amountMax)
+                LabeledSlider(label: String(format: "peak σ %.2f", peak.radius), value: Binding(get: { peak.radius }, set: { vm.setPeak(radius: $0, amount: peak.amount) }), range: lim.radiusMin...lim.radiusMax)
+                LabeledSlider(label: String(format: "peak ×%.2f", peak.amount), value: Binding(get: { peak.amount }, set: { vm.setPeak(radius: peak.radius, amount: $0) }), range: 0...lim.amountMax)
             }
             if let cur = vm.shotSettings, cur.binning == 2 {
                 Button("Full size") { var s = cur; s.binning = 1; vm.develop(s) }

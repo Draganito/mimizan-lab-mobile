@@ -71,9 +71,10 @@ in the algorithm is duplicated in the mobile crate.
 6. `Darkroom.submit` writes the frame into the `RawCache` (`<name>.raw` +
    `<name>.json`, app-private; the metadata lands through a rename, so a
    frame exists only once both files are complete and an interrupted write
-   leaves an orphan `.raw` that the next trim removes) together with
-   `<name>.grade`, the standing grade of that moment (`Prefs.grade`) as
-   the frame's own, and, unless the shot mode is Raw, queues the
+   leaves an orphan `.raw` that the next trim removes)    together with
+   `<name>.grade`, the frame's print (`Print`: grade and Peak), which
+   starts as the standing pair of that moment (`Prefs.standingPrint`),
+   and, unless the shot mode is Raw, queues the
    development. A finished development adds
    `<name>.jpg`, the roll's 256 px thumbnail, written to `.jpg.tmp` and
    renamed the same way; the roll shows it after a restart without
@@ -115,8 +116,8 @@ frame:
   saturation mask of the full frame is dropped after the first mix.
 * The `Developed` handle replaces the previous one in `Darkroom.current`
   (the old one is closed -> native memory freed); the thumbnail and, for
-  a JPEG shot, a full-size JPEG (the paper at the frame's grade,
-  `Shot.grade`, with the settings' Peak) are produced right away. Only
+  a JPEG shot, a full-size JPEG (the paper at the frame's print,
+  `Shot.print`: its grade and its Peak) are produced right away. Only
   the development itself can fail the frame: the thumbnail, its file,
   Peak's measurement and the JPEG each fail on their own with a log
   line, and a handle that does not reach `Darkroom.current` is closed.
@@ -142,11 +143,11 @@ separation:
   and TIFF use, so the screen and the file agree. The viewfinder cannot
   do that per pixel in Rust, so it indexes `paper_lut` (4097 samples of
   that map over linear grey). The pair shown is the frame's own grade
-  (`Shot.grade`, read from `<name>.grade` on open). The sliders and the
-  zone strip write it back to the frame only (`Darkroom.setGrade`: the
-  roll entry and the sidecar), never to `Prefs.grade`, so the standing
-  grade — the finder, the automatic JPEG, the start of the next frame —
-  does not drift with a correction made on one negative. Each preview
+  (`Shot.print.grade`, read from `<name>.grade` on open). The sliders and
+  the zone strip write it back to the frame only (`Darkroom.setPrint`:
+  the roll entry and the sidecar), never to `Prefs.grade`, so the
+  standing grade — the finder, the automatic JPEG, the start of the next
+  frame — does not drift with a correction made on one negative. Each preview
   render also refreshes the roll's thumbnail (`Darkroom.setThumbnail`),
   so the roll shows the frame as it was last left. Exports use the shown
   pair.
@@ -155,12 +156,17 @@ separation:
   sharpened, through the core's `peak::tune` — the same search as the
   desktop's `peak` program and GUI. The radius (Gaussian σ, pixels of the
   negative) and amount are kept with the negative in memory
-  (`Darkroom.Negative.peak`). Peak is a setting with three modes
-  (`Prefs.peakMode`): *Off* applies nothing, *Auto* applies the
-  measurement of each negative, *Custom* applies the stored pair, which
-  starts from this negative's measurement the moment Custom is chosen in
-  review (`GradeMath.peakApplied`). The 1:1 view and every export follow
-  the mode; the preview is never sharpened.
+  (`Darkroom.Negative.peak`). Peak is part of the frame's print
+  (`Shot.print.peak`, the `peak` object in `<name>.grade`), like the
+  grade: *Off* applies nothing, *Auto* applies the measurement of each
+  negative, *Custom* applies the frame's own pair, which starts from this
+  negative's measurement the moment Custom is chosen in review
+  (`Peak.applied`). The standing Peak in the settings (`Prefs.peakMode`)
+  is Off or Auto only — what a new frame starts with and the automatic
+  JPEG applies; a hand pair belongs to one negative, so Custom is the
+  developer's alone and never a setting. A `.grade` file from 0.15.0
+  has no `peak` object and reads with the standing Peak. The 1:1 view
+  and every export follow the mode; the preview is never sharpened.
 * pinch zoom beyond the preview resolution -> `detail(x, y, w, h, soft,
   hard, turns, peak_radius, peak_amount)` for the visible window, drawn
   1:1 on top of the scaled preview. With an amount above zero the window
@@ -262,7 +268,7 @@ Android ones file for file:
 | `RawCache.kt` | `Store/RawCache.swift` | `Caches/raw/<name>.dng` + `.json` + `.grade`, excluded from backup, 1.5 GB budget; an orphan `.dng` is swept only once it is a minute old |
 | `MediaStoreWriter.kt` | `Store/Exporter.swift` | `Documents/Mimizan Lab` (visible in Files, `UIFileSharingEnabled`) plus `PHPhotoLibrary` add-only for JPEGs; the mask sidecar takes the final file's name, so `(2)` pairs stay paired |
 | `Prefs.kt` | `Store/Prefs.swift` | same keys and defaults in `UserDefaults` (no lamp keys: the lamps are not a setting on either phone) |
-| `ReviewViewModel.kt` / `ReviewScreen.kt` | `Review/` | the `Developed` calls go through `Gate`, a serial `DispatchQueue` wrapped in `withCheckedContinuation`, never the main thread; the sliders move the frame's own grade (`Darkroom.setGrade` → `<name>.grade`) and each render hands the roll a fresh thumbnail, as on Android; `MagnifyGesture` + `DragGesture` for the 1:1 viewer |
+| `ReviewViewModel.kt` / `ReviewScreen.kt` | `Review/` | the `Developed` calls go through `Gate`, a serial `DispatchQueue` wrapped in `withCheckedContinuation`, never the main thread; the sliders and Peak move the frame's own print (`Darkroom.setPrint` → `<name>.grade`) and each render hands the roll a fresh thumbnail, as on Android; `MagnifyGesture` + `DragGesture` for the 1:1 viewer |
 | `RollScreen.kt` | `UI/RollView.swift` | no import from Files or Photos (a full-size NEF develops past the iPad's memory); the roll is the camera's own frames |
 | `MainActivity.kt` | `UI/RootView.swift` | `NavigationStack` on compact width, `NavigationSplitView` (roll beside camera / review) on the iPad |
 

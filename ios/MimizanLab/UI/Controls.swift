@@ -60,16 +60,18 @@ struct ShotRow: View {
     }
 }
 
-/// Peak: Off, Auto, or Custom. The two sliders appear only for Custom.
+/// Peak's mode out of `modes`: Off and Auto for the standing Peak in the
+/// settings, Custom too in the developer, where its two sliders follow.
 struct PeakRow: View {
     let mode: PeakMode
+    let modes: [PeakMode]
     let onMode: (PeakMode) -> Void
 
     var body: some View {
         HStack(spacing: 6) {
             Text("Peak")
             Spacer(minLength: 8)
-            ForEach(PeakMode.allCases, id: \.self) { m in
+            ForEach(modes, id: \.self) { m in
                 Chip(label: m.label, selected: mode == m) { onMode(m) }
             }
         }
