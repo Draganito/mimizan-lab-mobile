@@ -6,6 +6,7 @@ import android.net.Uri
 import android.util.Log
 import ch.bojovic.mimizanlab.raw.RawCapture
 import ch.bojovic.mimizanlab.raw.RawMeta
+import ch.bojovic.mimizanlab.store.Grade
 import ch.bojovic.mimizanlab.store.MediaStoreWriter
 import ch.bojovic.mimizanlab.store.Prefs
 import ch.bojovic.mimizanlab.store.RawCache
@@ -67,6 +68,12 @@ data class Shot(
     val name: String,
     val meta: RawMeta,
     val settings: DevelopSettings,
+    /**
+     * This print's grade. A new frame takes the standing grade of the
+     * moment; the developer moves this one alone, and the finder and the
+     * next frame do not follow. Kept in the cache beside the frame.
+     */
+    val grade: Grade,
     val status: ShotStatus,
     val jpegUri: Uri? = null,
     val thumbnail: Bitmap? = null,
@@ -117,9 +124,10 @@ class Darkroom private constructor(private val context: Context) {
         // Frames from an earlier run are still in the cache: list them so
         // they can be developed again.
         scope.launch {
+            val standing = prefs.grade.value
             val restored = cache.names().mapNotNull { name ->
                 cache.loadMeta(name)?.let {
-                    Shot(name, it, DevelopSettings(), ShotStatus.Cached, thumbnail = cache.loadThumb(name))
+                    Shot(name, it, DevelopSettings(), cache.loadGrade(name) ?: standing, ShotStatus.Cached, thumbnail = cache.loadThumb(name))
                 }
             }
             if (restored.isNotEmpty()) _shots.update { restored + it }
@@ -131,10 +139,11 @@ class Darkroom private constructor(private val context: Context) {
     fun submit(capture: RawCapture, settings: DevelopSettings, developNow: Boolean = true): String {
         val name = nameFor(capture.capturedAtEpochMs)
         val meta = capture.meta()
-        _shots.update { listOf(Shot(name, meta, settings, ShotStatus.Saving)) + it }
+        val grade = prefs.grade.value
+        _shots.update { listOf(Shot(name, meta, settings, grade, ShotStatus.Saving)) + it }
         scope.launch(Dispatchers.IO) {
             try {
-                cache.put(name, capture.pixels, meta)
+                cache.put(name, capture.pixels, meta, grade)
             } catch (t: Throwable) {
                 Log.e(TAG, "save $name", t)
                 updateShot(name) { it.copy(status = ShotStatus.Failed(t.message ?: "could not save the frame")) }
@@ -239,8 +248,8 @@ class Darkroom private constructor(private val context: Context) {
                 // From here on the negative is good. The thumbnail, its
                 // file, Peak's measurement and the JPEG each fail on their
                 // own, with a log line, and the development stays Ready.
-                val paper = placed(d)
-                val thumb = runCatching { thumbnail(d, paper.first, paper.second) }
+                val paper = shot.grade
+                val thumb = runCatching { thumbnail(d, paper.soft, paper.hard) }
                     .onFailure { Log.w(TAG, "thumbnail $name", it) }
                     .getOrNull()
                 if (thumb != null) {
@@ -250,7 +259,7 @@ class Darkroom private constructor(private val context: Context) {
                 // desktop measures them on opening a picture. Measured even
                 // with the checkbox off: review can turn it on without a
                 // second pass.
-                val peak = measurePeak(d, name, paper.first, paper.second)
+                val peak = measurePeak(d, name, paper.soft, paper.hard)
                 // Replace the negative kept in memory.
                 _current.getAndUpdate { Negative(name, d, info, shot.settings, peak) }?.developed?.close()
                 developed = null
@@ -261,7 +270,7 @@ class Darkroom private constructor(private val context: Context) {
                     runCatching {
                         exportJpeg(
                             d, name, suffixFor(shot.settings, info),
-                            soft = paper.first, hard = paper.second,
+                            soft = paper.soft, hard = paper.hard,
                             peakRadius = applied.first, peakAmount = applied.second,
                         )
                     }.onSuccess { uri -> updateShot(name) { it.copy(jpegUri = uri) } }
@@ -303,16 +312,23 @@ class Darkroom private constructor(private val context: Context) {
         developParamsFor(meta.make, meta.model, meta.cfa, s)
 
     /**
-     * The standing grade, plus the zone shift and the compensation when
-     * balance is on: the same `Prefs.place` the review shows, so the
-     * automatic JPEG and the opened picture start on one pair. The shift
-     * is not stored.
+     * The developer moved this frame's grade: the roll's entry and the
+     * file beside the frame follow. The standing grade is not touched.
      */
-    private fun placed(d: Developed): Pair<Double, Double> {
-        val stored = prefs.grade.value
-        if (!prefs.zoneAuto.value) return stored.soft to stored.hard
-        val shift = runCatching { d.zoneShift(0.0, 0.0) }.getOrDefault(0.0)
-        return Prefs.place(stored, shift, prefs.zoneBias.value).grade.let { it.soft to it.hard }
+    fun setGrade(name: String, grade: Grade) {
+        updateShot(name) { it.copy(grade = grade) }
+        scope.launch(Dispatchers.IO) {
+            runCatching { cache.saveGrade(name, grade) }.onFailure { Log.w(TAG, "grade file $name", it) }
+        }
+    }
+
+    /** The roll's thumbnail of a frame whose grade moved in the developer, from the preview it shows. */
+    fun setThumbnail(name: String, preview: Bitmap) {
+        val thumb = thumbnailOf(preview)
+        updateShot(name) { it.copy(thumbnail = thumb) }
+        scope.launch(Dispatchers.IO) {
+            runCatching { cache.saveThumb(name, thumb) }.onFailure { Log.w(TAG, "thumbnail file $name", it) }
+        }
     }
 
     /** 256 px box of the preview, grey or, in the plate process, colour. */
@@ -332,6 +348,15 @@ class Darkroom private constructor(private val context: Context) {
                 (0xFF shl 24) or (v shl 16) or (v shl 8) or v
             }
         }
+    }
+
+    /** The same box from a preview bitmap already drawn. */
+    private fun thumbnailOf(preview: Bitmap): Bitmap {
+        val w = preview.width
+        val h = preview.height
+        val px = IntArray(w * h)
+        preview.getPixels(px, 0, w, 0, 0, w, h)
+        return subsampled(w, h) { px[it] }
     }
 
     /** Every `scale`-th pixel of a `sw × sh` picture so the longer edge fits 256 px; [argb] reads pixel index `i`. */

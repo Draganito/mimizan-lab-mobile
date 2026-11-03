@@ -238,8 +238,8 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                             onSelect = vm::setPlateFilters,
                         )
                     }
-                    PaperSliders(s.soft, s.hard, onSoft = vm::setSoft, onHard = vm::setHard)
-                    ZoneStrip(s.soft, s.hard, onBoth = vm::setGrade)
+                    PaperSliders(s.grade.soft, s.grade.hard, onSoft = vm::setSoft, onHard = vm::setHard)
+                    ZoneStrip(s.grade.soft, s.grade.hard, onBoth = vm::setGrade)
                     PeakRow(peakMode, onMode = vm::setPeakMode)
                     if (peakMode == PeakMode.CUSTOM) {
                         val lim = Prefs.PEAK

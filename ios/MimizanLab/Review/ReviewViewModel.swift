@@ -28,8 +28,8 @@ final class ReviewViewModel {
     /// What the mix actually uses: `weights` with the filter applied.
     private(set) var effective = Weights.native
     private(set) var filter = Filter.none
-    private(set) var soft = 0.0
-    private(set) var hard = 0.0
+    /// This frame's grade: opened from the roll, written back to it on every move.
+    private(set) var grade = Grade.base
     /// The plate process as the development stands; nil is the monochrome negative.
     private(set) var plate: PlateState?
     private(set) var peakMeasured: PeakMeasured?
@@ -55,14 +55,6 @@ final class ReviewViewModel {
     /// time, on the gate's own thread, never on the main one (an export
     /// holds the core's lock for seconds).
     private let gate = Gate(label: "ch.bojovic.mimizanlab.review")
-    /// This negative's zone shift at the base exposures, in stops. It does
-    /// not depend on the grade (both exposures move together), only on the
-    /// mix, so it is measured once per mix, in the gate, and nil until then.
-    private var zoneShift: Double?
-    /// The stops the placement actually added to both sliders (the shift
-    /// and the compensation after the snap and the clamp), so exactly those
-    /// come back off when the user moves a slider.
-    private var placedShift: Double = 0
 
     var shot: Shot? { darkroom.shots.first { $0.name == name } }
     var shotSettings: DevelopSettings? { shot?.settings }
@@ -74,7 +66,6 @@ final class ReviewViewModel {
     /// Bind to a shot; follows `Darkroom.current` so a (re)development shows up.
     func open(_ name: String) {
         if self.name == name, observing {
-            showStandingPaper()
             render()
             return
         }
@@ -86,8 +77,8 @@ final class ReviewViewModel {
         histogramRgb = []
         info = nil
         plate = nil
-        soft = darkroom.prefs.soft
-        hard = darkroom.prefs.hard
+        // The frame's own grade; a frame the roll does not know opens at the standing one.
+        grade = shot?.grade ?? darkroom.prefs.grade
         if !observing {
             observing = true
             observeCurrent()
@@ -138,14 +129,9 @@ final class ReviewViewModel {
             peakMeasured = neg.peak
             needsDevelop = false
             detail = nil
-            // The shift is measured by the first render; until then the sliders show the stored grade.
-            zoneShift = nil
-            showStandingPaper()
             render()
         } else {
             developed = nil
-            zoneShift = nil
-            placedShift = 0
             needsDevelop = true
             preview = nil
             detail = nil
@@ -201,52 +187,20 @@ final class ReviewViewModel {
         if let r = detailRegion { requestDetail(x: r.0, y: r.1, w: r.2, h: r.3) }
     }
 
-    /// The stored grade, then the balance when it is on: this negative's
-    /// shift (measured at zero, where both sliders have the full ±3 of
-    /// room, so the clamp does not eat it) and the compensation, as one
-    /// delta through `shiftGrade`. Nothing is written back. Before the
-    /// shift is measured the sliders show the stored grade. The same
-    /// arithmetic as the Android `GradeMath.place`.
-    private func showStandingPaper() {
-        let stored = (soft: darkroom.prefs.soft, hard: darkroom.prefs.hard)
-        if darkroom.prefs.zoneAuto, let shift = zoneShift {
-            let pair = Prefs.shiftGrade(soft: stored.soft, hard: stored.hard, by: shift + darkroom.prefs.zoneBias)
-            soft = pair.0
-            hard = pair.1
-            placedShift = pair.0 - stored.soft
-        } else {
-            soft = stored.soft
-            hard = stored.hard
-            placedShift = 0
-        }
-    }
-
     func setSoft(_ stops: Double) {
-        setGrade(soft: stops, hard: hard)
+        setGrade(soft: stops, hard: grade.hard)
     }
 
     func setHard(_ stops: Double) {
-        setGrade(soft: soft, hard: stops)
+        setGrade(soft: grade.soft, hard: stops)
     }
 
-    /// Both exposures as they stand on this print. With the balance on,
-    /// the sliders include this negative's shift and the compensation;
-    /// exactly the stops the placement added (`placedShift`) come back off
-    /// before the grade is stored (each exposure snapped and clamped on
-    /// its own, `Prefs.setSoft`), so the next picture adds its own shift
-    /// once. Then the pair is placed again from what was stored. The same
-    /// arithmetic as the Android `GradeMath.unplace`.
+    /// Both exposures of this print. The frame on the roll takes the new
+    /// grade at once; the standing grade in the settings stays where it
+    /// is, so the next frame does not inherit this correction.
     func setGrade(soft: Double, hard: Double) {
-        if darkroom.prefs.zoneAuto, developed != nil {
-            darkroom.prefs.setSoft(soft - placedShift)
-            darkroom.prefs.setHard(hard - placedShift)
-            showStandingPaper()
-        } else {
-            darkroom.prefs.setSoft(soft)
-            darkroom.prefs.setHard(hard)
-            self.soft = darkroom.prefs.soft
-            self.hard = darkroom.prefs.hard
-        }
+        grade = Prefs.snapGrade(soft: soft, hard: hard)
+        darkroom.setGrade(name, grade)
         schedule { await self.renderNow() }
     }
 
@@ -273,28 +227,22 @@ final class ReviewViewModel {
         var info: DevelopInfo
         var effective: Weights?
         var preview: CGImage?
+        /// The same picture reduced for the roll.
+        var thumbnail: CGImage?
         var histogram: [Float]
         var histogramRgb: [Float]
-        /// The zone shift measured in this pass, when one was.
-        var shift: Double?
     }
 
     /// Draw the picture as it stands. `remix` applies the sliders and the
     /// standing process first (the mix, or the plate's filters and
-    /// primaries). A plate is always shown with the lamps at zero. With
-    /// the balance on and the shift not yet measured (a fresh negative, or
-    /// a new mix), the shift is measured here, after the remix, and the
-    /// picture is drawn at the placed exposures.
+    /// primaries). A plate is always shown with the lamps at zero. The
+    /// roll's thumbnail follows the picture, so it shows the frame as the
+    /// developer last left it.
     private func renderNow(remix: Bool = false) async {
         guard let d = developed else { return }
         busy = true
         defer { busy = false }
-        // The mix moves the middle of the picture: measure the shift again
-        // after a remix. The old value stays in place until the new one is
-        // in, so a slider moved meanwhile is still un-placed with a shift.
-        let needShift = darkroom.prefs.zoneAuto && (remix || zoneShift == nil)
-        let stored = (soft: darkroom.prefs.soft, hard: darkroom.prefs.hard, bias: darkroom.prefs.zoneBias)
-        let s = (soft: soft, hard: hard, weights: weights, filter: filter, plate: plate)
+        let s = (grade: grade, weights: weights, filter: filter, plate: plate)
         let standing = (process: darkroom.prefs.process, filters: darkroom.prefs.plateFilters, space: darkroom.prefs.plateSpace)
         let result: Result<Rendered, Error> = await gate.run { () -> Result<Rendered, Error> in
             do {
@@ -309,27 +257,23 @@ final class ReviewViewModel {
                 } else if s.plate != nil {
                     try d.setLamps(red: 0, blue: 0)
                 }
-                var shift: Double?
-                var paper = (soft: s.soft, hard: s.hard)
-                if needShift {
-                    // Measured at zero, as `showStandingPaper` expects; a failure counts as no shift.
-                    let z = (try? d.zoneShift(soft: 0, hard: 0)) ?? 0
-                    shift = z
-                    let placed = Prefs.shiftGrade(soft: stored.soft, hard: stored.hard, by: z + stored.bias)
-                    paper = (soft: placed.0, hard: placed.1)
-                }
                 let info = d.info()
-                let hist = Images.normalised(try d.histogram(soft: paper.soft, hard: paper.hard))
+                let hist = Images.normalised(try d.histogram(soft: s.grade.soft, hard: s.grade.hard))
                 let image: CGImage?
+                let thumb: CGImage?
                 let rgb: [Float]
                 if info.plate != nil {
-                    image = Images.cgImage(try d.previewRgb(soft: paper.soft, hard: paper.hard, extraQuarterTurns: 0))
-                    rgb = Images.normalised(try d.histogramRgb(soft: paper.soft, hard: paper.hard))
+                    let p = try d.previewRgb(soft: s.grade.soft, hard: s.grade.hard, extraQuarterTurns: 0)
+                    image = Images.cgImage(p)
+                    thumb = Images.thumbnail(p)
+                    rgb = Images.normalised(try d.histogramRgb(soft: s.grade.soft, hard: s.grade.hard))
                 } else {
-                    image = Images.cgImage(try d.preview(soft: paper.soft, hard: paper.hard, extraQuarterTurns: 0))
+                    let p = try d.preview(soft: s.grade.soft, hard: s.grade.hard, extraQuarterTurns: 0)
+                    image = Images.cgImage(p)
+                    thumb = Images.thumbnail(p)
                     rgb = []
                 }
-                return .success(Rendered(info: info, effective: effective, preview: image, histogram: hist, histogramRgb: rgb, shift: shift))
+                return .success(Rendered(info: info, effective: effective, preview: image, thumbnail: thumb, histogram: hist, histogramRgb: rgb))
             } catch {
                 return .failure(error)
             }
@@ -340,12 +284,8 @@ final class ReviewViewModel {
             info = r.info
             plate = r.info.plate
             if let e = r.effective { effective = e }
-            if let z = r.shift {
-                // The picture was drawn at this placement; the sliders follow it.
-                zoneShift = z
-                showStandingPaper()
-            }
             preview = r.preview
+            if let t = r.thumbnail { darkroom.setThumbnail(name, t) }
             histogram = r.histogram
             histogramRgb = r.histogramRgb
             detail = nil
@@ -367,7 +307,7 @@ final class ReviewViewModel {
             if Task.isCancelled { return }
             guard let d = developed else { return }
             let pair = self.peakApplied
-            let soft = self.soft, hard = self.hard, radius = pair.radius, amount = pair.amount, isPlate = self.plate != nil
+            let soft = grade.soft, hard = grade.hard, radius = pair.radius, amount = pair.amount, isPlate = self.plate != nil
             let image: CGImage? = await gate.run { () -> CGImage? in
                 do {
                     if isPlate {
@@ -394,7 +334,7 @@ final class ReviewViewModel {
 
     func exportJpeg() {
         let pair = peakApplied
-        let (soft, hard, radius, amount) = (self.soft, self.hard, pair.radius, pair.amount)
+        let (soft, hard, radius, amount) = (grade.soft, grade.hard, pair.radius, pair.amount)
         export("JPEG") { d, name, suffix, exporter in
             try [Darkroom.exportJpeg(d, name: name, suffix: suffix, soft: soft, hard: hard, peakRadius: radius, peakAmount: amount, exporter: exporter)]
         }
@@ -402,7 +342,7 @@ final class ReviewViewModel {
 
     func exportTiff() {
         let pair = peakApplied
-        let (soft, hard, radius, amount) = (self.soft, self.hard, pair.radius, pair.amount)
+        let (soft, hard, radius, amount) = (grade.soft, grade.hard, pair.radius, pair.amount)
         export("TIFF 16-bit") { d, name, suffix, exporter in
             try [Darkroom.exportTiff(d, name: name, suffix: suffix, soft: soft, hard: hard, peakRadius: radius, peakAmount: amount, exporter: exporter)]
         }

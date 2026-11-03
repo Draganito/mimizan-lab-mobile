@@ -42,13 +42,25 @@ enum PeakMode: String, CaseIterable {
     }
 }
 
+/// The paper's two exposures, in stops from the base print. Same file
+/// shape as the Android `Grade`.
+struct Grade: Codable, Equatable, Sendable {
+    var soft: Double
+    var hard: Double
+
+    static let base = Grade(soft: 0, hard: 0)
+}
+
 @MainActor
 @Observable
 final class Prefs {
     private let store = UserDefaults.standard
 
-    /// Soft-pass time in stops from the base exposure. The developer
-    /// opens here, and the automatic JPEG is printed here.
+    /// The standing grade: what the automatic JPEG prints and where a new
+    /// frame starts. A frame's own grade, moved in the developer, lives
+    /// with the frame (`RawCache`), not here.
+    var grade: Grade { Grade(soft: soft, hard: hard) }
+    /// Soft-pass time in stops from the base exposure.
     private(set) var soft: Double
     /// Hard-pass time in stops from the base exposure.
     private(set) var hard: Double
@@ -76,12 +88,6 @@ final class Prefs {
     private(set) var grid: Bool
     /// The finder's histogram. Off for a fresh install.
     private(set) var histogram: Bool
-    /// On, a picture places its middle on the grey card. The grade stays.
-    /// Off for a fresh install.
-    private(set) var zoneAuto: Bool
-    /// Extra paper time on a balanced picture, in stops. Plus prints darker.
-    /// Zero for a fresh install.
-    private(set) var zoneBias: Double
 
     init() {
         soft = Prefs.snapStops(store.double(forKey: Keys.soft))
@@ -110,8 +116,6 @@ final class Prefs {
         zebra = store.object(forKey: Keys.zebra) == nil ? true : store.bool(forKey: Keys.zebra)
         grid = store.bool(forKey: Keys.grid)
         histogram = store.bool(forKey: Keys.histogram)
-        zoneAuto = store.bool(forKey: Keys.zoneAuto)
-        zoneBias = Prefs.snapZoneBias(store.object(forKey: Keys.zoneBias) == nil ? 0 : store.double(forKey: Keys.zoneBias))
     }
 
     func setSoft(_ stops: Double) {
@@ -180,39 +184,24 @@ final class Prefs {
         store.set(on, forKey: Keys.histogram)
     }
 
-    func setZoneAuto(_ on: Bool) {
-        zoneAuto = on
-        store.set(on, forKey: Keys.zoneAuto)
-    }
-
-    func setZoneBias(_ stops: Double) {
-        zoneBias = Prefs.snapZoneBias(stops)
-        store.set(zoneBias, forKey: Keys.zoneBias)
-    }
-
     /// Whether the one-time note after the first JPEG shot (the frame
     /// stays on the roll and can be printed again) has been shown.
     var rollHintShown: Bool { store.bool(forKey: Keys.rollHint) }
 
     func markRollHintShown() { store.set(true, forKey: Keys.rollHint) }
 
-    /// The compensation slider's label. The number keeps the paper's sign
-    /// (plus is more paper time, as on the soft and hard sliders); the
-    /// word says what that does to the print, because a camera's EV runs
-    /// the other way.
-    nonisolated static func compensationLabel(_ bias: Double) -> String {
-        let v = finiteOrZero(bias)
-        let word = v > 0 ? " darker" : v < 0 ? " lighter" : ""
-        return String(format: "comp %+.2f", v) + word
-    }
-
     /// Add `delta` stops to both exposures, snapped to a twelfth, and stop
     /// at the limit so the gap between them stays.
     nonisolated static func shiftGrade(soft: Double, hard: Double, by delta: Double) -> (Double, Double) {
         let lo = -stopLimit - min(soft, hard)
         let hi = stopLimit - max(soft, hard)
-        let d = min(max((delta * 12).rounded() / 12, lo), hi)
+        let d = min(max((finiteOrZero(delta) * 12).rounded() / 12, lo), hi)
         return (soft + d, hard + d)
+    }
+
+    /// A grade, each exposure snapped and inside ±`stopLimit`.
+    nonisolated static func snapGrade(soft: Double, hard: Double) -> Grade {
+        Grade(soft: snapStops(soft), hard: snapStops(hard))
     }
 
     // MARK: limits, asked of the core once
@@ -224,13 +213,6 @@ final class Prefs {
     /// The range of the peak fields: the core's `recipe::PEAK_*`.
     nonisolated static let peakLimits: PeakLimits = MimizanCore.peakLimits()
 
-    /// How far the balance may add paper time, in stops. The grade stays inside `stopLimit`.
-    nonisolated static let zoneBiasLimit: Double = 2
-
-    /// Twelfths of a stop, inside ±`zoneBiasLimit`.
-    nonisolated static func snapZoneBias(_ v: Double) -> Double {
-        min(max((finiteOrZero(v) * 12).rounded() / 12, -zoneBiasLimit), zoneBiasLimit)
-    }
     /// Twelfths of a stop, inside ±`stopLimit`; a non-finite value snaps to zero.
     nonisolated static func snapStops(_ v: Double) -> Double {
         min(max((finiteOrZero(v) * 12).rounded() / 12, -stopLimit), stopLimit)
@@ -269,8 +251,6 @@ final class Prefs {
         static let zebra = "finder_zebra"
         static let grid = "finder_grid"
         static let histogram = "finder_histogram"
-        static let zoneAuto = "zone_auto"
-        static let zoneBias = "zone_bias"
         static let rollHint = "hint_roll_shown"
     }
 }

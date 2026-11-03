@@ -23,9 +23,7 @@ import ch.bojovic.mimizanlab.engine.WeightSpace
 import ch.bojovic.mimizanlab.engine.Weights
 import ch.bojovic.mimizanlab.engine.normaliseWeights
 import ch.bojovic.mimizanlab.store.Grade
-import ch.bojovic.mimizanlab.store.GradeMath
 import ch.bojovic.mimizanlab.store.PeakMode
-import ch.bojovic.mimizanlab.store.Placed
 import ch.bojovic.mimizanlab.store.Prefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -51,23 +49,8 @@ data class ReviewState(
     /** What the mix actually uses: [weights] with the filter applied. */
     val effective: Weights = Weights(0.25, 0.5, 0.25),
     val filter: Filter = Filter.NONE,
-    /** Soft-pass time in stops from the base exposure, as shown: the stored grade plus [placedShift]. */
-    val soft: Double = 0.0,
-    /** Hard-pass time in stops from the base exposure, as shown. */
-    val hard: Double = 0.0,
-    /**
-     * Stops this negative's middle wants to sit on the grey card, measured
-     * on the current mix (`zoneShift(0, 0)`); null until the development is
-     * in memory and the render has measured it.
-     */
-    val zoneShift: Double? = null,
-    /**
-     * The stops the balance actually added to the stored grade in [soft]
-     * and [hard] (shift plus compensation, snapped and clamped to the room).
-     * Zero with the balance off. A grade move takes exactly this back off
-     * before it stores, so the next picture adds its own shift once.
-     */
-    val placedShift: Double = 0.0,
+    /** This print's grade: the frame's own, moved here and kept with the frame. The standing grade is not touched. */
+    val grade: Grade = Grade.BASE,
     /** The plate process as the development stands; null is the monochrome negative. */
     val plate: PlateState? = null,
     /** What the algorithm measured on this negative; null until the development carries it. */
@@ -111,16 +94,14 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     /** Bind to a shot; follows [Darkroom.current] so a (re)development shows up. */
     fun open(name: String) {
         if (_state.value.name == name && openJob?.isActive == true) {
-            // The collector stays alive, so a second visit must still pick up
-            // the settings exposures, plus the zone shift when balance is on
-            // (the settings sheet may have changed both). The render places.
+            // The collector stays alive; a second visit redraws (Peak's
+            // settings may have changed).
             render()
             return
         }
         openJob?.cancel()
         detailRegion = null
-        val g = darkroom.prefs.grade.value
-        _state.value = ReviewState(name = name, soft = g.soft, hard = g.hard)
+        _state.value = ReviewState(name = name, grade = shotGrade(name))
         openJob = viewModelScope.launch {
             darkroom.current.collect { neg ->
                 if (neg != null && neg.name == name) {
@@ -128,10 +109,7 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                     // info.weights already include the filter of the first
                     // mix; the sliders start from the camera's base weights.
                     // The plate is the process the frame was developed in.
-                    // Lamps stay at zero. The pair starts at the stored
-                    // grade; the render measures this negative's shift and
-                    // places it, and the shift is never stored.
-                    val stored = darkroom.prefs.grade.value
+                    // Lamps stay at zero. The grade is this frame's own.
                     _state.update {
                         it.copy(
                             info = neg.info,
@@ -142,26 +120,21 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                             peakMeasured = neg.peak,
                             needsDevelop = false,
                             detail = null,
-                            soft = stored.soft,
-                            hard = stored.hard,
-                            zoneShift = null,
-                            placedShift = 0.0,
+                            grade = shotGrade(name),
                         )
                     }
                     render()
                 } else {
                     developed = null
-                    val stored = darkroom.prefs.grade.value
-                    _state.update {
-                        it.copy(
-                            needsDevelop = true, preview = null, detail = null,
-                            soft = stored.soft, hard = stored.hard, zoneShift = null, placedShift = 0.0,
-                        )
-                    }
+                    _state.update { it.copy(needsDevelop = true, preview = null, detail = null, grade = shotGrade(name)) }
                 }
             }
         }
     }
+
+    /** The frame's grade from the roll; the standing grade for a frame the roll no longer lists. */
+    private fun shotGrade(name: String): Grade =
+        darkroom.shots.value.firstOrNull { it.name == name }?.grade ?: darkroom.prefs.grade.value
 
     /** Develop (again) from the cache, in the process the darkroom stands in now. */
     fun develop(settings: DevelopSettings = shotSettings() ?: DevelopSettings()) {
@@ -215,43 +188,18 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     private fun peakApplied(s: ReviewState): Pair<Double, Double> =
         Prefs.peakApplied(darkroom.prefs.peakMode.value, darkroom.prefs.peakRadius.value, darkroom.prefs.peakAmount.value, s.peakMeasured)
 
-    /**
-     * The stored grade with the balance on it, from a [shift] already
-     * measured: no call into the development, so the slider path stays on
-     * the main thread without waiting on the render's lock. With the
-     * balance off (or nothing measured yet) the stored grade as it is.
-     */
-    private fun placed(shift: Double?): Placed {
-        val stored = darkroom.prefs.grade.value
-        if (!darkroom.prefs.zoneAuto.value || shift == null) return Placed(stored, 0.0)
-        return Prefs.place(stored, shift, darkroom.prefs.zoneBias.value)
-    }
+    fun setSoft(stops: Double) = setGrade(stops, _state.value.grade.hard)
+
+    fun setHard(stops: Double) = setGrade(_state.value.grade.soft, stops)
 
     /**
-     * The stops this negative's middle wants, measured on the mix as it
-     * stands. Costs a mix of the preview planes: only from the render, on
-     * its dispatcher. Zero when the development refuses (no preview planes).
-     */
-    private fun measureShift(d: Developed): Double = runCatching { d.zoneShift(0.0, 0.0) }.getOrDefault(0.0)
-
-    fun setSoft(stops: Double) = setGrade(Prefs.snapStops(stops), _state.value.hard)
-
-    fun setHard(stops: Double) = setGrade(_state.value.soft, Prefs.snapStops(stops))
-
-    /**
-     * Both exposures as they stand on this print. With the balance on, the
-     * sliders include this negative's shift and the compensation; exactly
-     * the stops that were added ([ReviewState.placedShift]) come back off
-     * before the grade is stored, so the next picture adds its own once.
-     * Then the pair is placed again from what was stored: what the user
-     * set is what shows, unless the balance pins a slider at the limit.
+     * Both exposures of this print. The frame keeps them; the finder and
+     * the next frame stay on the standing grade.
      */
     fun setGrade(soft: Double, hard: Double) {
-        val s = _state.value
-        val stored = GradeMath.unplace(Grade(soft, hard), s.placedShift, Prefs.STOP_LIMIT)
-        darkroom.prefs.setGrade(stored.soft, stored.hard)
-        val p = placed(s.zoneShift)
-        _state.update { it.copy(soft = p.grade.soft, hard = p.grade.hard, placedShift = p.shift) }
+        val g = Prefs.snapGrade(soft, hard)
+        _state.update { it.copy(grade = g) }
+        darkroom.setGrade(_state.value.name, g)
         renderJob?.cancel()
         renderJob = viewModelScope.launch {
             delay(60)
@@ -270,10 +218,9 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * Draw the picture as it stands. `remix` applies the sliders and the
      * standing process first (the mix, or the plate's filters and
-     * primaries). A plate is always shown with the lamps at zero. With the
-     * balance on, the zone shift is measured here, once per negative and
-     * again after a remix (the mix moves the middle), and the shown pair is
-     * placed from the stored grade: the stored grade never carries the shift.
+     * primaries). A plate is always shown with the lamps at zero. The
+     * roll's thumbnail follows the picture, so it shows the grade the
+     * frame was left at.
      */
     private fun render(remix: Boolean = false) {
         renderJob?.cancel()
@@ -294,19 +241,8 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                     } else if (s.plate != null) {
                         d.setLamps(0.0, 0.0)
                     }
-                    // A measurement made on an earlier mix is not kept, also
-                    // with the balance off: turning it on must measure again.
-                    val shift = when {
-                        !darkroom.prefs.zoneAuto.value -> if (remix) null else s.zoneShift
-                        remix || s.zoneShift == null -> measureShift(d)
-                        else -> s.zoneShift
-                    }
-                    val p = placed(shift)
-                    val soft = p.grade.soft
-                    val hard = p.grade.hard
-                    // The pair goes out before the picture, so a slider moved
-                    // during this render is not put back afterwards.
-                    _state.update { it.copy(soft = soft, hard = hard, zoneShift = shift, placedShift = p.shift) }
+                    val soft = s.grade.soft
+                    val hard = s.grade.hard
                     val info = d.info()
                     val h = d.histogram(soft, hard)
                     val hist = normalised(h)
@@ -326,6 +262,7 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                             busy = false, info = info, plate = plate,
                         )
                     }
+                    darkroom.setThumbnail(s.name, bitmap)
                     // A zoomed-in view has to follow the new tones.
                     detailRegion?.let { r -> requestDetail(r[0], r[1], r[2], r[3]) }
                 } catch (t: Throwable) {
@@ -356,9 +293,9 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                     val s = _state.value
                     val applied = peakApplied(s)
                     val bitmap = if (s.plate != null) {
-                        toBitmap(d.detailRgb(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.soft, s.hard, 0u, applied.first, applied.second))
+                        toBitmap(d.detailRgb(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.grade.soft, s.grade.hard, 0u, applied.first, applied.second))
                     } else {
-                        toBitmap(d.detail(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.soft, s.hard, 0u, applied.first, applied.second))
+                        toBitmap(d.detail(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.grade.soft, s.grade.hard, 0u, applied.first, applied.second))
                     }
                     _state.update { it.copy(detail = Detail(x, y, bitmap)) }
                 } catch (t: Throwable) {
@@ -377,13 +314,13 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     fun exportJpeg() = export("JPEG") { d, name, suffix ->
         val s = _state.value
         val applied = peakApplied(s)
-        darkroom.exportJpeg(d, name, suffix, s.soft, s.hard, applied.first, applied.second)
+        darkroom.exportJpeg(d, name, suffix, s.grade.soft, s.grade.hard, applied.first, applied.second)
     }
 
     fun exportTiff() = export("TIFF 16-bit") { d, name, suffix ->
         val s = _state.value
         val applied = peakApplied(s)
-        darkroom.exportTiff(d, name, suffix, s.soft, s.hard, applied.first, applied.second)
+        darkroom.exportTiff(d, name, suffix, s.grade.soft, s.grade.hard, applied.first, applied.second)
     }
 
     fun exportNegative() = export(if (_state.value.plate != null) "plate" else "negative") { d, name, _ ->

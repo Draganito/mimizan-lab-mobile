@@ -42,6 +42,10 @@ struct Shot: Identifiable, Equatable {
     var name: String
     var meta: ShotMeta
     var settings: DevelopSettings
+    /// This print's grade. A new frame takes the standing grade of the
+    /// moment; the developer moves this one alone, and the next frame does
+    /// not follow. Kept in the cache beside the frame.
+    var grade: Grade
     var status: ShotStatus
     /// The automatic JPEG, once written.
     var jpegURL: URL?
@@ -50,7 +54,7 @@ struct Shot: Identifiable, Equatable {
     var id: String { name }
 
     static func == (a: Shot, b: Shot) -> Bool {
-        a.name == b.name && a.meta == b.meta && a.settings == b.settings && a.status == b.status
+        a.name == b.name && a.meta == b.meta && a.settings == b.settings && a.grade == b.grade && a.status == b.status
             && a.jpegURL == b.jpegURL && a.thumbnail === b.thumbnail
     }
 }

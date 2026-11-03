@@ -71,7 +71,7 @@ The darkroom is the same on both phones. The finder is not. On Android
 the preview is linearised, mixed with the filter's channel weights and
 printed through the paper at the standing exposures: the finder is the
 paper. On iOS the finder is the camera's own preview, desaturated in
-mono, untouched in colour; the grade shows where a picture opens.
+mono, untouched in colour.
 
 1. **Finder.** Zebra marks the highlights and starts on; a histogram
    and a grid of thirds start off. The three are remembered. Tap sets
@@ -91,13 +91,12 @@ mono, untouched in colour; the grade shows where a picture opens.
 3. **Grade.** Soft and hard are the two paper exposures, in stops from
    the base print (±3, steps of 1/12); zero is about grade 2. The zone
    strip moves both by the same stops and keeps the grade; a double
-   tap on it is the base print again. Balance the zone, in Settings
-   and off until you turn it on, places the automatic JPEG and the
-   opened picture on the grey card, snow and night included; the finder
-   does not follow it. Comp adds paper time on top (the label says
-   darker or lighter) and is kept for the next picture. A slider you
-   move stores what you see, also when the balance had pinned it at the
-   limit.
+   tap on it is the base print again. The pair in Settings is the
+   standing grade: the Android finder, the automatic JPEG, and where a
+   new frame starts. Every frame then keeps a grade of its own, stored
+   beside it on the roll: moving a slider in the developer changes
+   that picture alone, and the next shot starts from the standing
+   grade again, not from the last correction.
 4. **Peak** is Off, Auto or Custom. Auto measures radius and amount on
    each negative, Custom shows the two sliders, Off leaves the exports
    unsharpened. The preview is never sharpened; the 1:1 view is.
@@ -270,9 +269,10 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.14.25 on Android and iOS: RAW capture, the finder as the paper
-(Android), Mono and Plate, the split-grade paper, the zone strip, Peak,
-review with remix and 1:1 detail, the exports, the roll. Checked on a
+0.15.0 on Android and iOS: RAW capture, the finder as the paper
+(Android), Mono and Plate, the split-grade paper with a grade per frame,
+the zone strip, Peak, review with remix and 1:1 detail, the exports, the
+roll. Checked on a
 Pixel 9 (main and ultrawide), a Pixel 4a and a Galaxy S25 FE. Open: a
 fitted camera file for any phone but the Pixel 9, and a MediaTek phone.
 

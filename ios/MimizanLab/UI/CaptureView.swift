@@ -292,18 +292,7 @@ struct SettingsSheet: View {
                     PaperSliders(soft: vm.prefs.soft, hard: vm.prefs.hard, onSoft: vm.setSoft, onHard: vm.setHard)
                         .padding(.top, 8)
                     ZoneStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, onBoth: vm.setGrade)
-                    Text("Drag the strip: left prints darker, right lighter; the grade stays. Double-tap it for the base print (grade 2).")
-                        .font(.caption).foregroundStyle(.gray)
-                    SettingRow(label: "Balance the zone", on: Binding(get: { vm.prefs.zoneAuto }, set: vm.setZoneAuto))
-                    if vm.prefs.zoneAuto {
-                        LabeledSlider(
-                            label: Prefs.compensationLabel(vm.prefs.zoneBias),
-                            value: Binding(get: { vm.prefs.zoneBias }, set: vm.setZoneBias),
-                            range: -Prefs.zoneBiasLimit...Prefs.zoneBiasLimit,
-                            step: 1.0 / 12
-                        )
-                    }
-                    Text("On, the automatic JPEG and the opened picture place their middle on the grey card; the finder does not follow. Snow and night come out grey too. Comp adds paper time on top. Moving the strip or a grade slider keeps what you set.")
+                    Text("The standing grade: the automatic JPEG, and where a new frame starts. Drag the strip: left prints darker, right lighter; the grade stays. Double-tap it for the base print (grade 2). In the developer the grade is the picture's own and stays with it.")
                         .font(.caption).foregroundStyle(.gray)
                     PeakRow(mode: vm.prefs.peakMode, onMode: vm.setPeakMode)
                     if vm.prefs.peakMode == .custom {
@@ -311,7 +300,7 @@ struct SettingsSheet: View {
                         LabeledSlider(label: String(format: "peak σ %.2f", vm.prefs.peakRadius), value: Binding(get: { vm.prefs.peakRadius }, set: { vm.setPeak(radius: $0, amount: vm.prefs.peakAmount) }), range: lim.radiusMin...lim.radiusMax)
                         LabeledSlider(label: String(format: "peak ×%.2f", vm.prefs.peakAmount), value: Binding(get: { vm.prefs.peakAmount }, set: { vm.setPeak(radius: vm.prefs.peakRadius, amount: $0) }), range: 0...lim.amountMax)
                     }
-                    Text("The grade and Peak are where a picture opens, and what the automatic JPEG uses. The viewfinder does not follow them.")
+                    Text("Peak is what the automatic JPEG and the exports use. The viewfinder does not follow the grade or Peak.")
                         .font(.caption).foregroundStyle(.gray)
                     ShotRow(mode: vm.prefs.shotMode, onMode: vm.setShotMode)
                     Text("JPEG writes the picture and stays here. Developer opens it. Raw keeps the frame for later, and the picture waits for Export.")

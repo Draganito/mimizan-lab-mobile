@@ -85,8 +85,8 @@ android {
         applicationId = "ch.bojovic.mimizanlab"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 52
-        versionName = "0.14.25"
+        versionCode = 53
+        versionName = "0.15.0"
         ndk { abiFilters += rustAbi }
     }
 
@@ -174,4 +174,5 @@ dependencies {
     implementation("${libs.jna.get()}@aar")
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(libs.junit)
+    testImplementation(libs.json)
 }

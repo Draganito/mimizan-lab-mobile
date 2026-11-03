@@ -45,14 +45,17 @@ class Prefs(context: Context) {
         Grade(snapStops(finiteOrZero(sp.getFloat(KEY_SOFT, 0f))), snapStops(finiteOrZero(sp.getFloat(KEY_HARD, 0f)))),
     )
     /**
-     * Both paper exposures as one value, so a move of the zone strip is
-     * one emission for the viewfinder; [soft] and [hard] are the same
-     * numbers one by one for the sliders.
+     * The standing grade: what the finder shows, what the automatic JPEG
+     * prints, and where a new frame starts. A frame's own grade, moved in
+     * the developer, lives with the frame ([RawCache]), not here. One
+     * value, so a move of the zone strip is one emission for the
+     * viewfinder; [soft] and [hard] are the same numbers one by one for
+     * the sliders.
      */
     val grade: StateFlow<Grade> = _grade.asStateFlow()
 
     private val _soft = MutableStateFlow(_grade.value.soft)
-    /** Soft-pass time in stops from the base exposure, for the viewfinder, the automatic JPEG and the start of review. */
+    /** Soft-pass time in stops from the base exposure. */
     val soft: StateFlow<Double> = _soft.asStateFlow()
 
     private val _hard = MutableStateFlow(_grade.value.hard)
@@ -65,7 +68,7 @@ class Prefs(context: Context) {
 
     /** Both exposures at once: one write, one emission of [grade]. */
     fun setGrade(soft: Double, hard: Double) {
-        val g = Grade(snapStops(soft), snapStops(hard))
+        val g = snapGrade(soft, hard)
         _grade.value = g
         _soft.value = g.soft
         _hard.value = g.hard
@@ -183,31 +186,6 @@ class Prefs(context: Context) {
         sp.edit { putBoolean(KEY_HISTOGRAM, on) }
     }
 
-    private val _zoneAuto = MutableStateFlow(sp.getBoolean(KEY_ZONE_AUTO, false))
-    /**
-     * On, a picture places its middle on the grey card. The stored grade
-     * stays. Off for a fresh install.
-     */
-    val zoneAuto: StateFlow<Boolean> = _zoneAuto.asStateFlow()
-
-    fun setZoneAuto(on: Boolean) {
-        _zoneAuto.value = on
-        sp.edit { putBoolean(KEY_ZONE_AUTO, on) }
-    }
-
-    private val _zoneBias = MutableStateFlow(snapZoneBias(finiteOrZero(sp.getFloat(KEY_ZONE_BIAS, 0f))))
-    /**
-     * Extra paper time, in stops, added to a balanced picture. Plus prints
-     * darker. The grade stays. Zero for a fresh install.
-     */
-    val zoneBias: StateFlow<Double> = _zoneBias.asStateFlow()
-
-    fun setZoneBias(stops: Double) {
-        val v = snapZoneBias(stops)
-        _zoneBias.value = v
-        sp.edit { putFloat(KEY_ZONE_BIAS, v.toFloat()) }
-    }
-
     /**
      * Whether the one-time note after the first JPEG shot (the frame stays
      * on the roll and can be printed again) has been shown. Not a flow:
@@ -220,9 +198,6 @@ class Prefs(context: Context) {
     companion object {
         /** How far either paper exposure may move, in stops: the core's `paper::STOP_LIMIT`, asked once. */
         val STOP_LIMIT: Double = paperStopLimit()
-
-        /** Extra paper time a balanced picture may take, in stops. The grade stays inside [STOP_LIMIT]. */
-        const val ZONE_BIAS_LIMIT: Double = 2.0
 
         /** The range of the peak fields: the core's `recipe::PEAK_*`, asked once. */
         val PEAK: PeakLimits = peakLimits()
@@ -239,22 +214,13 @@ class Prefs(context: Context) {
             GradeMath.peakApplied(mode, radius, amount, measured, PEAK.radiusDefault)
 
         /** Add [delta] stops to both exposures, snapped to a twelfth, and stop at the limit so the gap stays. */
-        fun shiftGrade(soft: Double, hard: Double, delta: Double): Pair<Double, Double> =
-            GradeMath.shiftGrade(soft, hard, delta, STOP_LIMIT).grade.let { it.soft to it.hard }
-
-        /**
-         * The stored grade with the balance on it: this negative's shift
-         * (`Developed.zoneShift(0, 0)`, the stops before the room is
-         * considered) plus the compensation, through [shiftGrade]. The same
-         * call places the automatic JPEG, the thumbnail and the review.
-         */
-        fun place(stored: Grade, shift: Double, bias: Double): Placed = GradeMath.place(stored, shift, bias, STOP_LIMIT)
+        fun shiftGrade(soft: Double, hard: Double, delta: Double): Grade = GradeMath.shiftGrade(soft, hard, delta, STOP_LIMIT)
 
         /** Twelfths of a stop, inside ±[STOP_LIMIT]; a non-finite value snaps to zero. */
         fun snapStops(v: Double): Double = GradeMath.snapStops(v, STOP_LIMIT)
 
-        /** Twelfths of a stop, inside ±[ZONE_BIAS_LIMIT]. */
-        fun snapZoneBias(v: Double): Double = GradeMath.snapStops(v, ZONE_BIAS_LIMIT)
+        /** A grade, each exposure snapped and inside ±[STOP_LIMIT]. */
+        fun snapGrade(soft: Double, hard: Double): Grade = Grade(snapStops(soft), snapStops(hard))
 
         private fun finiteOrZero(v: Float): Double = GradeMath.finiteOrZero(v.toDouble())
 
@@ -272,8 +238,6 @@ class Prefs(context: Context) {
         private const val KEY_ZEBRA = "finder_zebra"
         private const val KEY_GRID = "finder_grid"
         private const val KEY_HISTOGRAM = "finder_histogram"
-        private const val KEY_ZONE_AUTO = "zone_auto"
-        private const val KEY_ZONE_BIAS = "zone_bias"
         private const val KEY_ROLL_HINT = "hint_roll_shown"
     }
 }

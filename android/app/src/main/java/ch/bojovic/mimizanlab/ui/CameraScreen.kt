@@ -88,7 +88,6 @@ import ch.bojovic.mimizanlab.engine.ShotStatus
 import ch.bojovic.mimizanlab.engine.coreVersion
 import ch.bojovic.mimizanlab.engine.version
 import ch.bojovic.mimizanlab.engine.workerThreads
-import ch.bojovic.mimizanlab.store.GradeMath
 import ch.bojovic.mimizanlab.store.PeakMode
 import ch.bojovic.mimizanlab.store.Prefs
 import ch.bojovic.mimizanlab.store.ShotMode
@@ -112,8 +111,6 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val peakRadius by vm.darkroom.prefs.peakRadius.collectAsStateWithLifecycle()
     val peakAmount by vm.darkroom.prefs.peakAmount.collectAsStateWithLifecycle()
     val shotMode by vm.darkroom.prefs.shotMode.collectAsStateWithLifecycle()
-    val zoneAuto by vm.darkroom.prefs.zoneAuto.collectAsStateWithLifecycle()
-    val zoneBias by vm.darkroom.prefs.zoneBias.collectAsStateWithLifecycle()
     val plateSpace by vm.darkroom.prefs.plateSpace.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     val pendingReview by vm.pendingReview.collectAsStateWithLifecycle()
@@ -359,21 +356,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 PaperSliders(soft, hard, onSoft = vm::setSoft, onHard = vm::setHard)
                 ZoneStrip(soft, hard, onBoth = vm::setGrade)
                 Text(
-                    "Drag the strip: left prints darker, right lighter; the grade stays. Double-tap it for the base print (grade 2).",
-                    style = MaterialTheme.typography.bodySmall, color = Color.Gray,
-                )
-                SettingRow("Balance the zone", zoneAuto, vm::setZoneAuto)
-                if (zoneAuto) {
-                    LabeledSlider(
-                        label = GradeMath.compensationLabel(zoneBias),
-                        value = zoneBias.toFloat(),
-                        onChange = { vm.setZoneBias(it.toDouble()) },
-                        range = -Prefs.ZONE_BIAS_LIMIT.toFloat()..Prefs.ZONE_BIAS_LIMIT.toFloat(),
-                        steps = 47,
-                    )
-                }
-                Text(
-                    "On, the automatic JPEG and the opened picture place their middle on the grey card; the finder does not follow. Snow and night come out grey too. Comp adds paper time on top. Moving the strip or a grade slider keeps what you set.",
+                    "The standing grade: the finder, the automatic JPEG, and where a new frame starts. Drag the strip: left prints darker, right lighter; the grade stays. Double-tap it for the base print (grade 2). In the developer the grade is the picture's own and stays with it.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 PeakRow(peakMode, onMode = vm::setPeakMode)
@@ -393,7 +376,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                     )
                 }
                 Text(
-                    "The grade and Peak are the viewfinder, the automatic JPEG, and where a picture opens.",
+                    "Peak is what the automatic JPEG and the exports use. The viewfinder does not follow it.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 ShotRow(shotMode, vm::setShotMode)
@@ -588,8 +571,8 @@ fun ZoneStrip(soft: Double, hard: Double, onBoth: (Double, Double) -> Unit) {
                         val base = origin ?: return@detectHorizontalDragGestures
                         dx += dragAmount
                         val delta = -dx.toDouble() / size.width.coerceAtLeast(1).toDouble() * Prefs.STOP_LIMIT
-                        val pair = Prefs.shiftGrade(base.first, base.second, delta)
-                        onBoth(pair.first, pair.second)
+                        val g = Prefs.shiftGrade(base.first, base.second, delta)
+                        onBoth(g.soft, g.hard)
                     },
                     onDragEnd = { origin = null },
                     onDragCancel = { origin = null },

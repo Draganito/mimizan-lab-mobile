@@ -8,7 +8,7 @@
 │ camera/    Lenses (RAW-capable back cameras) · CameraController (Camera2 session)          │
 │ raw/       RawFrameBridge (Characteristics + CaptureResult -> RawInput) · Orientation     │
 │ engine/    Darkroom (roll state, queue, exports) · DevelopService (foreground)              │
-│ store/     RawCache (app cache: .raw + .json + .jpg) · Prefs · MediaStoreWriter (Pictures/…) │
+│ store/     RawCache (app cache: .raw + .json + .grade + .jpg) · Prefs · MediaStoreWriter (Pictures/…) │
 │ engine/*   generated UniFFI bindings (package ch.bojovic.mimizanlab.engine)                 │
 └───────────────────────────────────────┬─────────────────────────────────────────────────┘
                                         │ JNA / UniFFI (libmimizan_mobile.so)
@@ -35,8 +35,8 @@ in the algorithm is duplicated in the mobile crate.
    the characteristics and the capture result used for metadata are the
    physical ones (`physicalCameraTotalResults`).
 2. The repeating request carries the user's controls: `CONTROL_AE_MODE_ON`
-   + EV compensation (the viewfinder's EV slider, in the HAL's steps,
-   clamped by `aeCompensationSteps`), or `CONTROL_AE_MODE_OFF` with `SENSOR_SENSITIVITY` /
+   (no exposure compensation: a dark print is corrected in the developer,
+   where the stops are linear), or `CONTROL_AE_MODE_OFF` with `SENSOR_SENSITIVITY` /
    `SENSOR_EXPOSURE_TIME`; AF continuous-picture, or AUTO plus a trigger
    after a tap (regions set for AF and AE); AWB auto. Flash stays off on
    this request, so the viewfinder never lights the LED.
@@ -71,8 +71,10 @@ in the algorithm is duplicated in the mobile crate.
 6. `Darkroom.submit` writes the frame into the `RawCache` (`<name>.raw` +
    `<name>.json`, app-private; the metadata lands through a rename, so a
    frame exists only once both files are complete and an interrupted write
-   leaves an orphan `.raw` that the next trim removes) and, unless the shot
-   mode is Raw, queues the development. A finished development adds
+   leaves an orphan `.raw` that the next trim removes) together with
+   `<name>.grade`, the standing grade of that moment (`Prefs.grade`) as
+   the frame's own, and, unless the shot mode is Raw, queues the
+   development. A finished development adds
    `<name>.jpg`, the roll's 256 px thumbnail, written to `.jpg.tmp` and
    renamed the same way; the roll shows it after a restart without
    developing again. The trim budget (1.5 GB) counts all three files per
@@ -113,19 +115,11 @@ frame:
   saturation mask of the full frame is dropped after the first mix.
 * The `Developed` handle replaces the previous one in `Darkroom.current`
   (the old one is closed -> native memory freed); the thumbnail and, for
-  a JPEG shot, a full-size JPEG (the paper at the placed exposures, with
-  the settings' Peak) are produced right away. Only the development
-  itself can fail the frame: the thumbnail, its file, Peak's measurement
-  and the JPEG each fail on their own with a log line, and a handle that
-  does not reach `Darkroom.current` is closed.
-* The placed exposures: the stored grade (`Prefs.grade`), and with
-  *Balance the zone* on, `Developed.zoneShift(0, 0)` (the stops that put
-  the median of the current mix where the grey card prints) plus the
-  compensation, through `Prefs.place` (`GradeMath.shiftGrade`: one delta
-  on both exposures, snapped to a twelfth, clamped to the room the
-  sliders have so the gap stays). The shift is never stored; the review
-  places the same way, so the automatic JPEG and the opened picture
-  start on one pair.
+  a JPEG shot, a full-size JPEG (the paper at the frame's grade,
+  `Shot.grade`, with the settings' Peak) are produced right away. Only
+  the development itself can fail the frame: the thumbnail, its file,
+  Peak's measurement and the JPEG each fail on their own with a log
+  line, and a handle that does not reach `Darkroom.current` is closed.
 
 Memory budget per development at 12.5 MP (f64 planes): ingest ~200 MB,
 Dubois separation ~1 GB peak (measured 1016 MB on the host for the same
@@ -147,18 +141,15 @@ separation:
   the 1:1 window evaluate `Tone::Paper` per pixel, the same map the JPEG
   and TIFF use, so the screen and the file agree. The viewfinder cannot
   do that per pixel in Rust, so it indexes `paper_lut` (4097 samples of
-  that map over linear grey). The pair shown is the stored grade
-  (`Prefs.grade`, the settings sheet and the finder) with the balance's
-  stops on top when *Balance the zone* is on. The review measures
-  `zoneShift(0, 0)` once per negative and again after a remix (a filter
-  moves the median), on the render's dispatcher and never on the main
-  thread, and keeps the stops it actually added as
-  `ReviewState.placedShift`. The sliders and the zone strip write the
-  grade back: `setGrade` takes exactly `placedShift` off the shown pair
-  (`GradeMath.unplace`), stores that in `Prefs`, and places it again, so
-  what the user set is what shows and the next picture adds its own shift
-  once. Where the balance pinned a slider at ±3 the inverse is not exact;
-  the shown pair wins and the stored one moves. Exports use the shown pair.
+  that map over linear grey). The pair shown is the frame's own grade
+  (`Shot.grade`, read from `<name>.grade` on open). The sliders and the
+  zone strip write it back to the frame only (`Darkroom.setGrade`: the
+  roll entry and the sidecar), never to `Prefs.grade`, so the standing
+  grade — the finder, the automatic JPEG, the start of the next frame —
+  does not drift with a correction made on one negative. Each preview
+  render also refreshes the roll's thumbnail (`Darkroom.setThumbnail`),
+  so the roll shows the frame as it was last left. Exports use the shown
+  pair.
 * after a development -> `measure_peak(soft, hard)`: the native-size
   print of the current mix (the plate's green positive), nothing
   sharpened, through the core's `peak::tune` — the same search as the
@@ -268,10 +259,10 @@ Android ones file for file:
 | `FinderTone.kt` + `IspControls.kt` | `Capture/FinderTone.swift` | mono or colour, and the zebra threshold. There is no pull-back through a camera matrix and no paper on the iOS finder: the grade and Peak reach the automatic JPEG and the opened picture only |
 | `CameraViewModel.kt` | `Capture/CaptureViewModel.swift` | `withObservationTracking` instead of `combine` for the tone; a start under way is not started a second time |
 | `Darkroom.kt` + `DevelopService.kt` | `Darkroom/Darkroom.swift` | two serial `DispatchQueue`s behind `Gate` (intake: write and read the frame; worker: the development), so the core never runs on Swift's cooperative pool; `beginBackgroundTask` instead of a foreground service, ended by the expiry handler too; a frame deleted while it develops is dropped on completion |
-| `RawCache.kt` | `Store/RawCache.swift` | `Caches/raw/<name>.dng` + `.json`, excluded from backup, 1.5 GB budget; an orphan `.dng` is swept only once it is a minute old |
+| `RawCache.kt` | `Store/RawCache.swift` | `Caches/raw/<name>.dng` + `.json` + `.grade`, excluded from backup, 1.5 GB budget; an orphan `.dng` is swept only once it is a minute old |
 | `MediaStoreWriter.kt` | `Store/Exporter.swift` | `Documents/Mimizan Lab` (visible in Files, `UIFileSharingEnabled`) plus `PHPhotoLibrary` add-only for JPEGs; the mask sidecar takes the final file's name, so `(2)` pairs stay paired |
 | `Prefs.kt` | `Store/Prefs.swift` | same keys and defaults in `UserDefaults` (no lamp keys: the lamps are not a setting on either phone) |
-| `ReviewViewModel.kt` / `ReviewScreen.kt` | `Review/` | the `Developed` calls go through `Gate`, a serial `DispatchQueue` wrapped in `withCheckedContinuation`, never the main thread; the zone shift is measured once per mix (`zone_shift(0, 0)`) in that gate and cached, the placement is `shiftGrade(stored, shift + bias)` and a moved slider stores `shown − placedShift`, the same arithmetic as the Android `GradeMath`; `MagnifyGesture` + `DragGesture` for the 1:1 viewer |
+| `ReviewViewModel.kt` / `ReviewScreen.kt` | `Review/` | the `Developed` calls go through `Gate`, a serial `DispatchQueue` wrapped in `withCheckedContinuation`, never the main thread; the sliders move the frame's own grade (`Darkroom.setGrade` → `<name>.grade`) and each render hands the roll a fresh thumbnail, as on Android; `MagnifyGesture` + `DragGesture` for the 1:1 viewer |
 | `RollScreen.kt` | `UI/RollView.swift` | no import from Files or Photos (a full-size NEF develops past the iPad's memory); the roll is the camera's own frames |
 | `MainActivity.kt` | `UI/RootView.swift` | `NavigationStack` on compact width, `NavigationSplitView` (roll beside camera / review) on the iPad |
 

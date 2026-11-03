@@ -1,9 +1,22 @@
 package ch.bojovic.mimizanlab.store
 
 import ch.bojovic.mimizanlab.engine.PeakMeasured
+import org.json.JSONObject
 
 /** The paper's two exposures, in stops from the base print. */
-data class Grade(val soft: Double, val hard: Double)
+data class Grade(val soft: Double, val hard: Double) {
+    fun toJson(): JSONObject = JSONObject().put("soft", soft).put("hard", hard)
+
+    companion object {
+        val BASE = Grade(0.0, 0.0)
+
+        /** A grade from its file; null when the text is not one. */
+        fun fromJson(text: String, limit: Double): Grade? = runCatching {
+            val o = JSONObject(text)
+            Grade(GradeMath.snapStops(o.getDouble("soft"), limit), GradeMath.snapStops(o.getDouble("hard"), limit))
+        }.getOrNull()
+    }
+}
 
 /**
  * The arithmetic of the grade, the zone strip and Peak, with every limit
@@ -17,31 +30,14 @@ object GradeMath {
 
     /**
      * Add [delta] stops to both exposures, snapped to a twelfth, and stop
-     * at [limit] so the gap stays. Returns the pair and the stops actually
-     * added (the delta after the snap and the clamp).
+     * at [limit] so the gap stays.
      */
-    fun shiftGrade(soft: Double, hard: Double, delta: Double, limit: Double): Placed {
+    fun shiftGrade(soft: Double, hard: Double, delta: Double, limit: Double): Grade {
         val lo = -limit - minOf(soft, hard)
         val hi = limit - maxOf(soft, hard)
         val d = (kotlin.math.round(finiteOrZero(delta) * 12.0) / 12.0).coerceIn(lo, hi)
-        return Placed(Grade(soft + d, hard + d), d)
+        return Grade(soft + d, hard + d)
     }
-
-    /**
-     * The stored grade with the balance's stops on top: this negative's
-     * shift and the compensation, as one delta through [shiftGrade].
-     */
-    fun place(stored: Grade, shift: Double, bias: Double, limit: Double): Placed =
-        shiftGrade(stored.soft, stored.hard, shift + bias, limit)
-
-    /**
-     * The grade the user set on a placed print, taken back to the stored
-     * grade: the stops the placement added come off both exposures, each
-     * inside ±[limit]. A placement that pinned a slider at the limit cannot
-     * be undone exactly; what the user sees stays, the stored pair moves.
-     */
-    fun unplace(shown: Grade, placedShift: Double, limit: Double): Grade =
-        Grade(snapStops(shown.soft - placedShift, limit), snapStops(shown.hard - placedShift, limit))
 
     /** Radius and amount a print uses. Off applies nothing. Auto uses the measurement, or nothing when there is none. */
     fun peakApplied(
@@ -78,28 +74,9 @@ object GradeMath {
         return if (peakOn) PeakMode.AUTO else PeakMode.OFF
     }
 
-    /**
-     * The compensation slider's label. The number keeps the paper's sign
-     * (plus is more paper time, as on the soft and hard sliders); the
-     * word says what that does to the print, because a camera's EV runs
-     * the other way.
-     */
-    fun compensationLabel(bias: Double): String {
-        val v = finiteOrZero(bias)
-        val word = when {
-            v > 0.0 -> " darker"
-            v < 0.0 -> " lighter"
-            else -> ""
-        }
-        return String.format(java.util.Locale.US, "comp %+.2f%s", v, word)
-    }
-
     /** A stored float that was never finite (a damaged preferences file) reads as zero. */
     fun finiteOrZero(v: Double): Double = if (v.isFinite()) v else 0.0
 
     inline fun <reified E : Enum<E>> enumOr(name: String?, default: E): E =
         name?.let { n -> enumValues<E>().firstOrNull { it.name == n } } ?: default
 }
-
-/** A grade with the balance on it, and the stops the balance actually added. */
-data class Placed(val grade: Grade, val shift: Double)

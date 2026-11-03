@@ -4,7 +4,7 @@ import ch.bojovic.mimizanlab.engine.PeakMeasured
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** The grade arithmetic with the core's limits passed in by hand: ±3 stops of paper, ±2 of compensation. */
+/** The grade arithmetic with the core's limit passed in by hand: ±3 stops of paper. */
 class GradeMathTest {
     private val limit = 3.0
     private val eps = 1e-9
@@ -22,87 +22,45 @@ class GradeMathTest {
     }
 
     @Test
-    fun compensationLabelSaysWhatThePrintDoes() {
-        assertEquals("comp +0.50 darker", GradeMath.compensationLabel(0.5))
-        assertEquals("comp -0.25 lighter", GradeMath.compensationLabel(-0.25))
-        assertEquals("comp +0.00", GradeMath.compensationLabel(0.0))
-        assertEquals("comp +0.00", GradeMath.compensationLabel(Double.NaN))
-    }
-
-    @Test
     fun shiftGradeMovesBothAndKeepsTheGap() {
         val p = GradeMath.shiftGrade(0.5, -0.25, 1.0, limit)
-        assertEquals(1.5, p.grade.soft, eps)
-        assertEquals(0.75, p.grade.hard, eps)
-        assertEquals(1.0, p.shift, eps)
+        assertEquals(1.5, p.soft, eps)
+        assertEquals(0.75, p.hard, eps)
     }
 
     @Test
     fun shiftGradeStopsAtTheLimitSoTheGapStays() {
         // Up: the higher slider has 1 stop of room.
         val up = GradeMath.shiftGrade(1.0, 2.0, 2.5, limit)
-        assertEquals(2.0, up.grade.soft, eps)
-        assertEquals(3.0, up.grade.hard, eps)
-        assertEquals(1.0, up.shift, eps)
+        assertEquals(2.0, up.soft, eps)
+        assertEquals(3.0, up.hard, eps)
         // Down: the lower slider has 2 stops of room.
         val down = GradeMath.shiftGrade(-1.0, 1.0, -5.0, limit)
-        assertEquals(-3.0, down.grade.soft, eps)
-        assertEquals(-1.0, down.grade.hard, eps)
-        assertEquals(-2.0, down.shift, eps)
+        assertEquals(-3.0, down.soft, eps)
+        assertEquals(-1.0, down.hard, eps)
         // A pair spanning the whole range cannot move.
         val full = GradeMath.shiftGrade(-3.0, 3.0, 1.0, limit)
-        assertEquals(0.0, full.shift, eps)
+        assertEquals(-3.0, full.soft, eps)
+        assertEquals(3.0, full.hard, eps)
     }
 
     @Test
     fun shiftGradeSnapsTheDeltaNotThePair() {
         // 0.3 stops is 3.6 twelfths: the nearest twelfth is 4.
         val p = GradeMath.shiftGrade(0.0, 0.0, 0.3, limit)
-        assertEquals(4.0 / 12.0, p.shift, eps)
-        assertEquals(4.0 / 12.0, p.grade.soft, eps)
-        assertEquals(0.0, GradeMath.shiftGrade(0.0, 0.0, Double.NaN, limit).shift, eps)
+        assertEquals(4.0 / 12.0, p.soft, eps)
+        assertEquals(4.0 / 12.0, p.hard, eps)
+        assertEquals(0.0, GradeMath.shiftGrade(0.0, 0.0, Double.NaN, limit).soft, eps)
     }
 
     @Test
-    fun placeAddsShiftAndCompensationOnce() {
-        val p = GradeMath.place(Grade(0.5, 0.25), 1.0, -0.5, limit)
-        assertEquals(1.0, p.grade.soft, eps)
-        assertEquals(0.75, p.grade.hard, eps)
-        assertEquals(0.5, p.shift, eps)
-        // The compensation is clamped together with the shift, not after it.
-        val pinned = GradeMath.place(Grade(1.0, 1.0), 2.5, -1.0, limit)
-        assertEquals(1.5, pinned.shift, eps)
-    }
-
-    @Test
-    fun unplaceUndoesPlaceWhenNothingWasPinned() {
-        val stored = Grade(0.5, -0.25)
-        val placed = GradeMath.place(stored, 1.25, 0.5, limit)
-        val back = GradeMath.unplace(placed.grade, placed.shift, limit)
-        assertEquals(stored.soft, back.soft, eps)
-        assertEquals(stored.hard, back.hard, eps)
-    }
-
-    @Test
-    fun aSliderMovedOnAPlacedPrintMovesOnlyThatStoredExposure() {
-        val stored = Grade(1.5, 1.5)
-        val placed = GradeMath.place(stored, 2.5, 0.0, limit) // pinned: (3, 3), shift 1.5
-        assertEquals(1.5, placed.shift, eps)
-        // The user takes soft down to 2.5; hard stays where it is shown.
-        val back = GradeMath.unplace(Grade(2.5, placed.grade.hard), placed.shift, limit)
-        assertEquals(1.0, back.soft, eps)
-        assertEquals(1.5, back.hard, eps)
-        // Placed again, the print shows what the user set.
-        val again = GradeMath.place(back, 2.5, 0.0, limit)
-        assertEquals(2.5, again.grade.soft, eps)
-        assertEquals(3.0, again.grade.hard, eps)
-    }
-
-    @Test
-    fun unplaceClampsEachExposure() {
-        val back = GradeMath.unplace(Grade(-3.0, 3.0), 1.5, limit)
-        assertEquals(-3.0, back.soft, eps)
-        assertEquals(1.5, back.hard, eps)
+    fun gradeRoundTripsThroughItsFileAndRefusesOtherText() {
+        val g = Grade(0.5, -1.25)
+        val back = Grade.fromJson(g.toJson().toString(), limit)
+        assertEquals(g, back)
+        assertEquals(Grade(3.0, -3.0), Grade.fromJson("""{"soft": 9, "hard": -9}""", limit))
+        assertEquals(null, Grade.fromJson("not a grade", limit))
+        assertEquals(null, Grade.fromJson("""{"soft": 1}""", limit))
     }
 
     @Test

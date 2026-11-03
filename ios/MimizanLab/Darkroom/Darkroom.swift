@@ -29,19 +29,16 @@ final class Negative: @unchecked Sendable {
     }
 }
 
-/// The paper's two exposures, the plate's two lamps and Peak as they
-/// stand: read on the main actor, carried into the worker. Custom keeps
-/// its own radius and amount; Auto uses the measurement made below.
+/// The frame's grade, the plate's two lamps and Peak as they stand: read
+/// on the main actor, carried into the worker. Custom keeps its own
+/// radius and amount; Auto uses the measurement made below.
 struct PaperSettings: Sendable {
-    var soft: Double
-    var hard: Double
+    var grade: Grade
     var lampRed: Double
     var lampBlue: Double
     var peakMode: PeakMode
     var peakRadius: Double
     var peakAmount: Double
-    var zoneAuto: Bool
-    var zoneBias: Double
 }
 
 @MainActor
@@ -77,11 +74,15 @@ final class Darkroom {
         // Frames from an earlier run are still in the cache: list them so
         // they can be developed again.
         let cache = cache
+        let standing = prefs.grade
         Task {
             let (restored, bytes) = await intake.run { () -> ([Shot], Int64) in
                 let restored: [Shot] = cache.names().compactMap { name in
                     cache.loadMeta(name).map {
-                        Shot(name: name, meta: $0, settings: DevelopSettings(), status: .cached, thumbnail: cache.loadThumb(name))
+                        Shot(
+                            name: name, meta: $0, settings: DevelopSettings(), grade: cache.loadGrade(name) ?? standing,
+                            status: .cached, thumbnail: cache.loadThumb(name)
+                        )
                     }
                 }
                 return (restored, cache.sizeBytes())
@@ -91,22 +92,12 @@ final class Darkroom {
         }
     }
 
-    var paperSettings: PaperSettings {
+    /// Peak as it stands and the frame's own grade, for the worker.
+    private func paperSettings(grade: Grade) -> PaperSettings {
         PaperSettings(
-            soft: prefs.soft, hard: prefs.hard, lampRed: 0, lampBlue: 0,
-            peakMode: prefs.peakMode, peakRadius: prefs.peakRadius, peakAmount: prefs.peakAmount,
-            zoneAuto: prefs.zoneAuto, zoneBias: prefs.zoneBias
+            grade: grade, lampRed: 0, lampBlue: 0,
+            peakMode: prefs.peakMode, peakRadius: prefs.peakRadius, peakAmount: prefs.peakAmount
         )
-    }
-
-    /// The standing grade, plus the zone shift when balance is on. The
-    /// shift is measured at zero, where both sliders have the full room
-    /// (the same number review caches), and added with the compensation
-    /// as one delta. A failed measurement counts as no shift. Not stored.
-    nonisolated static func placed(_ developed: Developed, _ paper: PaperSettings) -> (soft: Double, hard: Double) {
-        guard paper.zoneAuto else { return (paper.soft, paper.hard) }
-        let shift = (try? developed.zoneShift(soft: 0, hard: 0)) ?? 0
-        return Prefs.shiftGrade(soft: paper.soft, hard: paper.hard, by: shift + paper.zoneBias)
     }
 
     // MARK: intake
@@ -117,7 +108,8 @@ final class Darkroom {
     func submit(dng: Data, lens: String, capturedAt: Date, settings: DevelopSettings, developNow: Bool = true) -> String {
         let name = Darkroom.nameFor(capturedAt)
         let provisional = ShotMeta(info: FrameInfo.empty, lens: lens, capturedAt: capturedAt, imported: false)
-        shots.insert(Shot(name: name, meta: provisional, settings: settings, status: .saving), at: 0)
+        let grade = prefs.grade
+        shots.insert(Shot(name: name, meta: provisional, settings: settings, grade: grade, status: .saving), at: 0)
         let cache = cache
         Task {
             let saved: Result<ShotMeta, Error> = await intake.run {
@@ -125,7 +117,7 @@ final class Darkroom {
                     try cache.putRaw(name, dng: dng)
                     let info = try frameInfo(path: cache.rawFile(name).path)
                     let meta = ShotMeta(info: info, lens: lens, capturedAt: capturedAt, imported: false)
-                    try cache.commit(name, meta: meta)
+                    try cache.commit(name, meta: meta, grade: grade)
                     return meta
                 }
             }
@@ -193,6 +185,23 @@ final class Darkroom {
         enqueue(name, settings)
     }
 
+    /// The developer moved this frame's grade: the roll's entry and the
+    /// file beside the frame follow. The standing grade is not touched.
+    func setGrade(_ name: String, _ grade: Grade) {
+        updateShot(name) { $0.grade = grade }
+        do {
+            try cache.saveGrade(name, grade)
+        } catch {
+            log.warning("grade file \(name): \(error.localizedDescription)")
+        }
+    }
+
+    /// The roll's thumbnail of a frame whose grade moved in the developer.
+    func setThumbnail(_ name: String, _ image: CGImage) {
+        updateShot(name) { $0.thumbnail = image }
+        cache.saveThumb(name, image)
+    }
+
     private func enqueue(_ name: String, _ settings: DevelopSettings) {
         if !queue.contains(name) { queue.append(name) }
         updateShot(name) {
@@ -216,7 +225,7 @@ final class Darkroom {
         updateShot(name) { $0.status = .developing }
         let bg = BackgroundTask(name: "develop \(name)")
         let params = developParams(for: shot.meta, shot.settings)
-        let paper = paperSettings
+        let paper = paperSettings(grade: shot.grade)
         let path = cache.rawFile(name).path
         let settings = shot.settings
         let hadJpeg = shot.jpegURL != nil
@@ -281,19 +290,19 @@ final class Darkroom {
             }
             let info = developed.info()
             log.info("developed \(name) in \(Int(Date().timeIntervalSince(t0) * 1000)) ms: total \(info.timing.totalMs) ms")
-            let placed = Darkroom.placed(developed, paper)
+            let grade = paper.grade
             let thumb: CGImage?
             if info.plate != nil {
-                thumb = Images.thumbnail(try developed.previewRgb(soft: placed.soft, hard: placed.hard, extraQuarterTurns: 0))
+                thumb = Images.thumbnail(try developed.previewRgb(soft: grade.soft, hard: grade.hard, extraQuarterTurns: 0))
             } else {
-                thumb = Images.thumbnail(try developed.preview(soft: placed.soft, hard: placed.hard, extraQuarterTurns: 0))
+                thumb = Images.thumbnail(try developed.preview(soft: grade.soft, hard: grade.hard, extraQuarterTurns: 0))
             }
             // Peak's radius and amount for this negative, as the desktop
             // measures them on opening a picture. Measured even with the
             // checkbox off: review can turn it on without a second pass.
             let peak: PeakMeasured?
             do {
-                let m = try developed.measurePeak(soft: placed.soft, hard: placed.hard)
+                let m = try developed.measurePeak(soft: grade.soft, hard: grade.hard)
                 log.info("peak \(name): radius \(m.radius) px, amount \(m.amount), found \(m.found)")
                 peak = m
             } catch {
@@ -307,7 +316,7 @@ final class Darkroom {
                 jpeg = try exporter.place(fileName: "\(name)\(suffix).jpg") { p in
                     let peakPair = Prefs.peakApplied(mode: paper.peakMode, radius: paper.peakRadius, amount: paper.peakAmount, measured: peak)
                     _ = try developed.exportJpeg(
-                        path: p, soft: placed.soft, hard: placed.hard, extraQuarterTurns: 0,
+                        path: p, soft: grade.soft, hard: grade.hard, extraQuarterTurns: 0,
                         peakRadius: peakPair.radius, peakAmount: peakPair.amount
                     )
                 }

@@ -198,15 +198,13 @@ final class CaptureViewModel {
     func setSeparation(_ m: SeparationMode) { local.separation = m }
     func setQuick(_ on: Bool) { local.binning = on ? 2 : 1 }
     func setAutoJpeg(_ on: Bool) { local.autoJpeg = on }
-    /// The standing grade: the automatic JPEG, and where a picture opens.
+    /// The standing grade: the automatic JPEG, and where a new frame starts.
     func setSoft(_ stops: Double) { prefs.setSoft(stops) }
     func setHard(_ stops: Double) { prefs.setHard(stops) }
     func setGrade(soft: Double, hard: Double) {
         prefs.setSoft(soft)
         prefs.setHard(hard)
     }
-    func setZoneAuto(_ on: Bool) { prefs.setZoneAuto(on) }
-    func setZoneBias(_ stops: Double) { prefs.setZoneBias(stops) }
     func toggleZebra() { viewfinder.zebra.toggle(); prefs.setZebra(viewfinder.zebra) }
     func toggleGrid() { viewfinder.grid.toggle(); prefs.setGrid(viewfinder.grid) }
     func toggleHistogram() { viewfinder.showHistogram.toggle(); prefs.setHistogram(viewfinder.showHistogram) }

@@ -1,7 +1,7 @@
-// App-private copy of every frame: `<name>.dng` as AVFoundation wrote it
-// and `<name>.json`, the metadata the roll shows. A shot can be developed
-// again later from the file alone. Oldest frames go first when the cache
-// exceeds the budget.
+// App-private copy of every frame: `<name>.dng` as AVFoundation wrote it,
+// `<name>.json`, the metadata the roll shows, and `<name>.grade`, the
+// print's two exposures. A shot can be developed again later from the
+// file alone. Oldest frames go first when the cache exceeds the budget.
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -68,6 +68,8 @@ final class RawCache: @unchecked Sendable {
 
     func rawFile(_ name: String) -> URL { dir.appendingPathComponent("\(name).dng") }
     func metaFile(_ name: String) -> URL { dir.appendingPathComponent("\(name).json") }
+    /// This frame's grade, as the developer last left it: the desktop's recipe beside the RAW.
+    func gradeFile(_ name: String) -> URL { dir.appendingPathComponent("\(name).grade") }
     /// The developed preview, already reduced, kept so the roll can show it without developing again.
     func thumbFile(_ name: String) -> URL { dir.appendingPathComponent("\(name).jpg") }
 
@@ -79,12 +81,26 @@ final class RawCache: @unchecked Sendable {
         try dng.write(to: rawFile(name), options: .atomic)
     }
 
-    func commit(_ name: String, meta: ShotMeta) throws {
+    func commit(_ name: String, meta: ShotMeta, grade: Grade) throws {
+        try saveGrade(name, grade)
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
         let data = try enc.encode(meta)
         try data.write(to: metaFile(name), options: .atomic)
         trim(keep: name)
+    }
+
+    /// Overwritten in place: the file is two numbers, and the old pair is no loss.
+    func saveGrade(_ name: String, _ grade: Grade) throws {
+        try JSONEncoder().encode(grade).write(to: gradeFile(name), options: .atomic)
+    }
+
+    /// The frame's grade; nil when none was written (a frame from before 0.15) or the file is damaged.
+    func loadGrade(_ name: String) -> Grade? {
+        guard let data = try? Data(contentsOf: gradeFile(name)),
+              let g = try? JSONDecoder().decode(Grade.self, from: data)
+        else { return nil }
+        return Prefs.snapGrade(soft: g.soft, hard: g.hard)
     }
 
     func has(_ name: String) -> Bool {
@@ -118,6 +134,7 @@ final class RawCache: @unchecked Sendable {
     func remove(_ name: String) {
         try? fm.removeItem(at: rawFile(name))
         try? fm.removeItem(at: metaFile(name))
+        try? fm.removeItem(at: gradeFile(name))
         try? fm.removeItem(at: thumbFile(name))
     }
 
