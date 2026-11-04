@@ -93,7 +93,12 @@ mono, untouched in colour.
    strip moves both by the same stops and keeps the grade; a double
    tap on it is the base print again. The pair in Settings is the
    standing grade: the Android finder, the automatic JPEG, and where a
-   new frame starts. Every frame then keeps a grade of its own, stored
+   new frame starts. On Android the strip sits under the finder, the
+   one exposure correction there is: the finder is the paper, so the
+   drag shows the print you will get, and the amber number beside the
+   exposure says where the paper stands when it is off the base print.
+   On iOS the strip is in Settings, because that finder does not follow
+   the paper. Every frame then keeps a grade of its own, stored
    beside it on the roll: moving a slider in the developer changes
    that picture alone, and the next shot starts from the standing
    grade again, not from the last correction.
@@ -272,7 +277,7 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.15.1 on Android and iOS: RAW capture, the finder as the paper
+0.15.2 on Android and iOS: RAW capture, the finder as the paper
 (Android), Mono and Plate, the split-grade paper, the zone strip and
 Peak with a print per frame, review with remix and 1:1 detail, the
 exports, the roll. Checked on a

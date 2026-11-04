@@ -249,6 +249,17 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
             }
         }
 
+        // The zone strip under the finder: the standing paper time, the one
+        // exposure correction there is. The finder is the paper, so the
+        // drag shows what the print will be; the JPEG and the next frame
+        // follow. A double tap is the base print.
+        Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+            ZoneStrip(soft, hard, onBoth = vm::setGrade)
+        }
+
+        // Settings, hand exposure and a standing paper shift are amber, so
+        // a dark finder reads as a setting, not a fault.
+        val settingInk = Color(0xFFFFB74D)
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -257,15 +268,17 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 Text(if (develop.isPlate) "Color" else "Mono", fontWeight = FontWeight.SemiBold)
             }
             Spacer(Modifier.weight(1f))
-            // Manual is amber, so a dark finder in M reads as a setting,
-            // not a fault.
-            val manualInk = Color(0xFFFFB74D)
             Text(
                 Format.exposureLine(stream.iso, stream.exposureNs, exposure.manual),
                 fontFamily = FontFamily.Monospace,
-                color = if (exposure.manual) manualInk else Color.White,
+                color = if (exposure.manual) settingInk else Color.White,
                 modifier = Modifier.padding(horizontal = 8.dp),
             )
+            // Where the paper stands when it is off the base print, so a
+            // strip left at +1 yesterday is seen before the shot.
+            Format.paperShift(soft, hard)?.let {
+                Text(it, fontFamily = FontFamily.Monospace, color = settingInk, modifier = Modifier.padding(end = 8.dp))
+            }
             if (lens?.hasFlash == true) {
                 IconButton(onClick = vm::cycleFlash) {
                     Icon(
@@ -282,7 +295,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
             TextButton(
                 onClick = { if (exposure.manual) vm.setAuto() else vm.enterManual() },
                 enabled = lens?.hasManualSensor == true,
-            ) { Text(if (exposure.manual) "M" else "A", fontWeight = FontWeight.Bold, color = if (exposure.manual) manualInk else Color.White) }
+            ) { Text(if (exposure.manual) "M" else "A", fontWeight = FontWeight.Bold, color = if (exposure.manual) settingInk else Color.White) }
         }
         // The hand's two sliders, only in M. In A the automatics expose and
         // the paper is corrected in the developer, where the stops are real.
@@ -352,9 +365,8 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 )
                 Spacer(Modifier.height(8.dp))
                 PaperSliders(soft, hard, onSoft = vm::setSoft, onHard = vm::setHard)
-                ZoneStrip(soft, hard, onBoth = vm::setGrade)
                 Text(
-                    "The standing grade: the finder, the automatic JPEG, and where a new frame starts. Drag the strip: left prints darker, right lighter; the grade stays. Double-tap it for the base print (grade 2). In the developer the grade is the picture's own and stays with it.",
+                    "The standing grade: the finder, the automatic JPEG, and where a new frame starts. The strip under the finder moves both by the same stops; left prints darker, right lighter, a double tap is the base print (grade 2). In the developer the grade is the picture's own and stays with it.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 PeakRow(peakMode, PeakMode.STANDING, onMode = vm::setPeakMode)

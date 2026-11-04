@@ -32,6 +32,18 @@ object Format {
         return if (manual) "M  $base" else base
     }
 
+    /**
+     * The standing paper time beside the exposure line: the stops both
+     * exposures sit from the base print (their mean, what the zone strip
+     * moves), with the paper's sign, so plus is more time and a darker
+     * print. Null at the base print, so the line shows nothing to reset.
+     */
+    fun paperShift(soft: Double, hard: Double): String? {
+        val mean = (soft + hard) / 2.0
+        if (kotlin.math.abs(mean) < 1.0 / 24.0) return null
+        return String.format(Locale.US, "%+.2f", mean)
+    }
+
     fun filterShort(f: Filter): String = when (f) {
         Filter.NONE -> "Pan"
         Filter.YELLOW8 -> "Y8"

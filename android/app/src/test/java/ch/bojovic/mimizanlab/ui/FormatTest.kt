@@ -10,4 +10,14 @@ class FormatTest {
         assertEquals("M  400  ·  1/30", Format.exposureLine(400, 33_333_333L, manual = true))
         assertEquals("—  ·  —", Format.exposureLine(null, null, manual = false))
     }
+
+    @Test
+    fun paperShiftIsTheMeanAndSilentAtTheBasePrint() {
+        assertEquals(null, Format.paperShift(0.0, 0.0))
+        // A grade alone (soft and hard apart, mean zero) is not a shift.
+        assertEquals(null, Format.paperShift(0.5, -0.5))
+        assertEquals("+0.50", Format.paperShift(0.5, 0.5))
+        assertEquals("-1.00", Format.paperShift(-0.75, -1.25))
+        assertEquals("+0.08", Format.paperShift(1.0 / 12.0, 1.0 / 12.0))
+    }
 }
