@@ -1,7 +1,9 @@
-// The viewfinder screen. The picture is the camera's own preview:
-// desaturated in monochrome, untouched in colour. One line names the
-// process and the exposure, the shutter sits below. The print is made
-// afterwards, in the developer.
+// The viewfinder screen. On an Apple Log camera the picture is the paper,
+// with the zone strip under it as the one exposure correction (as on
+// Android); elsewhere it is the camera's own preview, desaturated in
+// monochrome, untouched in colour. One line names the process and the
+// exposure, the shutter sits below. The print is made afterwards, in the
+// developer.
 import MimizanCore
 import SwiftUI
 
@@ -39,6 +41,14 @@ struct CaptureView: View {
                 .onChange(of: geo.size) { _, _ in vm.refreshOrientation() }
             }
 
+            // The paper finder's one correction: the standing paper time,
+            // darker to the left, lighter to the right; the grade stays.
+            if state.paperFinder {
+                ZoneStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, onBoth: vm.setGrade)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+            }
+
             HStack(spacing: 16) {
                 Button(develop.isPlate ? "Color" : "Mono") {
                     vm.setProcess(develop.isPlate ? .mono : .plate)
@@ -48,6 +58,9 @@ struct CaptureView: View {
                 Text(Format.exposureLine(iso: state.iso, seconds: state.exposureSeconds, manual: exposure.manual))
                     .font(.subheadline.monospaced())
                     .foregroundStyle(exposure.manual ? manualInk : .white)
+                if state.paperFinder, let shift = Format.paperShift(soft: vm.prefs.soft, hard: vm.prefs.hard) {
+                    Text(shift).font(.subheadline.monospaced()).foregroundStyle(manualInk)
+                }
                 if lens?.hasFlash == true {
                     Button(action: vm.cycleFlash) {
                         Image(systemName: state.flash == .off ? "bolt.slash" : state.flash == .auto ? "bolt.badge.automatic" : "bolt.fill")
@@ -283,6 +296,7 @@ struct SettingsSheet: View {
     var body: some View {
         let develop = vm.develop
         let shots = vm.darkroom.shots
+        let paperFinder = vm.state.paperFinder
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
@@ -291,11 +305,18 @@ struct SettingsSheet: View {
                         .font(.caption).foregroundStyle(.gray)
                     PaperSliders(soft: vm.prefs.soft, hard: vm.prefs.hard, onSoft: vm.setSoft, onHard: vm.setHard)
                         .padding(.top, 8)
-                    ZoneStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, onBoth: vm.setGrade)
-                    Text("The standing grade: the automatic JPEG, and where a new frame starts. Drag the strip: left prints darker, right lighter; the grade stays. Double-tap it for the base print (grade 2). In the developer the grade is the picture's own and stays with it.")
-                        .font(.caption).foregroundStyle(.gray)
+                    if paperFinder {
+                        Text("The standing grade: the viewfinder, the automatic JPEG, and where a new frame starts. The strip under the finder moves both exposures together; double-tap it for the base print (grade 2). In the developer the grade is the picture's own and stays with it.")
+                            .font(.caption).foregroundStyle(.gray)
+                    } else {
+                        ZoneStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, onBoth: vm.setGrade)
+                        Text("The standing grade: the automatic JPEG, and where a new frame starts. Drag the strip: left prints darker, right lighter; the grade stays. Double-tap it for the base print (grade 2). In the developer the grade is the picture's own and stays with it.")
+                            .font(.caption).foregroundStyle(.gray)
+                    }
                     PeakRow(mode: vm.prefs.peakMode, modes: PeakMode.standing, onMode: vm.setPeakMode)
-                    Text("The standing Peak: the automatic JPEG, and where a new frame starts. Auto measures each negative. A hand pair is set in the developer and stays with that picture. The viewfinder does not follow the grade or Peak.")
+                    Text(paperFinder
+                        ? "The standing Peak: the automatic JPEG, and where a new frame starts. Auto measures each negative. A hand pair is set in the developer and stays with that picture. The viewfinder does not show Peak."
+                        : "The standing Peak: the automatic JPEG, and where a new frame starts. Auto measures each negative. A hand pair is set in the developer and stays with that picture. The viewfinder does not follow the grade or Peak.")
                         .font(.caption).foregroundStyle(.gray)
                     ShotRow(mode: vm.prefs.shotMode, onMode: vm.setShotMode)
                     Text("JPEG writes the picture and stays here. Developer opens it. Raw keeps the frame for later, and the picture waits for Export.")
@@ -305,6 +326,25 @@ struct SettingsSheet: View {
                         ForEach(PlateSpace.all, id: \.self) { sp in
                             Chip(label: Format.plateSpace(sp), selected: vm.prefs.plateSpace == sp) { vm.setPlateSpace(sp) }
                         }
+                    }
+
+                    Text("Viewfinder").font(.headline).padding(.top, 16)
+                    if paperFinder {
+                        let match = vm.prefs.finderMatch
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text("The paper, from the \(vm.state.finderFormat) stream.")
+                                Text(match.count == 0
+                                    ? "Exposure match: \(Format.stops(match.stops)) stops, the curve's own white; the first frames measure it."
+                                    : "Exposure match: \(Format.stops(match.stops)) stops from \(match.count) frame\(match.count == 1 ? "" : "s"). Each frame is in Files › finder-match.json.")
+                                    .font(.caption).foregroundStyle(.gray)
+                            }
+                            Spacer()
+                            Button("Reset") { vm.prefs.resetFinderMatch() }.disabled(match.count == 0)
+                        }
+                    } else {
+                        Text("The camera's picture (\(vm.state.finderFormat)). The paper needs Apple Log: an iPhone 15 Pro or a later Pro.")
+                            .font(.caption).foregroundStyle(.gray)
                     }
 
                     Text("Storage").font(.headline).padding(.top, 16)

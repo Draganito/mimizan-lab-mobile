@@ -50,15 +50,20 @@ struct Shot: Identifiable, Equatable {
     /// The automatic JPEG, once written.
     var jpegURL: URL?
     var thumbnail: CGImage?
+    /// The paper finder's measurement at the shutter, until the first
+    /// development has matched it against the negative. Not persisted.
+    var finder: FinderSample?
 
     var id: String { name }
 
     static func == (a: Shot, b: Shot) -> Bool {
         a.name == b.name && a.meta == b.meta && a.settings == b.settings && a.print == b.print && a.status == b.status
-            && a.jpegURL == b.jpegURL && a.thumbnail === b.thumbnail
+            && a.jpegURL == b.jpegURL && a.thumbnail === b.thumbnail && a.finder == b.finder
     }
 }
 
 extension Weights {
     static let native = Weights(r: 0.25, g: 0.5, b: 0.25)
+
+    var simd: SIMD3<Float> { SIMD3(Float(r), Float(g), Float(b)) }
 }

@@ -51,7 +51,13 @@ device findings are in `docs/RESULTS_MOBILE.md`.
 
 iPhone 12 and later on iOS 17, and the iPad Pro and iPad Air cameras
 that offer Bayer RAW. An iPad without one can open the app but cannot
-take a frame.
+take a frame. The finder is the paper on the iPhones with Apple Log
+(15 Pro and 15 Pro Max, 16 Pro and 16 Pro Max, 17 Pro and 17 Pro Max):
+there the stream is the log frame, decoded to scene light and printed
+through the paper as on Android. On the other iPhones and on the iPad
+the finder is the camera's own picture. The app asks the camera, not
+the model name. Not yet checked on a device: the Apple Log path is in
+TestFlight first (see *Status*).
 
 ## Install
 
@@ -67,11 +73,12 @@ between a release download and your own `installDebug`.
 
 ## Using the app
 
-The darkroom is the same on both phones. The finder is not. On Android
-the preview is linearised, mixed with the filter's channel weights and
-printed through the paper at the standing exposures: the finder is the
-paper. On iOS the finder is the camera's own preview, desaturated in
-mono, untouched in colour.
+The darkroom is the same on both phones. The finder is the paper where
+the camera lets it be: on Android the preview is linearised, mixed with
+the filter's channel weights and printed through the paper at the
+standing exposures; on an iPhone with Apple Log the log frame is
+decoded the same way. On the other iPhones and the iPad the finder is
+the camera's own preview, desaturated in mono, untouched in colour.
 
 1. **Finder.** Zebra marks the highlights and starts on; a histogram
    and a grid of thirds start off. The three are remembered. Tap sets
@@ -92,13 +99,14 @@ mono, untouched in colour.
    the base print (±3, steps of 1/12); zero is about grade 2. The zone
    strip moves both by the same stops and keeps the grade; a double
    tap on it is the base print again. The pair in Settings is the
-   standing grade: the Android finder, the automatic JPEG, and where a
-   new frame starts. On Android the strip sits under the finder, the
-   one exposure correction there is: the finder is the paper, so the
-   drag shows the print you will get, and the amber number beside the
-   exposure says where the paper stands when it is off the base print.
-   On iOS the strip is in Settings, because that finder does not follow
-   the paper. Every frame then keeps a grade of its own, stored
+   standing grade: the paper finder, the automatic JPEG, and where a
+   new frame starts. Where the finder is the paper (Android, Apple Log
+   iPhones) the strip sits under the finder, the one exposure
+   correction there is: the drag shows the print you will get, and the
+   amber number beside the exposure says where the paper stands when
+   it is off the base print. On the other iPhones and the iPad the
+   strip is in Settings, because that finder does not follow the
+   paper. Every frame then keeps a grade of its own, stored
    beside it on the roll: moving a slider in the developer changes
    that picture alone, and the next shot starts from the standing
    grade again, not from the last correction.
@@ -277,12 +285,17 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.15.2 on Android and iOS: RAW capture, the finder as the paper
-(Android), Mono and Plate, the split-grade paper, the zone strip and
-Peak with a print per frame, review with remix and 1:1 detail, the
-exports, the roll. Checked on a
-Pixel 9 (main and ultrawide), a Pixel 4a and a Galaxy S25 FE. Open: a
-fitted camera file for any phone but the Pixel 9, and a MediaTek phone.
+0.16.0 on Android and iOS: RAW capture, the finder as the paper
+(Android, and iPhones with Apple Log), Mono and Plate, the split-grade
+paper, the zone strip and Peak with a print per frame, review with
+remix and 1:1 detail, the exports, the roll. Checked on a Pixel 9 (main
+and ultrawide), a Pixel 4a and a Galaxy S25 FE. The Apple Log finder
+has not been seen on a device yet: it goes out through TestFlight, and
+every frame taken with it writes the stops between the finder and the
+developed negative to `Files › Mimizan Lab › finder-match.json` (and
+the median of the last eight is what the finder applies; Settings shows
+it and resets it). Open: that measurement, a fitted camera file for any
+phone but the Pixel 9, and a MediaTek phone.
 
 ## License
 

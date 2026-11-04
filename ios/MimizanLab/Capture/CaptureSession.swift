@@ -1,12 +1,15 @@
-// AVFoundation session: a BGRA video stream for the finder and the
-// histogram, and a photo output that writes the still as a Bayer DNG.
-// Nothing of the ISP's picture reaches the negative; the DNG is the
-// measurement and goes to the core as the desktop would read it.
+// AVFoundation session: a video stream for the finder and the histogram,
+// and a photo output that writes the still as a Bayer DNG. On a camera
+// with Apple Log the stream is the log frame in 10-bit 4:2:0, which the
+// finder reads as the negative; elsewhere it is the ISP's BGRA picture.
+// Nothing of either reaches the negative; the DNG is the measurement and
+// goes to the core as the desktop would read it.
 import AVFoundation
 import CoreVideo
 import Foundation
 import Observation
 import os
+import simd
 import UIKit
 
 private let log = Logger(subsystem: "ch.bojovic.mimizanlab", category: "camera")
@@ -57,6 +60,14 @@ final class CaptureState {
     /// Quarter-turns clockwise the shader applies when the camera refused to
     /// rotate the frames itself. 0 once the connection honours the angle.
     var rotationQuarters: Int = 0
+    /// The stream is Apple Log: the finder is the paper. False on cameras
+    /// without it (iPhones before the 15 Pro, the non-Pro models, iPads).
+    var paperFinder = false
+    /// The stream's format, for Settings: "Apple Log 1920×1440" or "camera picture".
+    var finderFormat = "camera picture"
+    /// The ISP's white balance gains (R, G, B) on an Apple Log stream, for
+    /// the mix weights; nil on the camera's picture.
+    var wbGains: [Double]?
 }
 
 struct CaptureError: LocalizedError {
@@ -64,10 +75,28 @@ struct CaptureError: LocalizedError {
     var errorDescription: String? { message }
 }
 
+/// One still: the DNG, and what the finder measured as the frame was
+/// taken (the median of its linear mix on the Log axis; nil on the
+/// camera's picture or before the first analysed frame).
+struct Still {
+    var dng: Data
+    var finderMedian: Double?
+}
+
 final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     let state = CaptureState()
     /// Every finder frame, on the camera queue: the renderer keeps the latest.
     var onFrame: ((CVPixelBuffer) -> Void)?
+    /// What the histogram applies to an Apple Log frame; set by the
+    /// screen's owner, read on the camera queue.
+    var tone: FinderTone? {
+        get { toneLock.withLockUnchecked { $0 } }
+        set { toneLock.withLockUnchecked { $0 = newValue } }
+    }
+
+    private let toneLock = OSAllocatedUnfairLock<FinderTone?>(initialState: nil)
+    /// The median of the last analysed Log frame's linear mix, before the gain.
+    private let medianLock = OSAllocatedUnfairLock<Double?>(initialState: nil)
 
     private let queue = DispatchQueue(label: "ch.bojovic.mimizanlab.camera", qos: .userInteractive)
     private let session = AVCaptureSession()
@@ -77,6 +106,8 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     private var device: AVCaptureDevice?
     private var lens: LensInfo?
     private var rawFormat: OSType = 0
+    /// The stream is Apple Log (camera queue's copy of `state.paperFinder`).
+    private var paperStream = false
     /// Clockwise quarter-turns that bring the sensor buffer upright on the
     /// screen: the interface orientation, which is fixed to portrait on the
     /// phone and follows the iPad. The shader applies them; the video
@@ -95,10 +126,11 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
 
     // Histogram: on the camera queue, at most every 66 ms.
     private var lastAnalysis = Date.distantPast
+    private var grayTable: [Float] = []
+    private var grayTableFor: PaperTone?
 
     override init() {
         super.init()
-        videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
         videoOutput.alwaysDiscardsLateVideoFrames = true
         videoOutput.setSampleBufferDelegate(self, queue: queue)
         observeSession()
@@ -201,8 +233,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         let device = lens.device
         session.beginConfiguration()
         defer { session.commitConfiguration() }
-        session.sessionPreset = .photo
-        // The finder wants plain sRGB frames, not P3; set below, kept here.
+        // The colour space is chosen below, not by the session.
         session.automaticallyConfiguresCaptureDeviceForWideColor = false
         let input = try AVCaptureDeviceInput(device: device)
         guard session.canAddInput(input) else { throw CaptureError(message: "\(lens.label): cannot add the camera") }
@@ -213,23 +244,70 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         session.addOutput(videoOutput)
         // Bayer RAW, not ProRAW: the mosaic as the sensor measured it.
         if photoOutput.isAppleProRAWSupported { photoOutput.isAppleProRAWEnabled = false }
-        guard let fmt = photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }) else {
-            throw CaptureError(message: "\(lens.label) offers no Bayer RAW")
+        let bayer = { self.photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }) }
+
+        // The stream: Apple Log where the camera has it and the still keeps
+        // its Bayer RAW in that format, else the ISP's picture. Nothing of
+        // this is known without the device in hand, so each step is checked
+        // and the picture is the fallback at every one.
+        var logFormat = CaptureSession.logFormat(of: device)
+        if let f = logFormat {
+            session.sessionPreset = .inputPriority
+            do {
+                try device.lockForConfiguration()
+                device.activeFormat = f
+                device.activeColorSpace = .appleLog
+                device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
+                device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
+                device.unlockForConfiguration()
+                // With a format set by hand the still's size is ours to ask for.
+                if let dims = f.supportedMaxPhotoDimensions.max(by: { Int($0.width) * Int($0.height) < Int($1.width) * Int($1.height) }) {
+                    photoOutput.maxPhotoDimensions = dims
+                }
+            } catch {
+                log.warning("Apple Log format: \(error.localizedDescription)")
+                logFormat = nil
+            }
+            if logFormat != nil, !videoOutput.availableVideoPixelFormatTypes.contains(kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange) {
+                log.warning("Apple Log format offers no 10-bit 4:2:0 stream")
+                logFormat = nil
+            }
+            if logFormat != nil, bayer() == nil {
+                log.warning("Apple Log format offers no Bayer RAW still")
+                logFormat = nil
+            }
         }
+        if logFormat == nil {
+            // The ISP's picture for the finder: no HDR fusion, the plain colour space.
+            session.sessionPreset = .photo
+            do {
+                try device.lockForConfiguration()
+                if device.activeFormat.isVideoHDRSupported { device.automaticallyAdjustsVideoHDREnabled = false; device.isVideoHDREnabled = false }
+                device.activeColorSpace = .sRGB
+                device.unlockForConfiguration()
+            } catch {
+                log.warning("finder configuration: \(error.localizedDescription)")
+            }
+        }
+        videoOutput.videoSettings = [
+            kCVPixelBufferPixelFormatTypeKey as String: logFormat != nil ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange : kCVPixelFormatType_32BGRA,
+        ]
+        guard let fmt = bayer() else { throw CaptureError(message: "\(lens.label) offers no Bayer RAW") }
         rawFormat = fmt
         self.input = input
         self.device = device
         self.lens = lens
-
-        // The ISP's picture for the finder: no HDR fusion, the plain colour space.
-        do {
-            try device.lockForConfiguration()
-            if device.activeFormat.isVideoHDRSupported { device.automaticallyAdjustsVideoHDREnabled = false; device.isVideoHDREnabled = false }
-            device.activeColorSpace = .sRGB
-            device.unlockForConfiguration()
-        } catch {
-            log.warning("finder configuration: \(error.localizedDescription)")
+        let d = device.activeFormat.formatDescription.dimensions
+        let formatLabel = logFormat != nil ? "Apple Log \(d.width)×\(d.height)" : "camera picture"
+        log.info("\(lens.label): finder \(formatLabel), RAW \(fmt)")
+        let paper = logFormat != nil
+        paperStream = paper
+        Task { @MainActor in
+            self.state.paperFinder = paper
+            self.state.finderFormat = formatLabel
+            if !paper { self.state.wbGains = nil }
         }
+        medianLock.withLock { $0 = nil }
 
         // The app subscribes to device orientation notifications in
         // `MimizanLabApp.init`; the interface may turn a moment after the
@@ -259,6 +337,20 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                 Task { @MainActor in self?.state.adjustingFocus = a }
             },
         ]
+        if paper {
+            // The Log frame is balanced by the ISP; the still's mix weights
+            // for the same balance come from the core with these gains.
+            observers.append(device.observe(\.deviceWhiteBalanceGains, options: [.initial, .new]) { [weak self] d, _ in
+                let g = d.deviceWhiteBalanceGains
+                guard g.redGain.isFinite, g.greenGain.isFinite, g.blueGain.isFinite, g.greenGain > 0 else { return }
+                let gains = [Double(g.redGain), Double(g.greenGain), Double(g.blueGain)]
+                Task { @MainActor in
+                    guard let s = self?.state else { return }
+                    if let old = s.wbGains, zip(old, gains).allSatisfy({ abs($0 - $1) < 1e-3 }) { return }
+                    s.wbGains = gains
+                }
+            })
+        }
         applyExposure()
         let l = lens, f = flash
         Task { @MainActor in
@@ -267,6 +359,29 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
             self.state.focusPoint = nil
             self.state.flash = f
         }
+    }
+
+    /// A format the finder reads as the negative: Apple Log in 10-bit
+    /// 4:2:0 at 30 fps, in the still's 4:3 framing when the camera offers
+    /// one (else the widest the log comes in), the largest up to about
+    /// 2 MP: the finder's own size, and what the GPU pass and the
+    /// histogram walk every frame. nil without Apple Log.
+    static func logFormat(of device: AVCaptureDevice) -> AVCaptureDevice.Format? {
+        let logs = device.formats.filter { f in
+            f.supportedColorSpaces.contains(.appleLog)
+                && CMFormatDescriptionGetMediaSubType(f.formatDescription) == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+                && f.videoSupportedFrameRateRanges.contains { $0.minFrameRate <= 30 && $0.maxFrameRate >= 30 }
+        }
+        let area = { (f: AVCaptureDevice.Format) -> Int in
+            let d = f.formatDescription.dimensions
+            return Int(d.width) * Int(d.height)
+        }
+        let fourThree = logs.filter { f in
+            let d = f.formatDescription.dimensions
+            return abs(Double(d.width) / Double(d.height) - 4.0 / 3.0) < 0.02
+        }
+        let pool = fourThree.isEmpty ? logs : fourThree
+        return pool.filter { area($0) <= 2100 * 1600 }.max { area($0) < area($1) } ?? pool.min { area($0) < area($1) }
     }
 
     private func teardown() {
@@ -436,17 +551,21 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
 
     // MARK: the still
 
-    /// One Bayer RAW still as a DNG. The flash fires only here.
-    func capture() async throws -> Data {
+    /// One Bayer RAW still as a DNG, with the finder's measurement of the
+    /// moment. The flash fires only here.
+    func capture() async throws -> Still {
         await MainActor.run { self.state.capturing = true }
         defer { Task { @MainActor in self.state.capturing = false } }
-        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Still, Error>) in
             queue.async {
                 guard self.device != nil, self.rawFormat != 0 else {
                     cont.resume(throwing: CaptureError(message: "camera not running"))
                     return
                 }
+                let finderMedian = self.medianLock.withLock { $0 }
                 let settings = AVCapturePhotoSettings(rawPixelFormatType: self.rawFormat)
+                // The photo preset sizes the still itself; the Log format is told.
+                if self.paperStream { settings.maxPhotoDimensions = self.photoOutput.maxPhotoDimensions }
                 // With the exposure set by hand the automatics cannot decide,
                 // so Auto does not fire; On fires once, as on Android. Whether
                 // AVFoundation fires the flash under a custom exposure is to
@@ -465,7 +584,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                 }
                 let processor = PhotoProcessor { [weak self] result in
                     self?.queue.async { self?.processor = nil }
-                    cont.resume(with: result)
+                    cont.resume(with: result.map { Still(dng: $0, finderMedian: finderMedian) })
                 }
                 self.processor = processor
                 self.photoOutput.capturePhoto(with: settings, delegate: processor)
@@ -485,13 +604,32 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         }
     }
 
-    /// 64-bin histogram of the viewfinder's luminance. The weights are the
-    /// Rec. 709 luma the monochrome finder uses (`Finder.metal`), scaled to
-    /// 256: 0.2126, 0.7152, 0.0722 become 54, 183, 19.
+    /// 64-bin histogram of the finder picture: the negative's display
+    /// values on an Apple Log frame, the ISP's luma on the picture.
     private func analyse(_ pb: CVPixelBuffer) {
         CVPixelBufferLockBaseAddress(pb, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
-        guard let base = CVPixelBufferGetBaseAddress(pb) else { return }
+        let bins: [Int]
+        if CVPixelBufferGetPixelFormatType(pb) == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange {
+            guard let paper = tone?.paper else { return }
+            if grayTableFor != paper { grayTable = paper.grayTable(); grayTableFor = paper }
+            let (b, median) = CaptureSession.analyseLog(pb, paper: paper, grayTable: grayTable)
+            bins = b
+            medianLock.withLock { $0 = median }
+        } else {
+            bins = CaptureSession.analysePicture(pb)
+        }
+        guard !bins.isEmpty else { return }
+        let m = Float(max(bins.max() ?? 1, 1))
+        let out = bins.map { Float($0) / m }
+        Task { @MainActor in self.state.histogram = out }
+    }
+
+    /// The ISP's luma. The weights are the Rec. 709 luma the monochrome
+    /// finder uses (`Finder.metal`), scaled to 256: 0.2126, 0.7152, 0.0722
+    /// become 54, 183, 19.
+    private static func analysePicture(_ pb: CVPixelBuffer) -> [Int] {
+        guard let base = CVPixelBufferGetBaseAddress(pb) else { return [] }
         let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb)
         let stride = CVPixelBufferGetBytesPerRow(pb)
         let p = base.assumingMemoryBound(to: UInt8.self)
@@ -509,9 +647,67 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
             }
             y += step
         }
-        let m = Float(max(bins.max() ?? 1, 1))
-        let out = bins.map { Float($0) / m }
-        Task { @MainActor in self.state.histogram = out }
+        return bins
+    }
+
+    /// The negative's display values on an Apple Log frame, the kernel's
+    /// arithmetic on a grid of about 240 sites across, and the median of
+    /// the linear mix before the gain (nil when no site is left between
+    /// near-black and the clip, the same cut the core's `mixMedian`
+    /// makes). The median is taken from a histogram in 1/32 stop.
+    private static func analyseLog(_ pb: CVPixelBuffer, paper: PaperTone, grayTable: [Float]) -> ([Int], Double?) {
+        guard let lumaBase = CVPixelBufferGetBaseAddressOfPlane(pb, 0), let chromaBase = CVPixelBufferGetBaseAddressOfPlane(pb, 1) else { return ([], nil) }
+        let w = CVPixelBufferGetWidthOfPlane(pb, 0), h = CVPixelBufferGetHeightOfPlane(pb, 0)
+        let cw = CVPixelBufferGetWidthOfPlane(pb, 1), ch = CVPixelBufferGetHeightOfPlane(pb, 1)
+        let lumaStride = CVPixelBufferGetBytesPerRowOfPlane(pb, 0) / 2
+        let chromaStride = CVPixelBufferGetBytesPerRowOfPlane(pb, 1) / 2
+        let luma = lumaBase.assumingMemoryBound(to: UInt16.self)
+        let chroma = chromaBase.assumingMemoryBound(to: UInt16.self)
+        let ycc = YccMatrix.of(pb)
+        var bins = [Int](repeating: 0, count: 64)
+        // log2 of the mix from 2^-16 to 2^6 in 1/32 stop.
+        let stopsLow: Float = -16, stopsPerBin: Float = 1.0 / 32
+        var stops = [Int](repeating: 0, count: 22 * 32)
+        var counted = 0
+        let step = max(1, max(w, h) / 240)
+        let scale = Float(grayTable.count - 1)
+        // The codes sit in the high 10 of 16 bits: code = sample >> 6.
+        let yScale: Float = 1 / (876 * 64), cScale: Float = 1 / (896 * 64)
+        let yBlack: Float = 64 * 64, cMid: Float = 512 * 64
+        var y = 0
+        while y < h {
+            let row = y * lumaStride
+            let crow = min(y / 2, ch - 1) * chromaStride
+            var x = 0
+            while x < w {
+                let yy = (Float(luma[row + x]) - yBlack) * yScale
+                let ci = crow + min(x / 2, cw - 1) * 2
+                let cb = (Float(chroma[ci]) - cMid) * cScale
+                let cr = (Float(chroma[ci + 1]) - cMid) * cScale
+                let enc = ycc * SIMD3<Float>(yy, cb, cr)
+                let lin = SIMD3<Float>(AppleLog.linear(enc.x), AppleLog.linear(enc.y), AppleLog.linear(enc.z))
+                let mix = simd_dot(lin, paper.v)
+                let g = min(max(mix * paper.gain, 0), 1)
+                let d = grayTable[min(Int(g * scale + 0.5), grayTable.count - 1)]
+                bins[min(max(Int(d * 63.999), 0), 63)] += 1
+                if g > 0.002, g < 0.98 {
+                    let s = (log2(mix) - stopsLow) / stopsPerBin
+                    stops[min(max(Int(s), 0), stops.count - 1)] += 1
+                    counted += 1
+                }
+                x += step
+            }
+            y += step
+        }
+        guard counted > 0 else { return (bins, nil) }
+        var seen = 0, bin = 0
+        while bin < stops.count {
+            seen += stops[bin]
+            if seen * 2 >= counted { break }
+            bin += 1
+        }
+        let median = exp2(Double(stopsLow) + (Double(bin) + 0.5) * Double(stopsPerBin))
+        return (bins, median)
     }
 }
 

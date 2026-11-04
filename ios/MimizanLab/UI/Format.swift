@@ -26,6 +26,16 @@ enum Format {
 
     static func stops(_ v: Double) -> String { String(format: "%+.2f", v) }
 
+    /// The standing paper time beside the exposure line: the stops both
+    /// exposures sit from the base print (their mean, what the zone strip
+    /// moves), with the paper's sign, so plus is more time and a darker
+    /// print. nil at the base print, so the line shows nothing to reset.
+    /// Twin of the Android `Format.paperShift`.
+    static func paperShift(soft: Double, hard: Double) -> String? {
+        let mean = (soft + hard) / 2
+        return abs(mean) < 1.0 / 24 ? nil : stops(mean)
+    }
+
     /// The line over the shutter: ISO and time as metered, `M` in front when they are set by hand.
     static func exposureLine(iso: Int?, seconds: Double?, manual: Bool) -> String {
         let base = "\(iso.map(String.init) ?? "—")  ·  \(shutter(seconds: seconds ?? 0))"

@@ -897,11 +897,13 @@ impl Developed {
         Ok(PeakMeasured { radius, amount, found: tuned.found })
     }
 
-    /// Stops to add to both exposures so the middle of this negative prints
-    /// where the grey card prints at `(soft, hard)`. The grade (the gap) is
-    /// untouched. 0 when the picture has no usable middle. The shift stays
-    /// inside the room both sliders still have.
-    pub fn zone_shift(&self, soft: f64, hard: f64) -> Result<f64> {
+    /// The middle of this negative: the median of the current monochrome
+    /// mix on the linear axis (1 is the clip), from the preview planes,
+    /// with near-black and near-clipped sites left out. None when nothing
+    /// usable is left. The viewfinder measures the same number on its own
+    /// frame; the difference between the two is the finder's exposure
+    /// error, in stops.
+    pub fn mix_median(&self) -> Result<Option<f64>> {
         let g = lock_msg(self.inner.lock());
         let pv = g
             .preview
@@ -917,12 +919,20 @@ impl Developed {
             .filter(|v| v.is_finite() && *v > 0.002 && *v < 0.98)
             .collect();
         if samples.is_empty() {
-            return Ok(0.0);
+            return Ok(None);
         }
         // The median alone: a selection, not a sort of the whole sample.
         let k = samples.len() / 2;
         let (_, mid, _) = samples.select_nth_unstable_by(k, f64::total_cmp);
-        let mid = *mid;
+        Ok(Some(*mid))
+    }
+
+    /// Stops to add to both exposures so the middle of this negative prints
+    /// where the grey card prints at `(soft, hard)`. The grade (the gap) is
+    /// untouched. 0 when the picture has no usable middle. The shift stays
+    /// inside the room both sliders still have.
+    pub fn zone_shift(&self, soft: f64, hard: f64) -> Result<f64> {
+        let Some(mid) = self.mix_median()? else { return Ok(0.0) };
         let curve = crate::types::split_grade(soft, hard)?.curve();
         let shift = curve.shift_for(mid, curve.eval(mimizan_core::zone::GRAY_CARD));
         let limit = mimizan_core::paper::STOP_LIMIT;

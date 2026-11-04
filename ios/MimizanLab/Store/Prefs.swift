@@ -161,6 +161,9 @@ final class Prefs {
     private(set) var grid: Bool
     /// The finder's histogram. Off for a fresh install.
     private(set) var histogram: Bool
+    /// The paper finder's axis against the negative's, as measured on the
+    /// frames taken so far (Apple Log cameras only).
+    private(set) var finderMatch: FinderMatch
 
     init() {
         soft = Prefs.snapStops(store.double(forKey: Keys.soft))
@@ -188,6 +191,30 @@ final class Prefs {
         zebra = store.object(forKey: Keys.zebra) == nil ? true : store.bool(forKey: Keys.zebra)
         grid = store.bool(forKey: Keys.grid)
         histogram = store.bool(forKey: Keys.histogram)
+        finderMatch = FinderMatch(samples: (store.array(forKey: Keys.finderMatch) as? [Double]) ?? [])
+    }
+
+    /// One more frame measured: the finder follows from the next tone on.
+    func addFinderMatch(_ stops: Double) {
+        guard stops.isFinite else { return }
+        finderMatch.add(stops)
+        store.set(finderMatch.samples, forKey: Keys.finderMatch)
+    }
+
+    /// Back to the published curve's own white, as on a fresh install.
+    func resetFinderMatch() {
+        finderMatch = FinderMatch(samples: [])
+        store.removeObject(forKey: Keys.finderMatch)
+    }
+
+    /// The sensor's XYZ → camera matrix as the last DNG of this lens
+    /// carried it, remembered so the first finder frame has it.
+    func xyzToCam(lens: String) -> [Double]? {
+        store.array(forKey: Keys.xyzToCam + lens) as? [Double]
+    }
+
+    func setXyzToCam(_ m: [Double], lens: String) {
+        store.set(m, forKey: Keys.xyzToCam + lens)
     }
 
     func setSoft(_ stops: Double) {
@@ -313,6 +340,8 @@ final class Prefs {
         static let grid = "finder_grid"
         static let histogram = "finder_histogram"
         static let rollHint = "hint_roll_shown"
+        static let finderMatch = "finder_match_stops"
+        static let xyzToCam = "xyz_to_cam_"
     }
 }
 

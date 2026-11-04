@@ -1,10 +1,13 @@
 // The viewfinder's state: which lens, which exposure, and which development
-// the next frame gets. The finder itself is the camera's picture.
+// the next frame gets, and the tone the finder shows. On an Apple Log
+// camera the finder is the paper, as on Android; elsewhere it is the
+// camera's picture.
 import AVFoundation
 import Foundation
 import MimizanCore
 import Observation
 import os
+import simd
 
 private let log = Logger(subsystem: "ch.bojovic.mimizanlab", category: "capture")
 
@@ -61,9 +64,15 @@ final class CaptureViewModel {
     /// Re-run `rebuildTone` whenever an input it reads changes.
     private func observeTone() {
         withObservationTracking {
-            _ = prefs.process
-            _ = viewfinder.zebra
+            _ = prefs.soft; _ = prefs.hard
+            _ = prefs.process; _ = prefs.plateFilters; _ = prefs.plateSpace
+            _ = prefs.finderMatch
+            _ = local; _ = viewfinder.zebra; _ = lens
+            _ = session.state.paperFinder
+            _ = session.state.wbGains
             _ = session.state.rotationQuarters
+            // A new DNG may have brought this lens its matrix.
+            _ = darkroom.shots.first?.meta.xyzToCam
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -73,15 +82,59 @@ final class CaptureViewModel {
         }
     }
 
-    /// Monochrome is the camera's preview with the colour taken out.
-    /// Colour is the preview itself. The grade never reaches the finder.
+    /// On the camera's picture: monochrome is the preview with the colour
+    /// taken out, colour the preview itself; the grade never reaches it.
+    /// On an Apple Log stream: the still's mix weights for the current
+    /// filter and this frame's balance, pulled back to linear BT.2020,
+    /// the standing paper, and the measured stops between the two axes;
+    /// in the plate process the three taking filters the same way.
     private func rebuildTone() {
-        let t = FinderTone(mono: !develop.isPlate, zebra: viewfinder.zebra ? 0.985 : 2)
+        let dev = develop
+        let t = FinderTone(
+            mono: !dev.isPlate,
+            zebra: viewfinder.zebra ? 0.985 : 2,
+            paper: session.state.paperFinder ? paperTone(dev) : nil
+        )
         if t != tone {
             tone = t
+            session.tone = t
             renderer?.set(tone: t)
         }
         renderer?.set(rotationQuarters: session.state.rotationQuarters)
+    }
+
+    private func paperTone(_ dev: DevelopSettings) -> PaperTone {
+        let gains = session.state.wbGains
+        let matrix = lens.flatMap { prefs.xyzToCam(lens: $0.label) }
+        let back = Rec2020ToCamera(xyzToCam: matrix) ?? .identity
+        let params = darkroom.developParams(make: "Apple", model: FinderMatchLog.deviceModel, pattern: .rggb, dev)
+        let w: Weights
+        do {
+            w = try mixWeights(params: params, wbGains: gains)
+        } catch {
+            log.warning("mix weights: \(error.localizedDescription)")
+            w = .native
+        }
+        var plate: (SIMD3<Float>, SIMD3<Float>, SIMD3<Float>)?
+        if dev.isPlate {
+            do {
+                let pw = try plateWeights(params: params, wbGains: gains, xyzToCam: matrix, filters: dev.plateFilters, space: dev.plateSpace)
+                plate = (back.pullBack(pw.red.simd), back.pullBack(pw.green.simd), back.pullBack(pw.blue.simd))
+            } catch {
+                log.warning("plate weights: \(error.localizedDescription)")
+            }
+        }
+        let lut: [Float]
+        do {
+            lut = try paperLut(soft: prefs.soft, hard: prefs.hard, n: 4096)
+        } catch {
+            log.warning("paper lut: \(error.localizedDescription)")
+            lut = (0...4096).map { Float($0) / 4096 }
+        }
+        return PaperTone(
+            v: back.pullBack(w.simd), plate: plate, lampGain: SIMD3(1, 1, 1),
+            gain: Float(exp2(prefs.finderMatch.stops)), lut: lut
+        )
     }
 
     // MARK: lifecycle
@@ -223,8 +276,12 @@ final class CaptureViewModel {
         settings.autoJpeg = mode == .jpeg
         Task {
             do {
-                let dng = try await session.capture()
-                let name = darkroom.submit(dng: dng, lens: l.label, capturedAt: Date(), settings: settings, developNow: mode != .raw)
+                let still = try await session.capture()
+                // What the finder applied as the frame was taken, for the match.
+                let finder = still.finderMedian.flatMap { median in
+                    tone?.paper.map { FinderSample(median: median, format: state.finderFormat, applied: log2(Double($0.gain))) }
+                }
+                let name = darkroom.submit(dng: still.dng, lens: l.label, capturedAt: Date(), settings: settings, developNow: mode != .raw, finder: finder)
                 if mode == .developer { pendingReview = name }
                 // Once: a JPEG that came out wrong is not lost. The frame
                 // is on the roll and prints again at another grade.

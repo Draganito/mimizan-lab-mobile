@@ -93,13 +93,15 @@ final class Darkroom {
     // MARK: intake
 
     /// Called from the camera: persists the DNG, reads what it is, then
-    /// queues the development. The name is ready at once, before the file is written.
+    /// queues the development. The name is ready at once, before the file
+    /// is written. `finder` is the paper finder's measurement of the
+    /// moment, matched against the negative once it is developed.
     @discardableResult
-    func submit(dng: Data, lens: String, capturedAt: Date, settings: DevelopSettings, developNow: Bool = true) -> String {
+    func submit(dng: Data, lens: String, capturedAt: Date, settings: DevelopSettings, developNow: Bool = true, finder: FinderSample? = nil) -> String {
         let name = Darkroom.nameFor(capturedAt)
         let provisional = ShotMeta(info: FrameInfo.empty, lens: lens, capturedAt: capturedAt, imported: false)
         let print = prefs.standingPrint
-        shots.insert(Shot(name: name, meta: provisional, settings: settings, print: print, status: .saving), at: 0)
+        shots.insert(Shot(name: name, meta: provisional, settings: settings, print: print, status: .saving, finder: finder), at: 0)
         let cache = cache
         Task {
             let saved: Result<ShotMeta, Error> = await intake.run {
@@ -114,6 +116,7 @@ final class Darkroom {
             switch saved {
             case let .success(meta):
                 self.updateShot(name) { $0.meta = meta }
+                if let m = meta.xyzToCam { self.prefs.setXyzToCam(m, lens: lens) }
                 self.syncWithCache()
                 if developNow {
                     self.enqueue(name, settings)
@@ -220,11 +223,12 @@ final class Darkroom {
         let settings = shot.settings
         let hadJpeg = shot.jpegURL != nil
         let exporter = exporter
+        let finder = shot.finder
         Task {
             let outcome = await worker.run {
                 Darkroom.develop(
                     name: name, path: path, params: params, settings: settings, paper: paper, exporter: exporter,
-                    wantJpeg: settings.autoJpeg && !hadJpeg
+                    wantJpeg: settings.autoJpeg && !hadJpeg, matchFinder: finder != nil
                 )
             }
             switch outcome {
@@ -236,10 +240,12 @@ final class Darkroom {
                         $0.status = .ready(result.negative.info)
                         $0.thumbnail = result.thumbnail
                         if let url = result.jpeg { $0.jpegURL = url }
+                        $0.finder = nil
                     }
                     if let url = result.jpeg {
                         Task { _ = await exporter.addToPhotos(url) }
                     }
+                    if let finder, let negative = result.negativeMedian { self.recordMatch(name, finder: finder, negativeMedian: negative) }
                 } else {
                     // Deleted while it developed: the negative is dropped here
                     // (the handle frees the core's memory when its last reference
@@ -260,17 +266,44 @@ final class Darkroom {
         var negative: Negative
         var thumbnail: CGImage?
         var jpeg: URL?
+        /// The median of the negative's linear mix, when the finder's is to be matched.
+        var negativeMedian: Double?
+    }
+
+    /// The paper finder's frame against its negative: one more measurement
+    /// for the finder, one line in the file and the log.
+    private func recordMatch(_ name: String, finder: FinderSample, negativeMedian: Double) {
+        guard finder.median > 0, negativeMedian > 0 else { return }
+        let stops = log2(negativeMedian / finder.median)
+        prefs.addFinderMatch(stops)
+        let meta = shots.first { $0.name == name }?.meta
+        let record = FinderMatchRecord(
+            at: ISO8601DateFormatter().string(from: Date()), frame: name, device: FinderMatchLog.deviceModel,
+            ios: UIDevice.current.systemVersion, lens: meta?.lens ?? "", iso: meta?.iso,
+            exposureNs: meta?.exposureNs, format: finder.format, finderMedian: finder.median,
+            negativeMedian: negativeMedian, stops: stops, applied: finder.applied, match: prefs.finderMatch.stops
+        )
+        Task { await intake.run { FinderMatchLog.append(record) } }
     }
 
     /// Off the main actor: the development, the plate if asked, Peak's
-    /// measurement, the thumbnail and the automatic JPEG.
+    /// measurement, the thumbnail and the automatic JPEG; the negative's
+    /// median when the finder's is waiting for it.
     nonisolated private static func develop(
         name: String, path: String, params: DevelopParams, settings: DevelopSettings, paper: PaperSettings,
-        exporter: Exporter, wantJpeg: Bool
+        exporter: Exporter, wantJpeg: Bool, matchFinder: Bool
     ) -> Result<DevelopResult, Error> {
         do {
             let t0 = Date()
             let developed = try developFile(path: path, params: params)
+            var negativeMedian: Double?
+            if matchFinder {
+                do {
+                    negativeMedian = try developed.mixMedian()
+                } catch {
+                    log.warning("mix median \(name): \(error.localizedDescription)")
+                }
+            }
             if settings.isPlate {
                 // The plate is a re-mix of the separation just made; the
                 // lamps start from the settings, as the paper does.
@@ -311,7 +344,7 @@ final class Darkroom {
                     )
                 }
             }
-            return .success(DevelopResult(negative: negative, thumbnail: thumb, jpeg: jpeg))
+            return .success(DevelopResult(negative: negative, thumbnail: thumb, jpeg: jpeg, negativeMedian: negativeMedian))
         } catch {
             log.error("develop \(name): \(error.localizedDescription)")
             return .failure(error)
