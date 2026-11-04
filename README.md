@@ -7,6 +7,12 @@ a three-colour plate (Prokudin-Gorsky's principle, the desktop
 darkroom's second process): three mixes through three taking filters,
 the same paper, one RGB file.
 
+**To my knowledge, the first photographic application that takes the
+black-and-white negative directly from the luma-chroma separation of
+the sensor signal ([Alleysson 2005](https://doi.org/10.1109/TIP.2004.841200),
+[Dubois 2005](https://doi.org/10.1109/LSP.2005.859503)) without ever
+reconstructing an RGB image — on the desktop, and now in your pocket.**
+
 <p align="center">
   <img src="docs/screenshots/finder.png" alt="The finder, in colour" width="270">
   <img src="docs/screenshots/developer.png" alt="The developer, a plate" width="270">
