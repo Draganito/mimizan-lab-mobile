@@ -65,6 +65,10 @@ final class CaptureState {
     var paperFinder = false
     /// The stream's format, for Settings: "Apple Log 1920×1440" or "camera picture".
     var finderFormat = "camera picture"
+    /// Why the finder is the paper or the picture: which step of the
+    /// Apple Log path passed or failed, with the counts behind it. For
+    /// Settings, so a tester's screenshot says what a log line would.
+    var finderNote = ""
     /// The ISP's white balance gains (R, G, B) on an Apple Log stream, for
     /// the mix weights; nil on the camera's picture.
     var wbGains: [Double]?
@@ -249,8 +253,14 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         // The stream: Apple Log where the camera has it and the still keeps
         // its Bayer RAW in that format, else the ISP's picture. Nothing of
         // this is known without the device in hand, so each step is checked
-        // and the picture is the fallback at every one.
+        // and the picture is the fallback at every one; the step that
+        // failed is written down for Settings and `formats.json`.
+        let logCapable = device.formats.filter { $0.supportedColorSpaces.contains(.appleLog) }
+        let logPhoto = logCapable.filter { $0.isHighPhotoQualitySupported }.count
+        let counts = "\(logCapable.count) Apple Log format\(logCapable.count == 1 ? "" : "s") on this camera, \(logPhoto) of them photo formats, \(device.formats.count) formats in all"
         var logFormat = CaptureSession.logFormat(of: device)
+        var note = logFormat == nil ? "No Apple Log format in 10-bit 4:2:0 at 30 fps: \(counts)." : ""
+        var logRawTypes: [String]?
         if let f = logFormat {
             session.sessionPreset = .inputPriority
             do {
@@ -266,15 +276,23 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                 }
             } catch {
                 log.warning("Apple Log format: \(error.localizedDescription)")
+                note = "The Apple Log format was refused: \(error.localizedDescription). \(counts)."
                 logFormat = nil
             }
-            if logFormat != nil, !videoOutput.availableVideoPixelFormatTypes.contains(kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange) {
-                log.warning("Apple Log format offers no 10-bit 4:2:0 stream")
-                logFormat = nil
-            }
-            if logFormat != nil, bayer() == nil {
-                log.warning("Apple Log format offers no Bayer RAW still")
-                logFormat = nil
+            if logFormat != nil {
+                let rawThere = photoOutput.availableRawPhotoPixelFormatTypes.map(FormatDump.fourcc)
+                logRawTypes = rawThere
+                if !videoOutput.availableVideoPixelFormatTypes.contains(kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange) {
+                    log.warning("Apple Log format offers no 10-bit 4:2:0 stream")
+                    note = "No 10-bit 4:2:0 stream in the Apple Log format. \(counts)."
+                    logFormat = nil
+                } else if bayer() == nil {
+                    log.warning("Apple Log format offers no Bayer RAW still")
+                    note = "No Bayer RAW still in the Apple Log format (RAW types there: \(rawThere.isEmpty ? "none" : rawThere.joined(separator: ", "))). \(counts)."
+                    logFormat = nil
+                } else {
+                    note = "Apple Log with a Bayer RAW still. \(counts)."
+                }
             }
         }
         if logFormat == nil {
@@ -299,15 +317,32 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         self.lens = lens
         let d = device.activeFormat.formatDescription.dimensions
         let formatLabel = logFormat != nil ? "Apple Log \(d.width)×\(d.height)" : "camera picture"
-        log.info("\(lens.label): finder \(formatLabel), RAW \(fmt)")
+        log.info("\(lens.label): finder \(formatLabel), RAW \(FormatDump.fourcc(fmt)); \(note)")
         let paper = logFormat != nil
         paperStream = paper
         Task { @MainActor in
             self.state.paperFinder = paper
             self.state.finderFormat = formatLabel
+            self.state.finderNote = note
             if !paper { self.state.wbGains = nil }
         }
         medianLock.withLock { $0 = nil }
+        // The dump after the configuration has been committed (the output's
+        // types follow the commit), on this queue, then written off it.
+        let label = lens.label
+        queue.async { [weak self] in
+            guard let self, let device = self.device, self.lens?.key == lens.key else { return }
+            let a = device.activeFormat.formatDescription.dimensions
+            let dump = LensFormats(
+                at: ISO8601DateFormatter().string(from: Date()), device: FinderMatchLog.deviceModel, ios: FinderMatchLog.osVersion,
+                lens: label, outcome: "\(formatLabel): \(note)",
+                activeFormat: "\(a.width)×\(a.height) \(FormatDump.fourcc(CMFormatDescriptionGetMediaSubType(device.activeFormat.formatDescription)))",
+                rawTypes: self.photoOutput.availableRawPhotoPixelFormatTypes.map(FormatDump.fourcc),
+                videoTypes: self.videoOutput.availableVideoPixelFormatTypes.map(FormatDump.fourcc),
+                logRawTypes: logRawTypes, formats: device.formats.map(FormatRecord.init)
+            )
+            DispatchQueue.global(qos: .utility).async { FormatDump.write(dump) }
+        }
 
         // The app subscribes to device orientation notifications in
         // `MimizanLabApp.init`; the interface may turn a moment after the

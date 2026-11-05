@@ -343,9 +343,13 @@ struct SettingsSheet: View {
                             Button("Reset") { vm.prefs.resetFinderMatch() }.disabled(match.count == 0)
                         }
                     } else {
-                        Text("The camera's picture (\(vm.state.finderFormat)). The paper needs Apple Log: an iPhone 15 Pro or a later Pro.")
+                        Text("The camera's picture. The paper needs Apple Log with a Bayer RAW still in the same format: an iPhone 15 Pro or a later Pro, and then only where the camera allows the two together.")
                             .font(.caption).foregroundStyle(.gray)
                     }
+                    // The step that decided it, in the words a tester can
+                    // photograph; the whole format list is in Files › formats.json.
+                    Text(vm.state.finderNote.isEmpty ? "Opening the camera…" : "\(vm.state.finderNote) Every format of this lens is in Files › formats.json.")
+                        .font(.caption).foregroundStyle(.gray)
 
                     Text("Storage").font(.headline).padding(.top, 16)
                     HStack {

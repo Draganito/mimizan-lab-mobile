@@ -279,7 +279,7 @@ final class Darkroom {
         let meta = shots.first { $0.name == name }?.meta
         let record = FinderMatchRecord(
             at: ISO8601DateFormatter().string(from: Date()), frame: name, device: FinderMatchLog.deviceModel,
-            ios: UIDevice.current.systemVersion, lens: meta?.lens ?? "", iso: meta?.iso,
+            ios: FinderMatchLog.osVersion, lens: meta?.lens ?? "", iso: meta?.iso,
             exposureNs: meta?.exposureNs, format: finder.format, finderMedian: finder.median,
             negativeMedian: negativeMedian, stops: stops, applied: finder.applied, match: prefs.finderMatch.stops
         )

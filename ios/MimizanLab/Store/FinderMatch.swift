@@ -88,6 +88,12 @@ enum FinderMatchLog {
         log.info("finder match \(r.frame): finder \(r.finderMedian) negative \(r.negativeMedian) → \(r.stops) stops (applied \(r.applied), now \(r.match)) on \(r.format), \(r.lens), ISO \(r.iso ?? 0), \(r.exposureNs ?? 0) ns")
     }
 
+    /// "17.5.1", off any actor (UIDevice is the main actor's).
+    static var osVersion: String {
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        return "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
+    }
+
     /// The hardware name (`iPhone16,1`), for the record.
     static let deviceModel: String = {
         var u = utsname()
