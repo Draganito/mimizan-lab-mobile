@@ -291,7 +291,7 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.16.1 on Android and iOS: RAW capture, the finder as the paper
+0.16.2 on Android and iOS: RAW capture, the finder as the paper
 (Android, and iPhones with Apple Log), Mono and Plate, the split-grade
 paper, the zone strip and Peak with a print per frame, review with
 remix and 1:1 detail, the exports, the roll. Checked on a Pixel 9 (main
@@ -302,9 +302,10 @@ developed negative to `Files › Mimizan Lab › finder-match.json` (and
 the median of the last eight is what the finder applies; Settings shows
 it and resets it). The first TestFlight round came back with the
 camera's picture on Pro phones: Apple Log and the Bayer RAW still
-very likely live on different formats of the same camera. 0.16.1 says
-in Settings › Viewfinder which step decided it and writes every format
-of the lens to `formats.json` beside the match file. Open: that
+very likely live on different formats of the same camera. 0.16.2 says
+in Settings › Viewfinder which step decided it, writes every format
+of the lens to `formats.json` beside the match file, and shares both
+files from there. Open: that
 question, the measurement, a fitted camera file for any phone but the
 Pixel 9, and a MediaTek phone.
 

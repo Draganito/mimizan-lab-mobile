@@ -58,18 +58,26 @@ struct LensFormats: Codable {
 enum FormatDump {
     static let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("formats.json")
 
-    /// Keep this lens's entry (the file is a dictionary by lens label). Call off the camera queue.
-    static func write(_ entry: LensFormats) {
+    /// Keep this lens's entry (the file is a dictionary by lens label) and
+    /// say so, for Settings: the file is what the testers send, so a
+    /// failure must be readable on the screen, not only in the log. Call
+    /// off the camera queue.
+    static func write(_ entry: LensFormats) -> String {
         do {
             var all = (try? JSONDecoder().decode([String: LensFormats].self, from: Data(contentsOf: url))) ?? [:]
             all[entry.lens] = entry
             let enc = JSONEncoder()
             enc.outputFormatting = [.prettyPrinted, .sortedKeys]
             try enc.encode(all).write(to: url, options: .atomic)
+            let bytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+            return "formats.json written \(Date().formatted(date: .omitted, time: .standard)), \(entry.formats.count) formats of \(entry.lens), \(Format.bytes(bytes))."
         } catch {
             log.warning("formats.json: \(error.localizedDescription)")
+            return "formats.json could not be written: \(error.localizedDescription)"
         }
     }
+
+    static var exists: Bool { FileManager.default.fileExists(atPath: url.path) }
 
     static func fourcc(_ t: OSType) -> String {
         let bytes = [UInt8(t >> 24 & 0xFF), UInt8(t >> 16 & 0xFF), UInt8(t >> 8 & 0xFF), UInt8(t & 0xFF)]

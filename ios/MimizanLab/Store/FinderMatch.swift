@@ -73,6 +73,8 @@ struct FinderMatchRecord: Codable {
 enum FinderMatchLog {
     static let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("finder-match.json")
 
+    static var exists: Bool { FileManager.default.fileExists(atPath: url.path) }
+
     /// Append one record (the file is a JSON array, read whole: a few
     /// hundred lines at most). Call off the main actor.
     static func append(_ r: FinderMatchRecord) {

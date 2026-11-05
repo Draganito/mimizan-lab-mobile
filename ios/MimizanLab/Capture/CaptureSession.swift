@@ -69,6 +69,8 @@ final class CaptureState {
     /// Apple Log path passed or failed, with the counts behind it. For
     /// Settings, so a tester's screenshot says what a log line would.
     var finderNote = ""
+    /// Whether `formats.json` was written for this lens, and when; the error if not.
+    var formatsFile = ""
     /// The ISP's white balance gains (R, G, B) on an Apple Log stream, for
     /// the mix weights; nil on the camera's picture.
     var wbGains: [Double]?
@@ -341,7 +343,10 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                 videoTypes: self.videoOutput.availableVideoPixelFormatTypes.map(FormatDump.fourcc),
                 logRawTypes: logRawTypes, formats: device.formats.map(FormatRecord.init)
             )
-            DispatchQueue.global(qos: .utility).async { FormatDump.write(dump) }
+            DispatchQueue.global(qos: .utility).async {
+                let status = FormatDump.write(dump)
+                Task { @MainActor in self.state.formatsFile = status }
+            }
         }
 
         // The app subscribes to device orientation notifications in

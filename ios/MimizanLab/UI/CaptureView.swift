@@ -336,7 +336,7 @@ struct SettingsSheet: View {
                                 Text("The paper, from the \(vm.state.finderFormat) stream.")
                                 Text(match.count == 0
                                     ? "Exposure match: \(Format.stops(match.stops)) stops, the curve's own white; the first frames measure it."
-                                    : "Exposure match: \(Format.stops(match.stops)) stops from \(match.count) frame\(match.count == 1 ? "" : "s"). Each frame is in Files › finder-match.json.")
+                                    : "Exposure match: \(Format.stops(match.stops)) stops from \(match.count) frame\(match.count == 1 ? "" : "s"). Each frame is a line in finder-match.json, below.")
                                     .font(.caption).foregroundStyle(.gray)
                             }
                             Spacer()
@@ -347,9 +347,19 @@ struct SettingsSheet: View {
                             .font(.caption).foregroundStyle(.gray)
                     }
                     // The step that decided it, in the words a tester can
-                    // photograph; the whole format list is in Files › formats.json.
-                    Text(vm.state.finderNote.isEmpty ? "Opening the camera…" : "\(vm.state.finderNote) Every format of this lens is in Files › formats.json.")
+                    // photograph, and the two files to send, shared from
+                    // here so nobody has to find them in Files.
+                    Text(vm.state.finderNote.isEmpty ? "Opening the camera…" : vm.state.finderNote)
                         .font(.caption).foregroundStyle(.gray)
+                    Text(vm.state.formatsFile.isEmpty ? "formats.json not written yet." : vm.state.formatsFile)
+                        .font(.caption).foregroundStyle(.gray)
+                    HStack(spacing: 16) {
+                        ShareLink(item: FormatDump.url) { Label("formats.json", systemImage: "square.and.arrow.up") }
+                            .disabled(!FormatDump.exists)
+                        ShareLink(item: FinderMatchLog.url) { Label("finder-match.json", systemImage: "square.and.arrow.up") }
+                            .disabled(!FinderMatchLog.exists)
+                    }
+                    .font(.subheadline)
 
                     Text("Storage").font(.headline).padding(.top, 16)
                     HStack {
