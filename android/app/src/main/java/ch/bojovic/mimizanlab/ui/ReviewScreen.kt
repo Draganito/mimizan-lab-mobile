@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -97,6 +98,7 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
     val shots by darkroom.shots.collectAsStateWithLifecycle()
     val shot = shots.firstOrNull { it.name == name }
     val plateFilters by darkroom.prefs.plateFilters.collectAsStateWithLifecycle()
+    val full by vm.fullResolution.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var showInfo by remember { mutableStateOf(false) }
     var exportMenu by remember { mutableStateOf(false) }
@@ -208,10 +210,21 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                         DropdownMenu(expanded = exportMenu, onDismissRequest = { exportMenu = false }) {
                             val peak = if (s.print.peak.applied(s.peakMeasured).second > 0.0) ", peak" else ""
                             val rgb = if (plate != null) " ${Format.plateSpace(plate.space)}" else ""
-                            DropdownMenuItem(text = { Text("JPEG$rgb$peak") }, onClick = { exportMenu = false; vm.exportJpeg() })
-                            DropdownMenuItem(text = { Text("TIFF 16-bit$rgb$peak") }, onClick = { exportMenu = false; vm.exportTiff() })
+                            // The locked exports stay in the menu: tapping one offers the purchase.
+                            val lock: @Composable (() -> Unit)? =
+                                if (full) null else ({ Icon(Icons.Filled.Lock, contentDescription = "Full resolution is a purchase") })
+                            DropdownMenuItem(
+                                text = { Text("JPEG$rgb$peak" + if (full) "" else ", half size") },
+                                onClick = { exportMenu = false; vm.exportJpeg() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("TIFF 16-bit$rgb$peak") },
+                                trailingIcon = lock,
+                                onClick = { exportMenu = false; vm.exportTiff() },
+                            )
                             DropdownMenuItem(
                                 text = { Text(if (plate != null) "Plate (linear TIFF, three frames + mask)" else "Negative (linear TIFF + mask)") },
+                                trailingIcon = lock,
                                 onClick = { exportMenu = false; vm.exportNegative() },
                             )
                         }
@@ -271,6 +284,17 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(16.dp).verticalScroll(rememberScrollState()),
             )
+        }
+    }
+
+    if (s.unlockRequested) UnlockDialog(darkroom.entitlements) { vm.setUnlockRequested(false) }
+
+    // The store's answer once the dialog is gone (it shows it inline while open).
+    val storeMessage by darkroom.entitlements.message.collectAsStateWithLifecycle()
+    if (!s.unlockRequested) storeMessage?.let { msg ->
+        LaunchedEffect(msg) { delay(3500); darkroom.entitlements.message.value = null }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+            Text(msg, color = Color.White, modifier = Modifier.padding(bottom = 48.dp).background(Color(0xCC203020)).padding(12.dp))
         }
     }
 

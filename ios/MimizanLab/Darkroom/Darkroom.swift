@@ -47,6 +47,7 @@ final class Darkroom {
     let exporter = Exporter()
     let cameraFiles = CameraFiles()
     let prefs = Prefs()
+    let entitlements = Entitlements()
 
     /// Newest first.
     private(set) var shots: [Shot] = []
@@ -224,11 +225,12 @@ final class Darkroom {
         let hadJpeg = shot.jpegURL != nil
         let exporter = exporter
         let finder = shot.finder
+        let binned = !entitlements.fullResolution
         Task {
             let outcome = await worker.run {
                 Darkroom.develop(
                     name: name, path: path, params: params, settings: settings, paper: paper, exporter: exporter,
-                    wantJpeg: settings.autoJpeg && !hadJpeg, matchFinder: finder != nil
+                    wantJpeg: settings.autoJpeg && !hadJpeg, binned: binned, matchFinder: finder != nil
                 )
             }
             switch outcome {
@@ -287,11 +289,12 @@ final class Darkroom {
     }
 
     /// Off the main actor: the development, the plate if asked, Peak's
-    /// measurement, the thumbnail and the automatic JPEG; the negative's
-    /// median when the finder's is waiting for it.
+    /// measurement, the thumbnail and the automatic JPEG (`binned` without
+    /// the full-resolution purchase); the negative's median when the
+    /// finder's is waiting for it.
     nonisolated private static func develop(
         name: String, path: String, params: DevelopParams, settings: DevelopSettings, paper: PaperSettings,
-        exporter: Exporter, wantJpeg: Bool, matchFinder: Bool
+        exporter: Exporter, wantJpeg: Bool, binned: Bool, matchFinder: Bool
     ) -> Result<DevelopResult, Error> {
         do {
             let t0 = Date()
@@ -340,7 +343,7 @@ final class Darkroom {
                     let peakPair = paper.print.peak.applied(peak)
                     _ = try developed.exportJpeg(
                         path: p, soft: grade.soft, hard: grade.hard, extraQuarterTurns: 0,
-                        peakRadius: peakPair.radius, peakAmount: peakPair.amount
+                        peakRadius: peakPair.radius, peakAmount: peakPair.amount, binned: binned
                     )
                 }
             }
@@ -371,15 +374,16 @@ final class Darkroom {
 
     // MARK: exports (call off the main actor)
 
-    /// The full-size JPEG into Files (and Photos), Peak's high-pass
-    /// applied when `peakAmount` > 0. In the plate process the file is RGB
-    /// with the plate's profile.
+    /// The JPEG into Files (and Photos), Peak's high-pass applied when
+    /// `peakAmount` > 0; at full size, or `binned` to half the edge (the
+    /// free print). In the plate process the file is RGB with the plate's
+    /// profile.
     nonisolated static func exportJpeg(
         _ d: Developed, name: String, suffix: String, soft: Double, hard: Double, peakRadius: Double, peakAmount: Double,
-        exporter: Exporter
+        binned: Bool, exporter: Exporter
     ) throws -> URL {
         try exporter.place(fileName: "\(name)\(suffix).jpg") { p in
-            _ = try d.exportJpeg(path: p, soft: soft, hard: hard, extraQuarterTurns: 0, peakRadius: peakRadius, peakAmount: peakAmount)
+            _ = try d.exportJpeg(path: p, soft: soft, hard: hard, extraQuarterTurns: 0, peakRadius: peakRadius, peakAmount: peakAmount, binned: binned)
         }
     }
 

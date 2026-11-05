@@ -77,6 +77,16 @@ between a release download and your own `installDebug`.
 
 **iOS.** The app is on TestFlight; every `v*` tag uploads a build.
 
+**Free and paid.** The APK from the releases page, the macOS app and
+the Windows build are complete and free. The Play Store app and the App
+Store app are free to use as well — camera, finder, developer, plate,
+roll, 1:1 view and a JPEG at half the edge — and sell one thing once:
+the print at full resolution, which is the full-size JPEG, the 16-bit
+TIFF and the linear negative. The same product
+(`ch.bojovic.mimizanlab.fullres`) on both stores; on Apple it is a
+universal purchase shared with the Mac and with Family Sharing, and
+Settings has Restore for a new phone.
+
 ## Using the app
 
 The darkroom is the same on both phones. The finder is the paper where
@@ -135,10 +145,12 @@ the camera's own preview, desaturated in mono, untouched in colour.
    Pinch to zoom; past the 2048 px preview the window is rendered 1:1
    from the negative. Soft, hard and the zone strip change the preview,
    the histogram and every export, through the same paper. Export
-   writes the full-size JPEG, a 16-bit TIFF, or the linear negative
-   plus saturation mask for the desktop (in Plate the three-frame
-   `.plate.tif`, which `mimizan print` prints in colour). Share sends
-   the last export.
+   writes the JPEG, a 16-bit TIFF, or the linear negative plus
+   saturation mask for the desktop (in Plate the three-frame
+   `.plate.tif`, which `mimizan print` prints in colour). In a store
+   build without the purchase the JPEG is binned to half the edge and
+   the two TIFFs open the purchase instead. Share sends the last
+   export.
 8. **The roll** lists every frame in the cache (1.5 GB, oldest first).
    The bin, or a long press, deletes one. Exported pictures stay where
    they were written. Settings shows how much the frames take and can
@@ -202,10 +214,15 @@ Prerequisites (user-local, no sudo):
 
 ```bash
 cd android
-./gradlew assembleDebug        # cargo ndk -> uniffi-bindgen -> Kotlin -> APK
-./gradlew installDebug         # phone attached, USB debugging on
-./gradlew assembleRelease      # a local release APK; the releases page is CI
+./gradlew assembleGithubDebug  # cargo ndk -> uniffi-bindgen -> Kotlin -> APK
+./gradlew installGithubDebug   # phone attached, USB debugging on
+./gradlew assembleGithubRelease # a local release APK; the releases page is CI
+./gradlew assemblePlayDebug    # the Play Store flavor, with Play Billing
 ```
+
+Two product flavors share one source tree: `github` (everything owned,
+no Play Billing in the APK) and `play` (Play Billing, the purchase).
+Each provides `createEntitlements()` in `src/<flavor>/…/store/`.
 
 `gradle.properties` sets `mimizan.rustProfile=release`, so a debug APK
 still carries an optimised Rust library. `local.properties`
@@ -291,7 +308,7 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.16.2 on Android and iOS: RAW capture, the finder as the paper
+0.17.0 on Android and iOS: RAW capture, the finder as the paper
 (Android, and iPhones with Apple Log), Mono and Plate, the split-grade
 paper, the zone strip and Peak with a print per frame, review with
 remix and 1:1 detail, the exports, the roll. Checked on a Pixel 9 (main
@@ -305,9 +322,12 @@ camera's picture on Pro phones: Apple Log and the Bayer RAW still
 very likely live on different formats of the same camera. 0.16.2 says
 in Settings › Viewfinder which step decided it, writes every format
 of the lens to `formats.json` beside the match file, and shares both
-files from there. Open: that
-question, the measurement, a fitted camera file for any phone but the
-Pixel 9, and a MediaTek phone.
+files from there. 0.17.0 adds the store builds' one purchase (the
+print at full resolution) through StoreKit 2 and Play Billing; the
+product has to exist in App Store Connect and the Play Console before
+the Unlock button can show a price. Open: the Pro-iPhone question, the
+measurement, a fitted camera file for any phone but the Pixel 9, and a
+MediaTek phone.
 
 ## License
 

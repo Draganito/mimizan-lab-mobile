@@ -941,13 +941,16 @@ impl Developed {
         Ok(shift.clamp(lo, hi))
     }
 
-    /// Print as JPEG (8-bit grey, quality 100, grey ICC) at full size:
-    /// the paper applied, then Peak's high-pass on the picture when
-    /// `peak_amount` > 0 (`peak_radius` σ in pixels of the negative, the
-    /// pair `measure_peak` returns or the user's; no mask, as the desktop
-    /// print). `soft` and `hard` are stops from the base exposure. In the
-    /// plate process the file is 8-bit RGB with the plate's ICC profile:
-    /// the three positives through the same pass, placed by their lamps.
+    /// Print as JPEG (8-bit grey, quality 100, grey ICC): the paper
+    /// applied, then Peak's high-pass on the picture when `peak_amount` > 0
+    /// (`peak_radius` σ in pixels of the negative, the pair `measure_peak`
+    /// returns or the user's; no mask, as the desktop print). `soft` and
+    /// `hard` are stops from the base exposure. In the plate process the
+    /// file is 8-bit RGB with the plate's ICC profile: the three positives
+    /// through the same pass, placed by their lamps. At full size, or
+    /// `binned`: half the negative's edge through the recipe's resampling
+    /// kernel — the print the store apps give for free, the whole
+    /// development at a quarter of the pixels.
     #[allow(clippy::too_many_arguments)] // UniFFI method: a flat argument list is the interface
     pub fn export_jpeg(
         &self,
@@ -957,12 +960,20 @@ impl Developed {
         extra_quarter_turns: u8,
         peak_radius: f64,
         peak_amount: f64,
+        binned: bool,
     ) -> Result<ExportInfo> {
         let g = lock_msg(self.inner.lock());
-        let params = PrintParams {
-            recipe: export_recipe(soft, hard, peak_radius, peak_amount)?,
-            ..Default::default()
-        };
+        let mut recipe = export_recipe(soft, hard, peak_radius, peak_amount)?;
+        if binned {
+            // The sheet is half the negative in both directions; `layout`
+            // turns it the picture's way and fits the picture into it.
+            let (w, h) = (g.sep.lum.width, g.sep.lum.height);
+            recipe.size = Some(mimizan_core::print::PrintSize::Physical {
+                width_in: w.div_ceil(2) as f64 / recipe.dpi,
+                height_in: h.div_ceil(2) as f64 / recipe.dpi,
+            });
+        }
+        let params = PrintParams { recipe, ..Default::default() };
         let p = PathBuf::from(path);
         if !pr::is_jpeg_path(&p) {
             return Err(MimizanError::Invalid { msg: "export_jpeg needs a .jpg path".into() });

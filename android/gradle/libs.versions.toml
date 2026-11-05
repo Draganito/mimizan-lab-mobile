@@ -11,6 +11,7 @@ lifecycle = "2.11.0"
 coreKtx = "1.19.1"
 coroutines = "1.11.0"
 jna = "5.19.1"
+billing = "9.1.0"
 junit = "4.13.2"
 json = "20250517"
 
@@ -28,6 +29,8 @@ compose-material3 = { group = "androidx.compose.material3", name = "material3" }
 compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 jna = { group = "net.java.dev.jna", name = "jna", version.ref = "jna" }
+# Play flavor only: the one-time purchase.
+billing-ktx = { group = "com.android.billingclient", name = "billing-ktx", version.ref = "billing" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 # The JVM tests get a real org.json; the one in android.jar is a stub.
 json = { group = "org.json", name = "json", version.ref = "json" }

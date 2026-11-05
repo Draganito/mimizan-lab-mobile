@@ -85,8 +85,8 @@ android {
         applicationId = "ch.bojovic.mimizanlab"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 58
-        versionName = "0.16.2"
+        versionCode = 59
+        versionName = "0.17.0"
         ndk { abiFilters += rustAbi }
     }
 
@@ -110,6 +110,15 @@ android {
                 keyPassword = releaseKey.getProperty("keyPassword")
             }
         }
+    }
+
+    // Two stores, one app. `github` is the APK on the releases page:
+    // everything owned, no Play Billing in it. `play` is the Play Store
+    // build with the one-time purchase for full-resolution export.
+    flavorDimensions += "store"
+    productFlavors {
+        create("github") { dimension = "store" }
+        create("play") { dimension = "store" }
     }
 
     buildTypes {
@@ -172,6 +181,7 @@ dependencies {
     implementation(libs.compose.material.icons.extended)
     implementation(libs.kotlinx.coroutines.android)
     implementation("${libs.jna.get()}@aar")
+    "playImplementation"(libs.billing.ktx)
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(libs.junit)
     testImplementation(libs.json)

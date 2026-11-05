@@ -70,10 +70,11 @@ jobs:
           # the runner image carries several. This is the one the APK is
           # linked and stripped with.
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
-        run: ./gradlew --no-daemon assembleDebug testDebugUnitTest
+        # Both flavors compile; the artifact is the GitHub one.
+        run: ./gradlew --no-daemon assembleDebug testGithubDebugUnitTest
 
       - uses: actions/upload-artifact@v4
         with:
           name: mimizan-lab-mobile-debug
-          path: mimizan-lab-mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          path: mimizan-lab-mobile/android/app/build/outputs/apk/github/debug/app-github-debug.apk
           if-no-files-found: error

@@ -110,6 +110,7 @@ struct ReviewView: View {
                 }
             }
         }
+        .sheet(isPresented: $vm.unlockRequested) { UnlockSheet(entitlements: vm.darkroom.entitlements) }
         .toast($vm.message, tint: Color(red: 0.12, green: 0.19, blue: 0.12))
         .task(id: name) { vm.open(name) }
     }
@@ -128,12 +129,16 @@ struct ReviewView: View {
 
     private var exportButton: some View {
         let plate = vm.plate
+        let full = vm.fullResolution
         return Menu {
             let peak = vm.peakApplied.amount > 0 ? ", peak" : ""
             let rgb = plate.map { " \(Format.plateSpace($0.space))" } ?? ""
-            Button("JPEG\(rgb)\(peak)") { vm.exportJpeg() }
-            Button("TIFF 16-bit\(rgb)\(peak)") { vm.exportTiff() }
-            Button(plate != nil ? "Plate (linear TIFF, three frames + mask)" : "Negative (linear TIFF + mask)") { vm.exportNegative() }
+            Button("JPEG\(rgb)\(peak)\(full ? "" : ", half size")") { vm.exportJpeg() }
+            // The locked exports stay in the menu: tapping one offers the purchase.
+            let tiff = "TIFF 16-bit\(rgb)\(peak)"
+            let negative = plate != nil ? "Plate (linear TIFF, three frames + mask)" : "Negative (linear TIFF + mask)"
+            Button { vm.exportTiff() } label: { if full { Text(tiff) } else { Label(tiff, systemImage: "lock") } }
+            Button { vm.exportNegative() } label: { if full { Text(negative) } else { Label(negative, systemImage: "lock") } }
         } label: {
             Text(vm.exporting.map { "Saving \($0)…" } ?? "Export")
                 .font(.subheadline.weight(.semibold))

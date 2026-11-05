@@ -6,7 +6,9 @@ import android.net.Uri
 import android.util.Log
 import ch.bojovic.mimizanlab.raw.RawCapture
 import ch.bojovic.mimizanlab.raw.RawMeta
+import ch.bojovic.mimizanlab.store.Entitlements
 import ch.bojovic.mimizanlab.store.Print
+import ch.bojovic.mimizanlab.store.createEntitlements
 import ch.bojovic.mimizanlab.store.MediaStoreWriter
 import ch.bojovic.mimizanlab.store.Prefs
 import ch.bojovic.mimizanlab.store.RawCache
@@ -91,6 +93,8 @@ class Darkroom private constructor(private val context: Context) {
     val media = MediaStoreWriter(context)
     val cameraFiles = CameraFiles(context)
     val prefs = Prefs(context)
+    /** What may be exported at full size: the store's answer, or everything on the GitHub build. */
+    val entitlements: Entitlements = createEntitlements(context)
 
     private val _shots = MutableStateFlow<List<Shot>>(emptyList())
     /** Newest first. */
@@ -273,6 +277,7 @@ class Darkroom private constructor(private val context: Context) {
                             d, name, suffixFor(shot.settings, info),
                             soft = paper.soft, hard = paper.hard,
                             peakRadius = applied.first, peakAmount = applied.second,
+                            binned = !entitlements.fullResolution.value,
                         )
                     }.onSuccess { uri -> updateShot(name) { it.copy(jpegUri = uri) } }
                         .onFailure { Log.e(TAG, "automatic JPEG $name", it) }
@@ -390,10 +395,11 @@ class Darkroom private constructor(private val context: Context) {
     }
 
     /**
-     * The full-size JPEG into the album, Peak's high-pass applied when
-     * `peakAmount` > 0 (`peakRadius` in pixels of the negative). In the
-     * plate process the file is RGB with the plate's profile. `suffix`
-     * names the filter or the plate in the file name ([suffixFor]).
+     * The JPEG into the album, Peak's high-pass applied when `peakAmount`
+     * > 0 (`peakRadius` in pixels of the negative); at full size, or
+     * `binned` to half the edge (the free print). In the plate process the
+     * file is RGB with the plate's profile. `suffix` names the filter or
+     * the plate in the file name ([suffixFor]).
      */
     fun exportJpeg(
         d: Developed,
@@ -403,8 +409,9 @@ class Darkroom private constructor(private val context: Context) {
         hard: Double = 0.0,
         peakRadius: Double = Prefs.PEAK.radiusDefault,
         peakAmount: Double = 0.0,
+        binned: Boolean,
     ): Uri = exportPrint(name, suffix, "jpg", MediaStoreWriter.MIME_JPEG) { path ->
-        d.exportJpeg(path, soft, hard, 0u, peakRadius, peakAmount)
+        d.exportJpeg(path, soft, hard, 0u, peakRadius, peakAmount, binned)
     }
 
     /** The same picture as a 16-bit TIFF (RGB for a plate). */

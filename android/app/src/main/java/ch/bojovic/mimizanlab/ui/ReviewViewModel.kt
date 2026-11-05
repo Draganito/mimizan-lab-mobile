@@ -69,10 +69,12 @@ data class ReviewState(
     val message: String? = null,
     /** The negative is not in memory: offer to develop it (again). */
     val needsDevelop: Boolean = false,
+    /** A locked export was asked for: the screen offers the purchase. */
+    val unlockRequested: Boolean = false,
 )
 
 class ReviewViewModel(app: Application) : AndroidViewModel(app) {
-    private val darkroom = Darkroom.get(app)
+    val darkroom = Darkroom.get(app)
     private val _state = MutableStateFlow(ReviewState())
     val state: StateFlow<ReviewState> = _state.asStateFlow()
 
@@ -314,21 +316,36 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(detail = null) }
     }
 
-    fun exportJpeg() = export("JPEG") { d, name, suffix ->
-        val s = _state.value
-        val applied = peakApplied(s)
-        darkroom.exportJpeg(d, name, suffix, s.print.grade.soft, s.print.grade.hard, applied.first, applied.second)
+    /** The full-size JPEG and the two TIFFs are the one purchase; the JPEG at half the edge is free. */
+    val fullResolution: StateFlow<Boolean> = darkroom.entitlements.fullResolution
+
+    fun exportJpeg() {
+        val binned = !fullResolution.value
+        export(if (binned) "JPEG (half size)" else "JPEG") { d, name, suffix ->
+            val s = _state.value
+            val applied = peakApplied(s)
+            darkroom.exportJpeg(d, name, suffix, s.print.grade.soft, s.print.grade.hard, applied.first, applied.second, binned)
+        }
     }
 
-    fun exportTiff() = export("TIFF 16-bit") { d, name, suffix ->
-        val s = _state.value
-        val applied = peakApplied(s)
-        darkroom.exportTiff(d, name, suffix, s.print.grade.soft, s.print.grade.hard, applied.first, applied.second)
+    fun exportTiff() {
+        if (!fullResolution.value) { _state.update { it.copy(unlockRequested = true) }; return }
+        export("TIFF 16-bit") { d, name, suffix ->
+            val s = _state.value
+            val applied = peakApplied(s)
+            darkroom.exportTiff(d, name, suffix, s.print.grade.soft, s.print.grade.hard, applied.first, applied.second)
+        }
     }
 
-    fun exportNegative() = export(if (_state.value.plate != null) "plate" else "negative") { d, name, _ ->
-        darkroom.exportNegative(d, name).first()
+    fun exportNegative() {
+        if (!fullResolution.value) { _state.update { it.copy(unlockRequested = true) }; return }
+        export(if (_state.value.plate != null) "plate" else "negative") { d, name, _ ->
+            darkroom.exportNegative(d, name).first()
+        }
     }
+
+    /** The unlock dialog was shown, or closed. */
+    fun setUnlockRequested(on: Boolean) = _state.update { it.copy(unlockRequested = on) }
 
     private fun export(label: String, f: (Developed, String, String) -> Uri) {
         val d = developed ?: return

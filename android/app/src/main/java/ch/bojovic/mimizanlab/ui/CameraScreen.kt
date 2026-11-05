@@ -391,6 +391,11 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                         )
                     }
                 }
+                if (vm.darkroom.entitlements.storeBound) {
+                    Spacer(Modifier.height(16.dp))
+                    Text("Full resolution", style = MaterialTheme.typography.titleMedium)
+                    UnlockSection(vm.darkroom.entitlements)
+                }
                 Spacer(Modifier.height(16.dp))
                 Text("Storage", style = MaterialTheme.typography.titleMedium)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

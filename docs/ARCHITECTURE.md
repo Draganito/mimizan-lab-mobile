@@ -180,8 +180,10 @@ separation:
   1:1, so the print's scale factor is 1) and no mask, as
   `print::apply_peak_picture` does on the full print, then the margin is
   cut off again.
-* export -> `export_jpeg` (full size, with `peak_radius`, `peak_amount`;
-  the recipe's `sharpen` is `Off`), `export_tiff16` (with the same),
+* export -> `export_jpeg` (full size, or `binned` to half the edge through
+  the print pass's `PrintSize::Physical` at the recipe's dpi, with
+  `peak_radius`, `peak_amount`; the recipe's `sharpen` is `Off`),
+  `export_tiff16` (with the same, never binned),
   `export_negative` (linear 16-bit TIFF + `.mask.tif`), written to a
   scratch file and imported into MediaStore. JPEG quality is the core's
   fixed 100.
@@ -257,6 +259,23 @@ The generated Kotlin directory is added to the `main` source set
 NDK `cargo-ndk` links against so AGP strips the library. R8 keeps
 `com.sun.jna.**` and `ch.bojovic.mimizanlab.engine.**`.
 
+Two product flavors in the `store` dimension. `store/Entitlements.kt`
+in `main` is the interface (`fullResolution`, `price`, `busy`,
+`message`, `storeBound`, `purchase(activity)`, `restore()`) and
+`Entitlements.Owned`; each flavor's `store/EntitlementsFactory.kt`
+provides `createEntitlements(context)`. `github` returns `Owned` and
+carries no Play Billing; `play` returns `PlayEntitlements`, a
+`BillingClient` (billing-ktx, pending one-time purchases on, auto
+reconnection) that loads the product, reads `queryPurchasesAsync` on
+every connection, acknowledges a purchase before granting it, and
+caches the answer in the `entitlements` shared preferences so a cold
+start does not wait on the store. `Darkroom.entitlements` is the one
+instance; `exportJpeg(binned = !fullResolution)` for the automatic and
+the manual JPEG, and `ReviewViewModel` turns a locked TIFF or negative
+export into `unlockRequested`, which the screen answers with
+`UnlockDialog`. The workflows build `assembleGithubRelease` for the
+releases page and `assembleDebug` (both flavors) on every push.
+
 ## iOS
 
 `ios/` is a second front end on the same crate. The layers mirror the
@@ -275,6 +294,7 @@ Android ones file for file:
 | `RawCache.kt` | `Store/RawCache.swift` | `Caches/raw/<name>.dng` + `.json` + `.grade`, excluded from backup, 1.5 GB budget; an orphan `.dng` is swept only once it is a minute old |
 | `MediaStoreWriter.kt` | `Store/Exporter.swift` | `Documents/Mimizan Lab` (visible in Files, `UIFileSharingEnabled`) plus `PHPhotoLibrary` add-only for JPEGs; the mask sidecar takes the final file's name, so `(2)` pairs stay paired |
 | `Prefs.kt` | `Store/Prefs.swift` | same keys and defaults in `UserDefaults` (no lamp keys: the lamps are not a setting on either phone) |
+| `store/Entitlements.kt` (`play` flavor) | `Store/Entitlements.swift` | StoreKit 2: `Transaction.currentEntitlements` on every start, `Transaction.updates` for purchases made on the Mac, by the family or refunded, `AppStore.sync()` behind Restore; the answer cached under `entitlement_fullres`. No flavor on iOS, the App Store is the only channel; `UI/UnlockView.swift` is the Settings section and the sheet a locked export opens |
 | `ReviewViewModel.kt` / `ReviewScreen.kt` | `Review/` | the `Developed` calls go through `Gate`, a serial `DispatchQueue` wrapped in `withCheckedContinuation`, never the main thread; the sliders and Peak move the frame's own print (`Darkroom.setPrint` → `<name>.grade`) and each render hands the roll a fresh thumbnail, as on Android; `MagnifyGesture` + `DragGesture` for the 1:1 viewer |
 | `RollScreen.kt` | `UI/RollView.swift` | no import from Files or Photos (a full-size NEF develops past the iPad's memory); the roll is the camera's own frames |
 | `MainActivity.kt` | `UI/RootView.swift` | `NavigationStack` on compact width, `NavigationSplitView` (roll beside camera / review) on the iPad |

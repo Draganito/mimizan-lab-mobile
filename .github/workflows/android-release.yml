@@ -63,15 +63,16 @@ jobs:
         working-directory: mimizan-lab-mobile/android
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/${{ env.NDK_VERSION }}
-        run: ./gradlew --no-daemon assembleRelease
+        # The GitHub APK is the `github` flavor: everything owned, no Play Billing.
+        run: ./gradlew --no-daemon assembleGithubRelease
 
       - name: Name the APK
         run: |
-          src=mimizan-lab-mobile/android/app/build/outputs/apk/release/app-release.apk
-          dest=mimizan-lab-mobile/android/app/build/outputs/apk/release/mimizan-lab-mobile-${{ steps.ver.outputs.name }}.apk
+          src=mimizan-lab-mobile/android/app/build/outputs/apk/github/release/app-github-release.apk
+          dest=mimizan-lab-mobile/android/app/build/outputs/apk/github/release/mimizan-lab-mobile-${{ steps.ver.outputs.name }}.apk
           cp "$src" "$dest"
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: mimizan-lab-mobile/android/app/build/outputs/apk/release/mimizan-lab-mobile-${{ steps.ver.outputs.name }}.apk
+          files: mimizan-lab-mobile/android/app/build/outputs/apk/github/release/mimizan-lab-mobile-${{ steps.ver.outputs.name }}.apk
           fail_on_unmatched_files: true

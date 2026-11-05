@@ -107,11 +107,15 @@ fn synthetic_develop_preview_remix_export() {
 
     // Exports.
     let dir = tmp_dir("synth");
-    let jpg = dev.export_jpeg(dir.join("p.jpg").display().to_string(), 0.0, 0.0, 0, 0.7, 0.0).unwrap();
+    let jpg = dev.export_jpeg(dir.join("p.jpg").display().to_string(), 0.0, 0.0, 0, 0.7, 0.0, false).unwrap();
     assert_eq!((jpg.width, jpg.height), (240, 320), "full size, upright");
     let jpg_peak =
-        dev.export_jpeg(dir.join("u.jpg").display().to_string(), 0.0, 0.0, 0, m.radius, 0.8).unwrap();
+        dev.export_jpeg(dir.join("u.jpg").display().to_string(), 0.0, 0.0, 0, m.radius, 0.8, false).unwrap();
     assert_eq!((jpg_peak.width, jpg_peak.height), (240, 320));
+    let binned = dev.export_jpeg(dir.join("b.jpg").display().to_string(), 0.0, 0.0, 0, 0.7, 0.0, true).unwrap();
+    assert_eq!((binned.width, binned.height), (120, 160), "binned: half the edge, upright");
+    let binned_turned = dev.export_jpeg(dir.join("bt.jpg").display().to_string(), 0.0, 0.0, 1, 0.7, 0.0, true).unwrap();
+    assert_eq!((binned_turned.width, binned_turned.height), (160, 120), "binned, one turn: the sheet turns with the picture");
     let tif = dev.export_tiff16(dir.join("p.tif").display().to_string(), 0.0, 0.0, 1, 0.7, 0.0).unwrap();
     assert_eq!(
         (tif.width, tif.height),
@@ -121,7 +125,7 @@ fn synthetic_develop_preview_remix_export() {
     let neg = dev.export_negative(dir.join("neg.tif").display().to_string()).unwrap();
     assert_eq!((neg.width, neg.height), (w as u32, h as u32));
     assert!(dir.join("neg.mask.tif").exists());
-    assert!(dev.export_jpeg(dir.join("x.tif").display().to_string(), 0.0, 0.0, 0, 0.7, 0.0).is_err());
+    assert!(dev.export_jpeg(dir.join("x.tif").display().to_string(), 0.0, 0.0, 0, 0.7, 0.0, false).is_err());
     std::fs::remove_dir_all(&dir).unwrap();
 
     dev.release_preview();
@@ -363,7 +367,7 @@ fn plate_is_a_remix_grey_stays_grey_and_the_lamps_move_one_channel() {
     assert_eq!((planes[0].width, planes[0].height), (w, h));
     assert!(planes[0].at(80, 60) > planes[1].at(80, 60), "the red lamp is in the file");
     assert!((planes[1].at(80, 60) - planes[2].at(80, 60)).abs() < 1.0 / 65535.0);
-    let jpg = dev.export_jpeg(dir.join("p.jpg").display().to_string(), 0.0, 0.0, 0, 0.7, 0.0).unwrap();
+    let jpg = dev.export_jpeg(dir.join("p.jpg").display().to_string(), 0.0, 0.0, 0, 0.7, 0.0, false).unwrap();
     assert_eq!((jpg.width, jpg.height), (w as u32, h as u32));
     assert!(std::fs::metadata(dir.join("p.jpg")).unwrap().len() > 0);
 

@@ -323,15 +323,22 @@ final class ReviewViewModel {
 
     // MARK: exports
 
+    /// The full-size JPEG and the two TIFFs are the one purchase; the JPEG at half the edge is free.
+    var fullResolution: Bool { darkroom.entitlements.fullResolution }
+    /// A locked export was asked for: the screen offers the purchase.
+    var unlockRequested = false
+
     func exportJpeg() {
         let pair = peakApplied
         let (soft, hard, radius, amount) = (print.grade.soft, print.grade.hard, pair.radius, pair.amount)
-        export("JPEG") { d, name, suffix, exporter in
-            try [Darkroom.exportJpeg(d, name: name, suffix: suffix, soft: soft, hard: hard, peakRadius: radius, peakAmount: amount, exporter: exporter)]
+        let binned = !fullResolution
+        export(binned ? "JPEG (half size)" : "JPEG") { d, name, suffix, exporter in
+            try [Darkroom.exportJpeg(d, name: name, suffix: suffix, soft: soft, hard: hard, peakRadius: radius, peakAmount: amount, binned: binned, exporter: exporter)]
         }
     }
 
     func exportTiff() {
+        guard fullResolution else { unlockRequested = true; return }
         let pair = peakApplied
         let (soft, hard, radius, amount) = (print.grade.soft, print.grade.hard, pair.radius, pair.amount)
         export("TIFF 16-bit") { d, name, suffix, exporter in
@@ -340,6 +347,7 @@ final class ReviewViewModel {
     }
 
     func exportNegative() {
+        guard fullResolution else { unlockRequested = true; return }
         export(plate != nil ? "plate" : "negative") { d, name, _, exporter in
             try Darkroom.exportNegative(d, name: name, exporter: exporter)
         }
@@ -358,7 +366,7 @@ final class ReviewViewModel {
                 lastExport = urls.first
                 exporting = nil
                 message = "Saved \(label) to Files › Mimizan Lab"
-                if label == "JPEG", let u = urls.first {
+                if label.hasPrefix("JPEG"), let u = urls.first {
                     Task { _ = await exporter.addToPhotos(u) }
                 }
             case let .failure(error):

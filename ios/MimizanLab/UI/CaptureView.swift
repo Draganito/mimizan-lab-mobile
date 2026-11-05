@@ -361,6 +361,9 @@ struct SettingsSheet: View {
                     }
                     .font(.subheadline)
 
+                    Text("Full resolution").font(.headline).padding(.top, 16)
+                    UnlockSection(entitlements: vm.darkroom.entitlements)
+
                     Text("Storage").font(.headline).padding(.top, 16)
                     HStack {
                         VStack(alignment: .leading) {
@@ -382,6 +385,7 @@ struct SettingsSheet: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toast(Bindable(vm.darkroom.entitlements).message)
             .alert("Delete all \(shots.count) frames?", isPresented: $confirmDeleteAll) {
                 Button("Delete all", role: .destructive) { vm.darkroom.deleteAll() }
                 Button("Cancel", role: .cancel) {}
