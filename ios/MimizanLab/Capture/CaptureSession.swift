@@ -1,6 +1,6 @@
 // AVFoundation session: a video stream for the finder and the histogram,
 // and a photo output that writes the still as a Bayer DNG. On a camera
-// with Apple Log the stream is the log frame in 10-bit 4:2:0, which the
+// with Apple Log the stream is the log frame in 10-bit 4:2:0 or 4:2:2, which the
 // finder reads as the negative; elsewhere it is the ISP's BGRA picture.
 // Nothing of either reaches the negative; the DNG is the measurement and
 // goes to the core as the desktop would read it.
@@ -261,7 +261,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         let logPhoto = logCapable.filter { $0.isHighPhotoQualitySupported }.count
         let counts = "\(logCapable.count) Apple Log format\(logCapable.count == 1 ? "" : "s") on this camera, \(logPhoto) of them photo formats, \(device.formats.count) formats in all"
         var logFormat = CaptureSession.logFormat(of: device)
-        var note = logFormat == nil ? "No Apple Log format in 10-bit 4:2:0 at 30 fps: \(counts)." : ""
+        var note = logFormat == nil ? "No Apple Log format in 10-bit 4:2:0 or 4:2:2 at 30 fps: \(counts)." : ""
         var logRawTypes: [String]?
         if let f = logFormat {
             session.sessionPreset = .inputPriority
@@ -284,9 +284,9 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
             if logFormat != nil {
                 let rawThere = photoOutput.availableRawPhotoPixelFormatTypes.map(FormatDump.fourcc)
                 logRawTypes = rawThere
-                if !videoOutput.availableVideoPixelFormatTypes.contains(kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange) {
-                    log.warning("Apple Log format offers no 10-bit 4:2:0 stream")
-                    note = "No 10-bit 4:2:0 stream in the Apple Log format. \(counts)."
+                if !videoOutput.availableVideoPixelFormatTypes.contains(CMFormatDescriptionGetMediaSubType(f.formatDescription)) {
+                    log.warning("Apple Log format offers no 10-bit stream of its own subtype")
+                    note = "No 10-bit stream in the Apple Log format's own subtype (\(FormatDump.fourcc(CMFormatDescriptionGetMediaSubType(f.formatDescription)))). \(counts)."
                     logFormat = nil
                 } else if bayer() == nil {
                     log.warning("Apple Log format offers no Bayer RAW still")
@@ -309,8 +309,10 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                 log.warning("finder configuration: \(error.localizedDescription)")
             }
         }
+        // The log stream in the format's own subtype: 4:2:0 or 4:2:2, both
+        // 10-bit biplanar video range; the GPU and the analysis read either.
         videoOutput.videoSettings = [
-            kCVPixelBufferPixelFormatTypeKey as String: logFormat != nil ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange : kCVPixelFormatType_32BGRA,
+            kCVPixelBufferPixelFormatTypeKey as String: logFormat.map { CMFormatDescriptionGetMediaSubType($0.formatDescription) } ?? kCVPixelFormatType_32BGRA,
         ]
         guard let fmt = bayer() else { throw CaptureError(message: "\(lens.label) offers no Bayer RAW") }
         rawFormat = fmt
@@ -401,15 +403,23 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         }
     }
 
+    /// The two 10-bit biplanar video-range subtypes Apple Log comes in:
+    /// 4:2:0 (`x420`) and 4:2:2 (`x422`, what the iPhone 16 Pro offers on
+    /// every one of its log formats).
+    static let logSubtypes: Set<OSType> = [kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange, kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange]
+
+    /// True for a frame in one of `logSubtypes`.
+    static func isLog(_ pb: CVPixelBuffer) -> Bool { logSubtypes.contains(CVPixelBufferGetPixelFormatType(pb)) }
+
     /// A format the finder reads as the negative: Apple Log in 10-bit
-    /// 4:2:0 at 30 fps, in the still's 4:3 framing when the camera offers
-    /// one (else the widest the log comes in), the largest up to about
-    /// 2 MP: the finder's own size, and what the GPU pass and the
-    /// histogram walk every frame. nil without Apple Log.
+    /// 4:2:0 or 4:2:2 at 30 fps, in the still's 4:3 framing when the
+    /// camera offers one (else the widest the log comes in), the largest
+    /// up to about 2 MP: the finder's own size, and what the GPU pass and
+    /// the histogram walk every frame. nil without Apple Log.
     static func logFormat(of device: AVCaptureDevice) -> AVCaptureDevice.Format? {
         let logs = device.formats.filter { f in
             f.supportedColorSpaces.contains(.appleLog)
-                && CMFormatDescriptionGetMediaSubType(f.formatDescription) == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+                && logSubtypes.contains(CMFormatDescriptionGetMediaSubType(f.formatDescription))
                 && f.videoSupportedFrameRateRanges.contains { $0.minFrameRate <= 30 && $0.maxFrameRate >= 30 }
         }
         let area = { (f: AVCaptureDevice.Format) -> Int in
@@ -650,7 +660,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         CVPixelBufferLockBaseAddress(pb, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(pb, .readOnly) }
         let bins: [Int]
-        if CVPixelBufferGetPixelFormatType(pb) == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange {
+        if CaptureSession.isLog(pb) {
             guard let paper = tone?.paper else { return }
             if grayTableFor != paper { grayTable = paper.grayTable(); grayTableFor = paper }
             let (b, median) = CaptureSession.analyseLog(pb, paper: paper, grayTable: grayTable)
@@ -714,14 +724,15 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         // The codes sit in the high 10 of 16 bits: code = sample >> 6.
         let yScale: Float = 1 / (876 * 64), cScale: Float = 1 / (896 * 64)
         let yBlack: Float = 64 * 64, cMid: Float = 512 * 64
+        // The chroma plane is half the width (4:2:2) or half of both (4:2:0).
         var y = 0
         while y < h {
             let row = y * lumaStride
-            let crow = min(y / 2, ch - 1) * chromaStride
+            let crow = min(y * ch / h, ch - 1) * chromaStride
             var x = 0
             while x < w {
                 let yy = (Float(luma[row + x]) - yBlack) * yScale
-                let ci = crow + min(x / 2, cw - 1) * 2
+                let ci = crow + min(x * cw / w, cw - 1) * 2
                 let cb = (Float(chroma[ci]) - cMid) * cScale
                 let cr = (Float(chroma[ci + 1]) - cMid) * cScale
                 let enc = ycc * SIMD3<Float>(yy, cb, cr)

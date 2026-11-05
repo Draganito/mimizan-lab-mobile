@@ -3,7 +3,7 @@
 //   finder     the camera's own SDR preview (BGRA), turned upright.
 //              Monochrome is that picture with the colour taken out;
 //              colour is the picture unchanged.
-//   finderLog  the live negative on an Apple Log frame (10-bit 4:2:0):
+//   finderLog  the live negative on an Apple Log frame (10-bit 4:2:0 or 4:2:2; the chroma plane is sampled normalised, so either pitch reads the same):
 //              undo the log, mix with the development's weights pulled
 //              back to linear BT.2020, apply the paper, per pixel. The
 //              same arithmetic as the Android shader in `MonoViewfinder.kt`.

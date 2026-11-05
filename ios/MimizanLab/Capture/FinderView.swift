@@ -94,7 +94,7 @@ final class FinderRenderer: NSObject, MTKViewDelegate {
         // is sampled.
         var held: [CVMetalTexture] = []
         let pipeline: MTLComputePipelineState
-        if CVPixelBufferGetPixelFormatType(frame) == kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange, let paper = tone.paper, let lut {
+        if CaptureSession.isLog(frame), let paper = tone.paper, let lut {
             guard let luma = texture(frame, plane: 0, .r16Unorm, cache), let chroma = texture(frame, plane: 1, .rg16Unorm, cache) else { enc.endEncoding(); return }
             held = [luma.0, chroma.0]
             u.ycc = YccMatrix.of(frame)

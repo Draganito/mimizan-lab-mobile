@@ -308,7 +308,7 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.17.0 on Android and iOS: RAW capture, the finder as the paper
+0.17.1 on Android and iOS: RAW capture, the finder as the paper
 (Android, and iPhones with Apple Log), Mono and Plate, the split-grade
 paper, the zone strip and Peak with a print per frame, review with
 remix and 1:1 detail, the exports, the roll. Checked on a Pixel 9 (main
@@ -322,7 +322,12 @@ camera's picture on Pro phones: Apple Log and the Bayer RAW still
 very likely live on different formats of the same camera. 0.16.2 says
 in Settings › Viewfinder which step decided it, writes every format
 of the lens to `formats.json` beside the match file, and shares both
-files from there. 0.17.0 adds the store builds' one purchase (the
+files from there. The first `formats.json` from an iPhone 16 Pro
+(iOS 26.6) answered it: eight Apple Log formats, every one in 10-bit
+4:2:2 (`x422`), none in the 4:2:0 the app insisted on, and among them
+1920×1440 at 30 fps with a 4032×3024 still. 0.17.1 accepts 4:2:2;
+whether the Bayer RAW is still offered in that format is the next
+thing the note will say. 0.17.0 adds the store builds' one purchase (the
 print at full resolution) through StoreKit 2 and Play Billing; the
 product has to exist in App Store Connect and the Play Console before
 the Unlock button can show a price. Open: the Pro-iPhone question, the
