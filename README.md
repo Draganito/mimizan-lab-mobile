@@ -7,9 +7,9 @@ a three-colour plate (Prokudin-Gorsky's principle, the desktop
 darkroom's second process): three mixes through three taking filters,
 the same paper, one RGB file.
 
-**To my knowledge, the first photographic application that takes the
-black-and-white negative directly from the luma-chroma separation of
-the sensor signal ([Alleysson 2005](https://doi.org/10.1109/TIP.2004.841200),
+**The first photographic application that takes the black-and-white
+negative directly from the luma-chroma separation of the sensor signal
+([Alleysson 2005](https://doi.org/10.1109/TIP.2004.841200),
 [Dubois 2005](https://doi.org/10.1109/LSP.2005.859503)) without ever
 reconstructing an RGB image — on the desktop, and now in your pocket.**
 
@@ -17,6 +17,42 @@ reconstructing an RGB image — on the desktop, and now in your pocket.**
   <img src="docs/screenshots/finder.png" alt="The finder, in colour" width="270">
   <img src="docs/screenshots/developer.png" alt="The developer, a plate" width="270">
 </p>
+
+**Never invents a pixel.** Every other camera guesses two of three
+colours per pixel. Mimizan Lab reads the sensor the way analogue
+television read its signal: luminance and colour separated, nothing
+interpolated, nothing made up.
+
+**A negative, not a file.** Your photo is a real negative in linear
+light. You develop it, you don't edit it.
+
+**Black and white like film.** Measured variable-contrast paper, soft
+and hard light mixed like an enlarger. Highlights roll off the way
+silver does.
+
+**Colour like slide film.** Three separate colour plates printed
+together. Saturated, deep, alive. No colour science borrowed from a
+phone.
+
+**See the print before you take it.** The viewfinder shows the paper,
+not the camera's picture: zone strip, zebra, grade. What you see is
+what develops. (Android; the Pro iPhones with Apple Log are in
+TestFlight.)
+
+**Sharp without the halo.** Peak measures the negative and stops before
+the edge becomes a line.
+
+**Not a filter. A pipeline.** The look isn't applied afterwards. It's
+what happens when light goes through paper.
+
+**Medium-format quality. Pocket-sized.** Prints that stand next to a
+medium-format negative, from the phone you already carry.
+
+**Your file stays yours.** Export the linear negative as a 16-bit TIFF
+and finish it in the desktop darkroom on Mac, Windows or Linux.
+
+**No cloud. No AI. No account.** Everything happens on your phone.
+Nothing leaves it.
 
 Only finished pictures leave the app. The raw frame stays in the app
 cache and can be developed again, or deleted there. Android writes no
