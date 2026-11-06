@@ -272,10 +272,11 @@ final class CaptureViewModel {
     var shotMode: ShotMode { shotModes.contains(prefs.shotMode) ? prefs.shotMode : .developer }
 
     /// Where a new frame starts: the standing pair under a paper finder,
-    /// where it was seen; the base print where the finder is the camera's
-    /// picture, so nothing set out of sight shapes the shot.
+    /// where it was seen and where Settings asks for the Peak; the base
+    /// print and Auto where the finder is the camera's picture, so nothing
+    /// set out of sight shapes the shot.
     var startingPrint: Print {
-        state.paperFinder ? prefs.standingPrint : Print(grade: .base, peak: prefs.standingPrint.peak)
+        state.paperFinder ? prefs.standingPrint : Print(grade: .base, peak: .standing(.auto))
     }
 
     // MARK: the shot

@@ -75,7 +75,7 @@ private struct RollRow: View {
                 Text(shot.name).font(.subheadline.monospaced())
                 let m = shot.meta
                 Text("\(m.lens) · \(Format.iso(m.iso)) · \(Format.shutter(m.exposureNs)) · " +
-                    (shot.settings.isPlate ? "Plate \(Format.plateFilters(shot.settings.plateFilters))" : Format.filterShort(shot.settings.filter)))
+                    (shot.settings.isPlate ? "Color \(Format.plateFilters(shot.settings.plateFilters))" : Format.filterShort(shot.settings.filter)))
                     .font(.caption).foregroundStyle(.gray).lineLimit(1)
                 Text(statusText)
                     .font(.caption)

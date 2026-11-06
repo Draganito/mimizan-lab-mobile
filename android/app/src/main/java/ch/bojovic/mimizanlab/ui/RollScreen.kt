@@ -88,7 +88,7 @@ fun RollScreen(onOpen: (String) -> Unit, onBack: () -> Unit) {
                         val m = shot.meta
                         Text(
                             "${m.lens} · ${Format.iso(m.iso)} · ${Format.shutter(m.exposureNs)} · " +
-                                if (shot.settings.isPlate) "Plate ${Format.plateFilters(shot.settings.plateFilters)}" else Format.filterShort(shot.settings.filter),
+                                if (shot.settings.isPlate) "Color ${Format.plateFilters(shot.settings.plateFilters)}" else Format.filterShort(shot.settings.filter),
                             style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                         )
                         Text(

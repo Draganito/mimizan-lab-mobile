@@ -195,7 +195,7 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                     FilterChip(
                         selected = plate != null,
                         onClick = { vm.setProcess(Process.PLATE) },
-                        label = { Text("Plate") },
+                        label = { Text("Color") },
                         colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF4A3A2A)),
                     )
                     Spacer(Modifier.weight(1f))
@@ -223,7 +223,7 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                                 onClick = { exportMenu = false; vm.exportTiff() },
                             )
                             DropdownMenuItem(
-                                text = { Text(if (plate != null) "Plate (linear TIFF, three frames + mask)" else "Negative (linear TIFF + mask)") },
+                                text = { Text(if (plate != null) "Negative (linear TIFF, three frames + mask)" else "Negative (linear TIFF + mask)") },
                                 trailingIcon = lock,
                                 onClick = { exportMenu = false; vm.exportNegative() },
                             )

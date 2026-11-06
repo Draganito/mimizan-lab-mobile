@@ -47,7 +47,7 @@ fun UnlockSection(entitlements: Entitlements) {
             )
         } else {
             Text(
-                "The camera, the finder, the developer, the plate, the roll and the JPEG at half size are free. " +
+                "The camera, the finder, the developer, Mono and Color, the roll and the JPEG at half size are free. " +
                     "One purchase, once, unlocks the print at full resolution: the JPEG at full size, the 16-bit TIFF " +
                     "and the linear negative for the desktop darkroom.",
                 style = MaterialTheme.typography.bodySmall, color = Color.Gray,

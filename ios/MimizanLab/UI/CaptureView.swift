@@ -15,8 +15,6 @@ struct CaptureView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var showSettings = false
 
-    /// Manual is amber, so a dark finder in M reads as a setting, not a fault.
-
     var body: some View {
         let state = vm.state
         let lens = vm.lens
@@ -298,17 +296,20 @@ struct SettingsSheet: View {
                         ? "The standing paper is under the finder. The slider is the grade: hard light against soft, in stops; zero is the paper's grade 2, left is softer, right harder. The strip is the exposure: left prints darker, right lighter; double-tap it for the base print. The viewfinder, the automatic JPEG and a new frame start there. In the developer the grade is the picture's own and stays with it."
                         : "On this device the finder is the camera's picture, so the paper is set in the developer, on each picture, where it shows at once: the slider is the grade, the strip the exposure, a double tap the base print. A new frame starts at the base print.")
                         .font(.caption).foregroundStyle(.gray)
-                    PeakRow(mode: vm.prefs.peakMode, modes: PeakMode.standing, onMode: vm.setPeakMode)
-                    Text(paperFinder
-                        ? "The standing Peak: the automatic JPEG, and where a new frame starts. Auto measures each negative. A hand pair is set in the developer and stays with that picture. The viewfinder does not show Peak."
-                        : "The standing Peak: where a new frame starts. Auto measures each negative. A hand pair is set in the developer and stays with that picture.")
-                        .font(.caption).foregroundStyle(.gray)
+                    // The standing Peak only matters where a print leaves without
+                    // the developer: the automatic JPEG. Elsewhere every frame
+                    // starts at Auto and the developer sets Off or Custom on it.
+                    if paperFinder {
+                        PeakRow(mode: vm.prefs.peakMode, modes: PeakMode.standing, onMode: vm.setPeakMode)
+                        Text("The standing Peak: the automatic JPEG, and where a new frame starts. Auto measures each negative. A hand pair is set in the developer and stays with that picture. The viewfinder does not show Peak.")
+                            .font(.caption).foregroundStyle(.gray)
+                    }
                     ShotRow(mode: vm.shotMode, modes: vm.shotModes, onMode: vm.setShotMode)
                     Text(paperFinder
                         ? "JPEG writes the picture and stays here. Developer opens it. Raw keeps the frame for later, and the picture waits for Export."
                         : "Developer opens the picture. Raw keeps the frame for later, and the picture waits for Export.")
                         .font(.caption).foregroundStyle(.gray)
-                    Text("Plate colour space").font(.subheadline).padding(.top, 8)
+                    Text("Color space").font(.subheadline).padding(.top, 8)
                     HStack(spacing: 6) {
                         ForEach(PlateSpace.all, id: \.self) { sp in
                             Chip(label: Format.plateSpace(sp), selected: vm.prefs.plateSpace == sp) { vm.setPlateSpace(sp) }
@@ -330,7 +331,7 @@ struct SettingsSheet: View {
                             Button("Reset") { vm.prefs.resetFinderMatch() }.disabled(match.count == 0)
                         }
                     } else {
-                        Text("The camera's picture. The paper needs Apple Log with a Bayer RAW still in the same format: an iPhone 15 Pro or a later Pro, and then only where the camera allows the two together.")
+                        Text("The camera's picture. The paper needs Apple Log and a Bayer RAW still from the same camera: an iPhone 15 Pro or a later Pro.")
                             .font(.caption).foregroundStyle(.gray)
                     }
                     // The step that decided it, in the words a tester can

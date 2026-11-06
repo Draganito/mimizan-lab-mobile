@@ -66,7 +66,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
@@ -369,7 +368,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 Spacer(Modifier.height(8.dp))
-                Text("Plate colour space", style = MaterialTheme.typography.titleSmall)
+                Text("Color space", style = MaterialTheme.typography.titleSmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (sp in PlateSpace.entries) {
                         FilterChip(

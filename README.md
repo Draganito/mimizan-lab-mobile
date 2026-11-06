@@ -119,8 +119,8 @@ between a release download and your own `installDebug`.
 
 **Free and paid.** The APK from the releases page, the macOS app and
 the Windows build are complete and free. The Play Store app and the App
-Store app are free to use as well — camera, finder, developer, plate,
-roll, 1:1 view and a JPEG at half the edge — and sell one thing once:
+Store app are free to use as well — camera, finder, developer, Mono
+and Color, roll, 1:1 view and a JPEG at half the edge — and sell one thing once:
 the print at full resolution, which is the full-size JPEG, the 16-bit
 TIFF and the linear negative. The same product
 (`ch.bojovic.mimizanlab.fullres`) on both stores; on Apple it is a
@@ -145,12 +145,13 @@ the camera's own preview, desaturated in mono, untouched in colour.
    Auto flash does not fire. There is no EV slider: the automatics
    expose, and a print that came out dark is corrected in the
    developer, where the stops are what they say.
-2. **Process.** Mono or Plate, kept across starts. In Mono the filter
-   row (Pan, Y8, YG11, O16, R25, G58, B47) is the film for the shot and
-   can be changed in review without developing again. In Plate the row
-   is the three taking filters: Camera (the sensor's colour matrix),
-   Wratten (25/58/47) or Channels. The colour space starts at sRGB;
-   Adobe RGB is in Settings.
+2. **Process.** Mono or Color, kept across starts; Color is the
+   three-colour plate. In Mono the filter row (Pan, Y8, YG11, O16,
+   R25, G58, B47) is the film for the shot and can be changed in
+   review without developing again. In Color the row is the three
+   taking filters: Camera (the sensor's colour matrix), Wratten
+   (25/58/47) or Channels. The colour space starts at sRGB; Adobe RGB
+   is under *Color space* in Settings.
 3. **Grade.** One slider: hard light against soft, in stops (±6,
    steps of 1/6); zero, the middle, is the paper's grade 2, left is
    softer, right harder. It carries no label and no number: the
@@ -175,11 +176,13 @@ the camera's own preview, desaturated in mono, untouched in colour.
    beside it on the roll: moving a slider in the developer changes
    that picture alone, and the next shot starts from the standing
    grade again, not from the last correction.
-4. **Peak** is Off or Auto in Settings, the standing choice for the
-   automatic JPEG and a new frame. Auto measures radius and amount on
-   each negative, Off leaves the exports unsharpened. In the developer
-   a picture can also go to Custom, which shows the two sliders and,
-   like the grade, stays with that picture alone. The preview is never
+4. **Peak** is Off or Auto in Settings where the finder is the paper,
+   the standing choice for the automatic JPEG and a new frame; on the
+   other iPhones and the iPad every frame starts at Auto and Settings
+   does not ask. Auto measures radius and amount on each negative, Off
+   leaves the exports unsharpened. In the developer a picture can also
+   go to Off or Custom, which shows the two sliders and, like the
+   grade, stays with that picture alone. The preview is never
    sharpened; the 1:1 view is.
 5. **A shot** is JPEG, Developer or Raw. JPEG writes the picture at
    this grade and stays on the finder; it is the print the finder
@@ -199,10 +202,11 @@ the camera's own preview, desaturated in mono, untouched in colour.
    from the negative. The grade and the zone strip change the preview,
    the histogram and every export, through the same paper. Export
    writes the JPEG, a 16-bit TIFF, or the linear negative plus
-   saturation mask for the desktop (in Plate the three-frame
+   saturation mask for the desktop (in Color the three-frame
    `.plate.tif`, which `mimizan print` prints in colour). In a store
-   build without the purchase the JPEG is binned to half the edge and
-   the two TIFFs open the purchase instead. Share sends the last
+   build without the purchase the JPEG is printed at half the edge,
+   the same development on a smaller sheet, and the two TIFFs open the
+   purchase instead. Share sends the last
    export.
 8. **The roll** lists every frame in the cache (1.5 GB, oldest first).
    The bin, or a long press, deletes one. Exported pictures stay where
@@ -361,8 +365,8 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.17.8 on Android and iOS: RAW capture, the finder as the paper
-(Android, and iPhones with Apple Log), Mono and Plate, the split-grade
+0.17.9 on Android and iOS: RAW capture, the finder as the paper
+(Android, and iPhones with Apple Log), Mono and Color, the split-grade
 paper, the zone strip and Peak with a print per frame, review with
 remix and 1:1 detail, the exports, the roll. Checked on a Pixel 9 (main
 and ultrawide), a Pixel 4a and a Galaxy S25 FE. The Apple Log finder
@@ -384,15 +388,14 @@ offers no RAW type at all (`logRawTypes: []`). 0.17.2/0.17.3 keep the finder
 in the Log format and swaps the camera to the photo format for the
 still with the exposure the finder stood at, and swaps back; the Settings note
 reads "Apple Log for the finder; the Bayer RAW still comes from the
-photo format". 0.17.4 shows the grade as one slider over the zone
-strip (contrast and exposure), the same soft and hard behind it, the
-same print. 0.17.5 puts the exposure line in a bar above the finder
-and the grade and the strip under it, on every phone; 0.17.6 takes
-the label off the grade and moves the finder's buttons to its lower
-edge; 0.17.7 colours slider and strip amber when they are off the base
-print, in place of a mark in the line; 0.17.8 offers the pair and the
-JPEG shot only under a paper finder, starts every other frame at the
-base print, and drops the binned quick development. 0.17.0 adds the store builds' one purchase (the
+photo format". 0.17.4 to 0.17.9 settle the camera screen: the grade as one slider
+over the zone strip (the same soft and hard behind it, the same
+print), the exposure line as a bar above the finder, the finder's
+buttons along its lower edge, slider and strip amber when they are off
+the base print, the pair, the JPEG shot and the standing Peak only
+under a paper finder (every other frame starts at the base print and
+Auto), no binned quick development, and the colour process called
+Color wherever the user reads it. 0.17.0 adds the store builds' one purchase (the
 print at full resolution) through StoreKit 2 and Play Billing; the
 product has to exist in App Store Connect and the Play Console before
 the Unlock button can show a price. Open: the Pro-iPhone question, the

@@ -136,7 +136,7 @@ struct ReviewView: View {
             Button("JPEG\(rgb)\(peak)\(full ? "" : ", half size")") { vm.exportJpeg() }
             // The locked exports stay in the menu: tapping one offers the purchase.
             let tiff = "TIFF 16-bit\(rgb)\(peak)"
-            let negative = plate != nil ? "Plate (linear TIFF, three frames + mask)" : "Negative (linear TIFF + mask)"
+            let negative = plate != nil ? "Negative (linear TIFF, three frames + mask)" : "Negative (linear TIFF + mask)"
             Button { vm.exportTiff() } label: { if full { Text(tiff) } else { Label(tiff, systemImage: "lock") } }
             Button { vm.exportNegative() } label: { if full { Text(negative) } else { Label(negative, systemImage: "lock") } }
         } label: {

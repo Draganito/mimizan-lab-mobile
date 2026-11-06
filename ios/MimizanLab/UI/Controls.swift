@@ -80,7 +80,7 @@ struct PeakRow: View {
     }
 }
 
-/// Mono and Plate. The filters sit on their own row under this.
+/// Mono and Color (the plate process). The filters sit on their own row under this.
 struct ProcessChoice: View {
     let plate: Bool
     let onProcess: (Process) -> Void
@@ -88,7 +88,7 @@ struct ProcessChoice: View {
     var body: some View {
         HStack(spacing: 6) {
             Chip(label: "Mono", selected: !plate) { onProcess(.mono) }
-            Chip(label: "Plate", selected: plate, tint: Color(red: 0.29, green: 0.23, blue: 0.16)) { onProcess(.plate) }
+            Chip(label: "Color", selected: plate, tint: Color(red: 0.29, green: 0.23, blue: 0.16)) { onProcess(.plate) }
         }
     }
 }

@@ -178,7 +178,9 @@ separation:
   (`Peak.applied`). The standing Peak in the settings (`Prefs.peakMode`)
   is Off or Auto only — what a new frame starts with and the automatic
   JPEG applies; a hand pair belongs to one negative, so Custom is the
-  developer's alone and never a setting. A `.grade` file from 0.15.0
+  developer's alone and never a setting. On iOS the setting is only
+  offered under a paper finder, where a JPEG leaves without the
+  developer; elsewhere `startingPrint` hands every frame Auto. A `.grade` file from 0.15.0
   has no `peak` object and reads with the standing Peak. The 1:1 view
   and every export follow the mode; the preview is never sharpened.
 * after a development on iOS with the Apple Log finder ->
@@ -212,7 +214,8 @@ repository): three mixes of the same separation through three "taking
 filters", printed through the same paper into one RGB file. On the phone it
 is, as on the desktop, a re-mix and not a re-development:
 
-* *Mono · Plate* (`ProcessRow`, in the viewfinder and in review) ->
+* *Mono · Color* (the button in the viewfinder's line, `ProcessChoice` /
+  the chips in review; "Color" is the user's word for the plate) ->
   `set_plate(filters, space)` resolves the three weight triples for this
   frame (`Camera`: the frame's `SENSOR_COLOR_TRANSFORM` for D65 towards the
   primaries; `Wratten`: 25/58/47 in front of the camera file's response or
