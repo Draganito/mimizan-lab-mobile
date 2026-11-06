@@ -137,7 +137,9 @@ struct PlateFilterRow: View {
 /// the paper's grade 2; left is softer, right harder. The exposure (the
 /// mean of the two) stays where the zone strip put it. Behind it are the
 /// same two numbers as ever, soft and hard, and the print is the same.
-/// Steps of a sixth of a stop keep both on the twelfth grid.
+/// Steps of a sixth of a stop keep both on the twelfth grid. No label and
+/// no number: the picture is the reading, the slider is as wide as the
+/// zone strip under it, and a double tap on the strip is the way back.
 struct GradeSlider: View {
     let soft: Double
     let hard: Double
@@ -146,7 +148,7 @@ struct GradeSlider: View {
     var body: some View {
         let lim = 2 * Prefs.stopLimit
         let c = Prefs.contrast(soft: soft, hard: hard)
-        LabeledSlider(label: String(format: "grade %+.2f", c), value: Binding(get: { c }, set: onContrast), range: -lim...lim, step: 1.0 / 6)
+        Slider(value: Binding(get: { c }, set: onContrast), in: -lim...lim, step: 1.0 / 6)
     }
 }
 

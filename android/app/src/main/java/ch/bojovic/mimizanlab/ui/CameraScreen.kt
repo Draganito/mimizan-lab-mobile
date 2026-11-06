@@ -92,7 +92,6 @@ import ch.bojovic.mimizanlab.store.GradeMath
 import ch.bojovic.mimizanlab.store.PeakMode
 import ch.bojovic.mimizanlab.store.Prefs
 import ch.bojovic.mimizanlab.store.ShotMode
-import java.util.Locale
 import kotlinx.coroutines.delay
 
 @Composable
@@ -252,34 +251,32 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                     }
                 }
 
-                if (vf.showHistogram) {
-                    Histogram(
-                        bins = histogram,
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(8.dp)
-                            .size(width = 120.dp, height = 56.dp)
-                            .clickable { vm.toggleHistogram() },
-                    )
-                }
-                Column(Modifier.matchParentSize().padding(4.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                // The finder's own controls sit along its lower edge, the
+                // picture above them clear: bottom left the lens, the
+                // histogram over it; bottom right the gear, a gap, and the
+                // three aids.
+                Row(Modifier.matchParentSize().padding(4.dp), verticalAlignment = Alignment.Bottom) {
+                    Column {
+                        if (vf.showHistogram) {
+                            Histogram(
+                                bins = histogram,
+                                modifier = Modifier
+                                    .padding(8.dp)
+                                    .size(width = 120.dp, height = 56.dp)
+                                    .clickable { vm.toggleHistogram() },
+                            )
+                        }
                         TextButton(onClick = { vm.nextLens() }, enabled = vm.lenses.size > 1) {
                             Text(lens?.let { "${it.label}  ${it.equivalentMm} mm" } ?: "", style = MaterialTheme.typography.bodySmall)
                         }
-                        Spacer(Modifier.weight(1f))
-                        IconButton(onClick = { showSettings = true }) {
-                            Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Color.White)
-                        }
                     }
                     Spacer(Modifier.weight(1f))
-                    Row {
-                        Spacer(Modifier.weight(1f))
-                        Column {
-                            Aid(Icons.Default.Grid3x3, "Grid", vf.grid, vm::toggleGrid)
-                            Aid(Icons.Default.BarChart, "Histogram", vf.showHistogram, vm::toggleHistogram)
-                            Aid(Icons.Default.Contrast, "Zebra", vf.zebra, vm::toggleZebra)
-                        }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Aid(Icons.Default.Settings, "Settings", true) { showSettings = true }
+                        Spacer(Modifier.height(8.dp))
+                        Aid(Icons.Default.Grid3x3, "Grid", vf.grid, vm::toggleGrid)
+                        Aid(Icons.Default.BarChart, "Histogram", vf.showHistogram, vm::toggleHistogram)
+                        Aid(Icons.Default.Contrast, "Zebra", vf.zebra, vm::toggleZebra)
                     }
                 }
 
@@ -534,16 +531,18 @@ fun SettingRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
  * the paper's grade 2; left is softer, right harder. The exposure (the
  * mean of the two) stays where the zone strip put it. Behind it are the
  * same two numbers as ever, soft and hard, and the print is the same.
- * Steps of a sixth of a stop keep both on the twelfth grid.
+ * Steps of a sixth of a stop keep both on the twelfth grid. No label and
+ * no number: the picture is the reading, the slider is as wide as the
+ * zone strip under it, and a double tap on the strip is the way back.
  */
 @Composable
 fun GradeSlider(soft: Double, hard: Double, onContrast: (Double) -> Unit) {
     val lim = (2 * Prefs.STOP_LIMIT).toFloat()
-    LabeledSlider(
-        label = String.format(Locale.US, "grade %+.2f", GradeMath.contrast(soft, hard)),
+    Slider(
         value = GradeMath.contrast(soft, hard).toFloat(),
-        onChange = { onContrast((kotlin.math.round(it * 6.0) / 6.0)) },
-        range = -lim..lim,
+        onValueChange = { onContrast((kotlin.math.round(it * 6.0) / 6.0)) },
+        valueRange = -lim..lim,
+        modifier = Modifier.fillMaxWidth(),
     )
 }
 

@@ -33,15 +33,22 @@ object Format {
     }
 
     /**
-     * The standing paper time beside the exposure line: the stops both
-     * exposures sit from the base print (their mean, what the zone strip
-     * moves), with the paper's sign, so plus is more time and a darker
-     * print. Null at the base print, so the line shows nothing to reset.
+     * The standing paper beside the exposure line, the sign that it is
+     * off the base print: the stops both exposures sit from it (their
+     * mean, what the zone strip moves), with the paper's sign, so plus is
+     * more time and a darker print; and `harder` or `softer` when the
+     * grade is off zero, a word, not a number, since the grade slider
+     * shows none. Null at the base print, so the line shows nothing to
+     * reset.
      */
     fun paperShift(soft: Double, hard: Double): String? {
         val mean = (soft + hard) / 2.0
-        if (kotlin.math.abs(mean) < 1.0 / 24.0) return null
-        return String.format(Locale.US, "%+.2f", mean)
+        val grade = hard - soft
+        val parts = buildList {
+            if (kotlin.math.abs(mean) >= 1.0 / 24.0) add(String.format(Locale.US, "%+.2f", mean))
+            if (kotlin.math.abs(grade) >= 1.0 / 24.0) add(if (grade > 0) "harder" else "softer")
+        }
+        return if (parts.isEmpty()) null else parts.joinToString("  ")
     }
 
     fun filterShort(f: Filter): String = when (f) {

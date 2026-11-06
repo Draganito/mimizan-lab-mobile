@@ -188,20 +188,17 @@ struct CaptureView: View {
             .position(x: f.x * size.width, y: f.y * size.height + 16)
             .allowsHitTesting(false)
         }
-        if vm.viewfinder.showHistogram {
-            VStack {
-                Spacer()
-                HStack {
+        // The finder's own controls sit along its lower edge, the picture
+        // above them clear: bottom left the lens, the histogram over it;
+        // bottom right the gear, a gap, and the three aids.
+        HStack(alignment: .bottom) {
+            VStack(alignment: .leading, spacing: 0) {
+                if vm.viewfinder.showHistogram {
                     HistogramView(bins: state.histogram)
                         .frame(width: 120, height: 56)
                         .padding(8)
                         .onTapGesture { vm.toggleHistogram() }
-                    Spacer()
                 }
-            }
-        }
-        VStack {
-            HStack {
                 Button { vm.nextLens() } label: {
                     Text(lensLabel)
                         .font(.caption)
@@ -209,25 +206,19 @@ struct CaptureView: View {
                         .padding(.vertical, 4)
                 }
                 .disabled(vm.lenses.count < 2)
-                Spacer()
-                Button { showSettings = true } label: {
-                    Image(systemName: "gearshape")
-                        .font(pad ? .title2 : .caption)
-                        .frame(width: pad ? 64 : 32, height: pad ? 64 : 32)
-                        .contentShape(Rectangle())
-                }
             }
+            .padding(pad ? 12 : 6)
             Spacer()
-            HStack {
-                Spacer()
-                VStack(spacing: pad ? 8 : 4) {
-                    aid("grid", on: vm.viewfinder.grid) { vm.toggleGrid() }
-                    aid("chart.bar.xaxis", on: vm.viewfinder.showHistogram) { vm.toggleHistogram() }
-                    aid("circle.lefthalf.filled", on: vm.viewfinder.zebra) { vm.toggleZebra() }
-                }
-                .padding(pad ? 12 : 6)
+            VStack(spacing: pad ? 8 : 4) {
+                aid("gearshape", on: true) { showSettings = true }
+                    .padding(.bottom, pad ? 16 : 8)
+                aid("grid", on: vm.viewfinder.grid) { vm.toggleGrid() }
+                aid("chart.bar.xaxis", on: vm.viewfinder.showHistogram) { vm.toggleHistogram() }
+                aid("circle.lefthalf.filled", on: vm.viewfinder.zebra) { vm.toggleZebra() }
             }
+            .padding(pad ? 12 : 6)
         }
+        .frame(maxHeight: .infinity, alignment: .bottom)
         .foregroundStyle(.white)
         .shadow(color: .black.opacity(0.55), radius: 2, y: 1)
         if state.capturing {
