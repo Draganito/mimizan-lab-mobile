@@ -63,8 +63,8 @@ there the stream is the log frame, decoded to scene light and printed
 through the paper as on Android. Apple keeps the log on the video
 formats and the Bayer RAW on the photo format, so the shutter swaps
 the camera for the still and back: the finder holds its last frame for
-about a second while the exposure settles in the other format and the
-RAW is taken. On the other iPhones and on the iPad the finder is the
+about a second while the finder's exposure is set in the other format
+and the RAW is taken. On the other iPhones and on the iPad the finder is the
 camera's own picture, and the still is immediate. The app asks the
 camera, not the model name. The swap is in TestFlight first (see
 *Status*).
@@ -312,7 +312,7 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.17.2 on Android and iOS: RAW capture, the finder as the paper
+0.17.3 on Android and iOS: RAW capture, the finder as the paper
 (Android, and iPhones with Apple Log), Mono and Plate, the split-grade
 paper, the zone strip and Peak with a print per frame, review with
 remix and 1:1 detail, the exports, the roll. Checked on a Pixel 9 (main
@@ -331,9 +331,9 @@ files from there. The first `formats.json` from an iPhone 16 Pro
 4:2:2 (`x422`), none in the 4:2:0 the app insisted on, and among them
 1920×1440 at 30 fps with a 4032×3024 still. 0.17.1 accepted 4:2:2, and
 the second file said the rest: with the Log format active the camera
-offers no RAW type at all (`logRawTypes: []`). 0.17.2 keeps the finder
+offers no RAW type at all (`logRawTypes: []`). 0.17.2/0.17.3 keep the finder
 in the Log format and swaps the camera to the photo format for the
-still, settles the exposure there, and swaps back; the Settings note
+still with the exposure the finder stood at, and swaps back; the Settings note
 reads "Apple Log for the finder; the Bayer RAW still comes from the
 photo format". 0.17.0 adds the store builds' one purchase (the
 print at full resolution) through StoreKit 2 and Play Billing; the

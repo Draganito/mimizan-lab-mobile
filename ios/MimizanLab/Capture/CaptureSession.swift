@@ -684,10 +684,11 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
 
     /// One Bayer RAW still as a DNG, with the finder's measurement of the
     /// moment. The flash fires only here. Where the still lives in another
-    /// format than the finder, the camera swaps to it, the exposure is
-    /// given a moment to settle (the hand's values set again, the
-    /// automatics watched until they stop), the still is taken, and the
-    /// finder's format comes back; the finder holds its last frame
+    /// format than the finder, the camera swaps to it, the finder's
+    /// exposure is set there by hand (the automatics' ISO and time as
+    /// they stood at the shutter, or the hand's own) so nothing is
+    /// measured twice, the still is taken, and the finder's format comes
+    /// back with the automatics; the finder holds its last frame
     /// meanwhile.
     func capture() async throws -> Still {
         await MainActor.run { self.state.capturing = true }
@@ -707,9 +708,14 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                     self.shoot(finderMedian: finderMedian) { cont.resume(with: $0) }
                     return
                 }
+                // The automatics' answer in the finder, frozen before the swap;
+                // with the flash on Auto or On the automatics must decide in
+                // the photo format, so they are left to settle there.
+                let frozen: (iso: Float, seconds: Double)? =
+                    (!self.exposure.manual && self.flash == .off) ? (d.iso, d.exposureDuration.seconds) : nil
                 self.swapping = true
                 self.swap(d, to: still, appleLog: false)
-                self.settleExposure(d) { [weak self] in
+                self.settleExposure(d, frozen: frozen) { [weak self] in
                     guard let self, self.device === d else {
                         cont.resume(throwing: CaptureError(message: "camera stopped"))
                         return
@@ -739,17 +745,25 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         session.commitConfiguration()
     }
 
-    /// After a format change: the hand's ISO and time set again on the new
-    /// format (the device says when they are in), or the automatics
-    /// watched until `isAdjustingExposure` drops, at most 0.8 s.
-    private func settleExposure(_ d: AVCaptureDevice, then: @escaping () -> Void) {
-        if exposure.manual, let iso = exposure.iso, let s = exposure.seconds, d.isExposureModeSupported(.custom) {
+    /// After a format change: an exposure set by hand on the new format —
+    /// the hand's own ISO and time, or the automatics' as `frozen` in the
+    /// finder — and the device says when it is in; only when neither is
+    /// there are the automatics watched until `isAdjustingExposure`
+    /// drops, at most 0.8 s.
+    private func settleExposure(_ d: AVCaptureDevice, frozen: (iso: Float, seconds: Double)?, then: @escaping () -> Void) {
+        var pair: (iso: Double, seconds: Double)?
+        if exposure.manual, let iso = exposure.iso, let s = exposure.seconds {
+            pair = (iso, s)
+        } else if let frozen, frozen.iso.isFinite, frozen.seconds.isFinite, frozen.seconds > 0 {
+            pair = (Double(frozen.iso), frozen.seconds)
+        }
+        if let pair, d.isExposureModeSupported(.custom) {
             do {
                 try d.lockForConfiguration()
                 defer { d.unlockForConfiguration() }
                 let f = d.activeFormat
-                let isoC = Float(min(max(iso, Double(f.minISO)), Double(f.maxISO)))
-                let secC = min(max(s, f.minExposureDuration.seconds), f.maxExposureDuration.seconds)
+                let isoC = Float(min(max(pair.iso, Double(f.minISO)), Double(f.maxISO)))
+                let secC = min(max(pair.seconds, f.minExposureDuration.seconds), f.maxExposureDuration.seconds)
                 d.setExposureModeCustom(duration: CMTime(seconds: secC, preferredTimescale: 1_000_000_000), iso: isoC) { [weak self] _ in
                     self?.queue.async(execute: then)
                 }
