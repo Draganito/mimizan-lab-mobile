@@ -149,12 +149,22 @@ struct GradeSlider: View {
         let lim = 2 * Prefs.stopLimit
         let c = Prefs.contrast(soft: soft, hard: hard)
         Slider(value: Binding(get: { c }, set: onContrast), in: -lim...lim, step: 1.0 / 6)
+            .tint(abs(c) < 1.0 / 24 ? .white : .settingInk)
     }
+}
+
+/// Settings, hand exposure and a paper off the base print are amber, so
+/// a dark finder reads as a setting, not a fault.
+extension Color {
+    static let settingInk = Color(red: 1, green: 0.72, blue: 0.3)
 }
 
 /// Drag left to print darker, right to print lighter. Both exposures move
 /// by the same stops, so the grade stays. A double tap is the base print:
 /// both exposures back to zero, the one way out of a grade set yesterday.
+/// The slider and the strip say themselves when they are off it: white
+/// at the base print, amber away from it, each for its own half, the
+/// grade or the exposure; the double tap turns both white again.
 struct ZoneStrip: View {
     let soft: Double
     let hard: Double
@@ -162,10 +172,11 @@ struct ZoneStrip: View {
     @State private var origin: (Double, Double)?
 
     var body: some View {
+        let off = abs(soft + hard) / 2 >= 1.0 / 24
         GeometryReader { g in
             RoundedRectangle(cornerRadius: 6)
                 .fill(LinearGradient(colors: [.black, .white], startPoint: .leading, endPoint: .trailing))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.35), lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(off ? Color.settingInk : Color.white.opacity(0.35), lineWidth: off ? 2 : 1))
                 .onTapGesture(count: 2) { onBoth(0, 0) }
                 .highPriorityGesture(
                     DragGesture(minimumDistance: 4)

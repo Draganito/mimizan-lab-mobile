@@ -45,6 +45,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -146,9 +147,6 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
             .navigationBarsPadding(),
     ) {
         // The line above the finder: process, exposure, flash, A/M.
-        // Settings, hand exposure and a standing paper shift are amber, so
-        // a dark finder reads as a setting, not a fault.
-        val settingInk = Color(0xFFFFB74D)
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -160,14 +158,9 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
             Text(
                 Format.exposureLine(stream.iso, stream.exposureNs, exposure.manual),
                 fontFamily = FontFamily.Monospace,
-                color = if (exposure.manual) settingInk else Color.White,
+                color = if (exposure.manual) SettingInk else Color.White,
                 modifier = Modifier.padding(horizontal = 8.dp),
             )
-            // Where the paper stands when it is off the base print, so a
-            // strip left at +1 yesterday is seen before the shot.
-            Format.paperShift(soft, hard)?.let {
-                Text(it, fontFamily = FontFamily.Monospace, color = settingInk, modifier = Modifier.padding(end = 8.dp))
-            }
             if (lens?.hasFlash == true) {
                 IconButton(onClick = vm::cycleFlash) {
                     Icon(
@@ -184,7 +177,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
             TextButton(
                 onClick = { if (exposure.manual) vm.setAuto() else vm.enterManual() },
                 enabled = lens?.hasManualSensor == true,
-            ) { Text(if (exposure.manual) "M" else "A", fontWeight = FontWeight.Bold, color = if (exposure.manual) settingInk else Color.White) }
+            ) { Text(if (exposure.manual) "M" else "A", fontWeight = FontWeight.Bold, color = if (exposure.manual) SettingInk else Color.White) }
         }
 
         // The picture takes the height the line, the grade and the shutter
@@ -538,21 +531,30 @@ fun SettingRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
 @Composable
 fun GradeSlider(soft: Double, hard: Double, onContrast: (Double) -> Unit) {
     val lim = (2 * Prefs.STOP_LIMIT).toFloat()
+    val ink = if (kotlin.math.abs(GradeMath.contrast(soft, hard)) < 1.0 / 24.0) Color.White else SettingInk
     Slider(
         value = GradeMath.contrast(soft, hard).toFloat(),
         onValueChange = { onContrast((kotlin.math.round(it * 6.0) / 6.0)) },
         valueRange = -lim..lim,
+        colors = SliderDefaults.colors(thumbColor = ink, activeTrackColor = ink),
         modifier = Modifier.fillMaxWidth(),
     )
 }
+
+/** Settings, hand exposure and a paper off the base print are amber, so a dark finder reads as a setting, not a fault. */
+val SettingInk = Color(0xFFFFB74D)
 
 /**
  * Drag left to print darker, right to print lighter. Both exposures move
  * by the same stops, so the grade stays. A double tap is the base print:
  * both exposures back to zero, the one way out of a grade set yesterday.
+ * The slider and the strip say themselves when they are off it: white at
+ * the base print, amber away from it, each for its own half, the grade
+ * or the exposure; the double tap turns both white again.
  */
 @Composable
 fun ZoneStrip(soft: Double, hard: Double, onBoth: (Double, Double) -> Unit) {
+    val off = kotlin.math.abs(soft + hard) / 2.0 >= 1.0 / 24.0
     val latest = rememberUpdatedState(soft to hard)
     var origin by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var dx by remember { mutableStateOf(0f) }
@@ -562,7 +564,7 @@ fun ZoneStrip(soft: Double, hard: Double, onBoth: (Double, Double) -> Unit) {
             .height(28.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(Brush.horizontalGradient(listOf(Color.Black, Color.White)))
-            .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+            .border(if (off) 2.dp else 1.dp, if (off) SettingInk else Color.White.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
             .pointerInput(Unit) {
                 detectTapGestures(onDoubleTap = { onBoth(0.0, 0.0) })
             }

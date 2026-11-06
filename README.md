@@ -162,9 +162,10 @@ the camera's own preview, desaturated in mono, untouched in colour.
    chooses the pair, the print is the same. The pair under the finder
    is the standing grade: the paper finder, the automatic JPEG, and
    where a new frame starts. The exposure line (process, ISO and
-   shutter, flash, A/M) is the bar above the finder; the amber mark
-   in it says the paper is off the base print: the stops of exposure,
-   and *harder* or *softer* for the grade.
+   shutter, flash, A/M) is the bar above the finder. Slider and strip
+   are white at the base print and amber away from it, each for its
+   own half: a grade set yesterday shows before the shot, and the
+   double tap turns both white again.
    Where the finder is the paper (Android, Apple Log iPhones) the strip
    is the one exposure correction there is: the drag shows the print
    you will get. On the other iPhones and the iPad the finder does not
@@ -354,7 +355,7 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.17.6 on Android and iOS: RAW capture, the finder as the paper
+0.17.7 on Android and iOS: RAW capture, the finder as the paper
 (Android, and iPhones with Apple Log), Mono and Plate, the split-grade
 paper, the zone strip and Peak with a print per frame, review with
 remix and 1:1 detail, the exports, the roll. Checked on a Pixel 9 (main
@@ -382,7 +383,8 @@ strip (contrast and exposure), the same soft and hard behind it, the
 same print. 0.17.5 puts the exposure line in a bar above the finder
 and the grade and the strip under it, on every phone; 0.17.6 takes
 the label off the grade and moves the finder's buttons to its lower
-edge. 0.17.0 adds the store builds' one purchase (the
+edge; 0.17.7 colours slider and strip amber when they are off the base
+print, in place of a mark in the line. 0.17.0 adds the store builds' one purchase (the
 print at full resolution) through StoreKit 2 and Play Billing; the
 product has to exist in App Store Connect and the Play Console before
 the Unlock button can show a price. Open: the Pro-iPhone question, the

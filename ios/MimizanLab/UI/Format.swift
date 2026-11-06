@@ -26,22 +26,6 @@ enum Format {
 
     static func stops(_ v: Double) -> String { String(format: "%+.2f", v) }
 
-    /// The standing paper beside the exposure line, the sign that it is
-    /// off the base print: the stops both exposures sit from it (their
-    /// mean, what the zone strip moves), with the paper's sign, so plus
-    /// is more time and a darker print; and `harder` or `softer` when the
-    /// grade is off zero, a word, not a number, since the grade slider
-    /// shows none. nil at the base print, so the line shows nothing to
-    /// reset. Twin of the Android `Format.paperShift`.
-    static func paperShift(soft: Double, hard: Double) -> String? {
-        let mean = (soft + hard) / 2
-        let grade = hard - soft
-        var parts: [String] = []
-        if abs(mean) >= 1.0 / 24 { parts.append(stops(mean)) }
-        if abs(grade) >= 1.0 / 24 { parts.append(grade > 0 ? "harder" : "softer") }
-        return parts.isEmpty ? nil : parts.joined(separator: "  ")
-    }
-
     /// The line over the shutter: ISO and time as metered, `M` in front when they are set by hand.
     static func exposureLine(iso: Int?, seconds: Double?, manual: Bool) -> String {
         let base = "\(iso.map(String.init) ?? "—")  ·  \(shutter(seconds: seconds ?? 0))"

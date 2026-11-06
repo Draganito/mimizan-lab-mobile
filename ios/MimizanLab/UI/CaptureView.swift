@@ -16,7 +16,6 @@ struct CaptureView: View {
     @State private var showSettings = false
 
     /// Manual is amber, so a dark finder in M reads as a setting, not a fault.
-    private let manualInk = Color(red: 1, green: 0.72, blue: 0.3)
 
     var body: some View {
         let state = vm.state
@@ -34,12 +33,7 @@ struct CaptureView: View {
                 Spacer()
                 Text(Format.exposureLine(iso: state.iso, seconds: state.exposureSeconds, manual: exposure.manual))
                     .font(.subheadline.monospaced())
-                    .foregroundStyle(exposure.manual ? manualInk : .white)
-                // Where the paper stands when it is off the base print, so a
-                // strip left at +1 yesterday is seen before the shot.
-                if let shift = Format.paperShift(soft: vm.prefs.soft, hard: vm.prefs.hard) {
-                    Text(shift).font(.subheadline.monospaced()).foregroundStyle(manualInk)
-                }
+                    .foregroundStyle(exposure.manual ? Color.settingInk : .white)
                 if lens?.hasFlash == true {
                     Button(action: vm.cycleFlash) {
                         Image(systemName: state.flash == .off ? "bolt.slash" : state.flash == .auto ? "bolt.badge.automatic" : "bolt.fill")
@@ -50,7 +44,7 @@ struct CaptureView: View {
                     if exposure.manual { vm.setAuto() } else { vm.enterManual() }
                 }
                 .font(.subheadline.bold())
-                .foregroundStyle(exposure.manual ? manualInk : .white)
+                .foregroundStyle(exposure.manual ? Color.settingInk : .white)
                 .disabled(lens?.hasManualExposure != true)
             }
             .padding(.horizontal, 20)
