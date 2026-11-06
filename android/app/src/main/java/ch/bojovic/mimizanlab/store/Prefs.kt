@@ -66,9 +66,11 @@ class Prefs(context: Context) {
     /** Hard-pass time in stops from the base exposure. */
     val hard: StateFlow<Double> = _hard.asStateFlow()
 
-    fun setSoft(stops: Double) = setGrade(stops, _grade.value.hard)
-
-    fun setHard(stops: Double) = setGrade(_grade.value.soft, stops)
+    /** The standing grade as one number: [GradeMath.withContrast] on the standing pair. */
+    fun setContrast(stops: Double) {
+        val g = withContrast(_grade.value.soft, _grade.value.hard, stops)
+        setGrade(g.soft, g.hard)
+    }
 
     /** Both exposures at once: one write, one emission of [grade]. */
     fun setGrade(soft: Double, hard: Double) {
@@ -202,6 +204,9 @@ class Prefs(context: Context) {
 
         /** Add [delta] stops to both exposures, snapped to a twelfth, and stop at the limit so the gap stays. */
         fun shiftGrade(soft: Double, hard: Double, delta: Double): Grade = GradeMath.shiftGrade(soft, hard, delta, STOP_LIMIT)
+
+        /** The pair with [contrast] stops between hard and soft, the exposure kept, inside ±[STOP_LIMIT]. */
+        fun withContrast(soft: Double, hard: Double, contrast: Double): Grade = GradeMath.withContrast(soft, hard, contrast, STOP_LIMIT)
 
         /** Twelfths of a stop, inside ±[STOP_LIMIT]; a non-finite value snaps to zero. */
         fun snapStops(v: Double): Double = GradeMath.snapStops(v, STOP_LIMIT)

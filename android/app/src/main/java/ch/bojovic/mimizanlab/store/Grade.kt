@@ -92,6 +92,30 @@ object GradeMath {
         return Grade(soft + d, hard + d)
     }
 
+    /** The grade as one number: hard light against soft, in stops. Zero is the paper's grade 2. */
+    fun contrast(soft: Double, hard: Double): Double = hard - soft
+
+    /**
+     * The pair with [contrast] stops between hard and soft and the same
+     * exposure (the mean of the two, what the zone strip moves). Done in
+     * twenty-fourths so both land on the twelfth grid: when the mean sits
+     * between two twelfths the pair goes a twenty-fourth lighter, once.
+     * [contrast] is clamped so neither exposure leaves ±[limit]. The pair
+     * is the same two numbers the two sliders would have set: nothing
+     * downstream changes.
+     */
+    fun withContrast(soft: Double, hard: Double, contrast: Double, limit: Double): Grade {
+        val m24 = Math.round((snapStops(soft, limit) + snapStops(hard, limit)) * 12.0)
+        val lim24 = Math.round(limit * 24.0)
+        val room = lim24 - kotlin.math.abs(m24)
+        val wanted = finiteOrZero(contrast).coerceIn(-2 * limit, 2 * limit)
+        val c12 = Math.round(wanted * 12.0).coerceIn(-room, room)
+        var s24 = m24 - c12
+        if (Math.floorMod(s24, 2L) != 0L) s24 -= 1
+        if (s24 < -lim24) s24 += 2
+        return Grade(s24 / 24.0, (s24 + 2 * c12) / 24.0)
+    }
+
     /** A peak radius inside the core's range; a non-finite value is the default. */
     fun clampPeakRadius(v: Double, limits: PeakLimits): Double =
         (if (v.isFinite()) v else limits.radiusDefault).coerceIn(limits.radiusMin, limits.radiusMax)

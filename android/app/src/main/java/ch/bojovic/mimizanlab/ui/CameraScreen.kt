@@ -88,6 +88,7 @@ import ch.bojovic.mimizanlab.engine.ShotStatus
 import ch.bojovic.mimizanlab.engine.coreVersion
 import ch.bojovic.mimizanlab.engine.version
 import ch.bojovic.mimizanlab.engine.workerThreads
+import ch.bojovic.mimizanlab.store.GradeMath
 import ch.bojovic.mimizanlab.store.PeakMode
 import ch.bojovic.mimizanlab.store.Prefs
 import ch.bojovic.mimizanlab.store.ShotMode
@@ -364,9 +365,9 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 Spacer(Modifier.height(8.dp))
-                PaperSliders(soft, hard, onSoft = vm::setSoft, onHard = vm::setHard)
+                GradeSlider(soft, hard, onContrast = vm::setContrast)
                 Text(
-                    "The standing grade: the finder, the automatic JPEG, and where a new frame starts. The strip under the finder moves both by the same stops; left prints darker, right lighter, a double tap is the base print (grade 2). In the developer the grade is the picture's own and stays with it.",
+                    "The standing grade: hard light against soft, in stops; zero is the paper's grade 2, left is softer, right harder. The finder, the automatic JPEG and a new frame start here. The strip under the finder is the exposure: left prints darker, right lighter, a double tap is the base print. In the developer the grade is the picture's own and stays with it.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 PeakRow(peakMode, PeakMode.STANDING, onMode = vm::setPeakMode)
@@ -524,20 +525,21 @@ fun SettingRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     }
 }
 
+/**
+ * The grade as one slider: hard light against soft, in stops, zero at
+ * the paper's grade 2; left is softer, right harder. The exposure (the
+ * mean of the two) stays where the zone strip put it. Behind it are the
+ * same two numbers as ever, soft and hard, and the print is the same.
+ * Steps of a sixth of a stop keep both on the twelfth grid.
+ */
 @Composable
-fun PaperSliders(soft: Double, hard: Double, onSoft: (Double) -> Unit, onHard: (Double) -> Unit) {
-    val range = -Prefs.STOP_LIMIT.toFloat()..Prefs.STOP_LIMIT.toFloat()
+fun GradeSlider(soft: Double, hard: Double, onContrast: (Double) -> Unit) {
+    val lim = (2 * Prefs.STOP_LIMIT).toFloat()
     LabeledSlider(
-        label = String.format(Locale.US, "soft %+.2f", soft),
-        value = soft.toFloat(),
-        onChange = { onSoft(it.toDouble()) },
-        range = range,
-    )
-    LabeledSlider(
-        label = String.format(Locale.US, "hard %+.2f", hard),
-        value = hard.toFloat(),
-        onChange = { onHard(it.toDouble()) },
-        range = range,
+        label = String.format(Locale.US, "grade %+.2f", GradeMath.contrast(soft, hard)),
+        value = GradeMath.contrast(soft, hard).toFloat(),
+        onChange = { onContrast((kotlin.math.round(it * 6.0) / 6.0)) },
+        range = -lim..lim,
     )
 }
 

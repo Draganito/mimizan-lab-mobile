@@ -138,7 +138,14 @@ separation:
   the mix now uses, including the filter) -> `preview(soft, hard)` +
   `histogram(soft, hard)`
 * soft / hard -> stops of time from the paper's base exposure, ±3, in
-  twelfths. Zero is the base print (about grade 2). Preview, histogram and
+  twelfths. Zero is the base print (about grade 2). The screen shows
+  them as one slider, the grade (`hard - soft`, ±6 in sixths), with the
+  zone strip as the exposure (their mean): `GradeMath.withContrast`
+  (Android) / `Prefs.withContrast` (iOS) turn a slider value back into
+  the pair in twenty-fourths so both stay on the twelfth grid and
+  neither leaves ±3, and the pair is what reaches the core, the files
+  and the exports, exactly as the two sliders set it before (the JVM
+  test walks the whole grid: every pair is its own fixed point). Preview, histogram and
   the 1:1 window evaluate `Tone::Paper` per pixel, the same map the JPEG
   and TIFF use, so the screen and the file agree. The viewfinder cannot
   do that per pixel in Rust, so it indexes `paper_lut` (4097 samples of

@@ -133,18 +133,20 @@ struct PlateFilterRow: View {
     }
 }
 
-struct PaperSliders: View {
+/// The grade as one slider: hard light against soft, in stops, zero at
+/// the paper's grade 2; left is softer, right harder. The exposure (the
+/// mean of the two) stays where the zone strip put it. Behind it are the
+/// same two numbers as ever, soft and hard, and the print is the same.
+/// Steps of a sixth of a stop keep both on the twelfth grid.
+struct GradeSlider: View {
     let soft: Double
     let hard: Double
-    let onSoft: (Double) -> Void
-    let onHard: (Double) -> Void
+    let onContrast: (Double) -> Void
 
     var body: some View {
-        let range = -Prefs.stopLimit...Prefs.stopLimit
-        VStack(alignment: .leading, spacing: 2) {
-            LabeledSlider(label: String(format: "soft %+.2f", soft), value: Binding(get: { soft }, set: onSoft), range: range, step: 1.0 / 12)
-            LabeledSlider(label: String(format: "hard %+.2f", hard), value: Binding(get: { hard }, set: onHard), range: range, step: 1.0 / 12)
-        }
+        let lim = 2 * Prefs.stopLimit
+        let c = Prefs.contrast(soft: soft, hard: hard)
+        LabeledSlider(label: String(format: "grade %+.2f", c), value: Binding(get: { c }, set: onContrast), range: -lim...lim, step: 1.0 / 6)
     }
 }
 

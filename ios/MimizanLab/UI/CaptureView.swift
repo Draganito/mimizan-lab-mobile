@@ -303,14 +303,14 @@ struct SettingsSheet: View {
                     SettingRow(label: "Quick development", on: Binding(get: { develop.binning == 2 }, set: vm.setQuick))
                     Text("Quick development bins the frame and finishes in about a quarter of the time.")
                         .font(.caption).foregroundStyle(.gray)
-                    PaperSliders(soft: vm.prefs.soft, hard: vm.prefs.hard, onSoft: vm.setSoft, onHard: vm.setHard)
+                    GradeSlider(soft: vm.prefs.soft, hard: vm.prefs.hard, onContrast: vm.setContrast)
                         .padding(.top, 8)
                     if paperFinder {
-                        Text("The standing grade: the viewfinder, the automatic JPEG, and where a new frame starts. The strip under the finder moves both exposures together; double-tap it for the base print (grade 2). In the developer the grade is the picture's own and stays with it.")
+                        Text("The standing grade: hard light against soft, in stops; zero is the paper's grade 2, left is softer, right harder. The viewfinder, the automatic JPEG and a new frame start here. The strip under the finder is the exposure: left prints darker, right lighter; double-tap it for the base print. In the developer the grade is the picture's own and stays with it.")
                             .font(.caption).foregroundStyle(.gray)
                     } else {
                         ZoneStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, onBoth: vm.setGrade)
-                        Text("The standing grade: the automatic JPEG, and where a new frame starts. Drag the strip: left prints darker, right lighter; the grade stays. Double-tap it for the base print (grade 2). In the developer the grade is the picture's own and stays with it.")
+                        Text("The standing grade: hard light against soft, in stops; zero is the paper's grade 2, left is softer, right harder. The automatic JPEG and a new frame start here. The strip is the exposure: left prints darker, right lighter; double-tap it for the base print. In the developer the grade is the picture's own and stays with it.")
                             .font(.caption).foregroundStyle(.gray)
                     }
                     PeakRow(mode: vm.prefs.peakMode, modes: PeakMode.standing, onMode: vm.setPeakMode)

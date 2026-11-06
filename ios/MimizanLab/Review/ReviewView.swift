@@ -162,7 +162,7 @@ struct ReviewView: View {
             }
             let grade = vm.print.grade
             let peak = vm.print.peak
-            PaperSliders(soft: grade.soft, hard: grade.hard, onSoft: vm.setSoft, onHard: vm.setHard)
+            GradeSlider(soft: grade.soft, hard: grade.hard, onContrast: vm.setContrast)
             ZoneStrip(soft: grade.soft, hard: grade.hard, onBoth: vm.setGrade)
             PeakRow(mode: peak.mode, modes: PeakMode.allCases, onMode: vm.setPeakMode)
             if peak.mode == .custom {

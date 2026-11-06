@@ -151,12 +151,16 @@ the camera's own preview, desaturated in mono, untouched in colour.
    is the three taking filters: Camera (the sensor's colour matrix),
    Wratten (25/58/47) or Channels. The colour space starts at sRGB;
    Adobe RGB is in Settings.
-3. **Grade.** Soft and hard are the two paper exposures, in stops from
-   the base print (±3, steps of 1/12); zero is about grade 2. The zone
-   strip moves both by the same stops and keeps the grade; a double
-   tap on it is the base print again. The pair in Settings is the
-   standing grade: the paper finder, the automatic JPEG, and where a
-   new frame starts. Where the finder is the paper (Android, Apple Log
+3. **Grade.** One slider, *grade*: hard light against soft, in stops
+   (±6, steps of 1/6); zero is the paper's grade 2, left is softer,
+   right harder. The zone strip under it is the exposure: it moves
+   both paper exposures by the same stops and keeps the grade; a
+   double tap on it is the base print again. Behind the two sit the
+   same soft and hard exposures as on the desktop (±3 each, twelfths),
+   written to the frame's `.grade` file unchanged: the slider only
+   chooses the pair, the print is the same. The pair in Settings is
+   the standing grade: the paper finder, the automatic JPEG, and where
+   a new frame starts. Where the finder is the paper (Android, Apple Log
    iPhones) the strip sits under the finder, the one exposure
    correction there is: the drag shows the print you will get, and the
    amber number beside the exposure says where the paper stands when
@@ -183,7 +187,7 @@ the camera's own preview, desaturated in mono, untouched in colour.
    in Files and, add-only, Photos on iOS.
 7. **Review** opens from the thumbnail, or after a Developer shot.
    Pinch to zoom; past the 2048 px preview the window is rendered 1:1
-   from the negative. Soft, hard and the zone strip change the preview,
+   from the negative. The grade and the zone strip change the preview,
    the histogram and every export, through the same paper. Export
    writes the JPEG, a 16-bit TIFF, or the linear negative plus
    saturation mask for the desktop (in Plate the three-frame
@@ -348,7 +352,7 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.17.3 on Android and iOS: RAW capture, the finder as the paper
+0.17.4 on Android and iOS: RAW capture, the finder as the paper
 (Android, and iPhones with Apple Log), Mono and Plate, the split-grade
 paper, the zone strip and Peak with a print per frame, review with
 remix and 1:1 detail, the exports, the roll. Checked on a Pixel 9 (main
@@ -371,7 +375,9 @@ offers no RAW type at all (`logRawTypes: []`). 0.17.2/0.17.3 keep the finder
 in the Log format and swaps the camera to the photo format for the
 still with the exposure the finder stood at, and swaps back; the Settings note
 reads "Apple Log for the finder; the Bayer RAW still comes from the
-photo format". 0.17.0 adds the store builds' one purchase (the
+photo format". 0.17.4 shows the grade as one slider over the zone
+strip (contrast and exposure), the same soft and hard behind it, the
+same print. 0.17.0 adds the store builds' one purchase (the
 print at full resolution) through StoreKit 2 and Play Billing; the
 product has to exist in App Store Connect and the Play Console before
 the Unlock button can show a price. Open: the Pro-iPhone question, the

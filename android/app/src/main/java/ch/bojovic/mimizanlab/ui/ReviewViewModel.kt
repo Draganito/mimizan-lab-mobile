@@ -193,9 +193,12 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     /** Radius and amount the exports and the 1:1 view apply. */
     private fun peakApplied(s: ReviewState): Pair<Double, Double> = s.print.peak.applied(s.peakMeasured)
 
-    fun setSoft(stops: Double) = setGrade(stops, _state.value.print.grade.hard)
-
-    fun setHard(stops: Double) = setGrade(_state.value.print.grade.soft, stops)
+    /** This print's grade as one number; the exposure (the strip) stays. */
+    fun setContrast(stops: Double) {
+        val g = _state.value.print.grade
+        val n = Prefs.withContrast(g.soft, g.hard, stops)
+        setGrade(n.soft, n.hard)
+    }
 
     /**
      * Both exposures of this print. The frame keeps them; the finder and

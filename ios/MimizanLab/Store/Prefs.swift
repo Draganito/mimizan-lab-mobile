@@ -217,14 +217,19 @@ final class Prefs {
         store.set(m, forKey: Keys.xyzToCam + lens)
     }
 
-    func setSoft(_ stops: Double) {
-        soft = Prefs.snapStops(stops)
+    /// The standing pair, each snapped and inside the limit.
+    func setGrade(soft s: Double, hard h: Double) {
+        let g = Prefs.snapGrade(soft: s, hard: h)
+        soft = g.soft
+        hard = g.hard
         store.set(soft, forKey: Keys.soft)
+        store.set(hard, forKey: Keys.hard)
     }
 
-    func setHard(_ stops: Double) {
-        hard = Prefs.snapStops(stops)
-        store.set(hard, forKey: Keys.hard)
+    /// The standing grade as one number; the exposure (the strip) stays.
+    func setContrast(_ stops: Double) {
+        let g = Prefs.withContrast(soft: soft, hard: hard, contrast: stops)
+        setGrade(soft: g.soft, hard: g.hard)
     }
 
     /// The standing Peak, Off or Auto.
@@ -292,6 +297,28 @@ final class Prefs {
     /// A grade, each exposure snapped and inside ±`stopLimit`.
     nonisolated static func snapGrade(soft: Double, hard: Double) -> Grade {
         Grade(soft: snapStops(soft), hard: snapStops(hard))
+    }
+
+    /// The grade as one number: hard light against soft, in stops. Zero is the paper's grade 2.
+    nonisolated static func contrast(soft: Double, hard: Double) -> Double { hard - soft }
+
+    /// The pair with `contrast` stops between hard and soft and the same
+    /// exposure (the mean of the two, what the zone strip moves). Done in
+    /// twenty-fourths so both land on the twelfth grid: when the mean sits
+    /// between two twelfths the pair goes a twenty-fourth lighter, once.
+    /// `contrast` is clamped so neither exposure leaves ±`stopLimit`. The
+    /// pair is the same two numbers the two sliders would have set:
+    /// nothing downstream changes. Twin of the Android `GradeMath.withContrast`.
+    nonisolated static func withContrast(soft: Double, hard: Double, contrast: Double) -> Grade {
+        let m24 = Int(((snapStops(soft) + snapStops(hard)) * 12).rounded())
+        let lim24 = Int((stopLimit * 24).rounded())
+        let room = lim24 - abs(m24)
+        let wanted = min(max(finiteOrZero(contrast), -2 * stopLimit), 2 * stopLimit)
+        let c12 = min(max(Int((wanted * 12).rounded()), -room), room)
+        var s24 = m24 - c12
+        if s24 & 1 != 0 { s24 -= 1 }
+        if s24 < -lim24 { s24 += 2 }
+        return Grade(soft: Double(s24) / 24, hard: Double(s24 + 2 * c12) / 24)
     }
 
     // MARK: limits, asked of the core once
