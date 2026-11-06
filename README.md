@@ -18,41 +18,45 @@ reconstructing an RGB image — on the desktop, and now in your pocket.**
   <img src="docs/screenshots/developer.png" alt="The developer, a plate" width="270">
 </p>
 
+**Not a filter that looks like film. A darkroom.** Other apps paint
+scratches and light leaks over a phone photo. Mimizan Lab develops a
+real negative on real paper. Nothing is pretended, because nothing has
+to be.
+
 **Never invents a pixel.** Every other camera guesses two of three
 colours per pixel. Mimizan Lab reads the sensor the way analogue
 television read its signal: luminance and colour separated, nothing
 interpolated, nothing made up.
 
-**A negative, not a file.** Your photo is a real negative in linear
-light. You develop it, you don't edit it.
+**You develop it. You don't edit it.** Two moves, grade and exposure,
+and the picture answers. No curves, no masks, no sliders with numbers.
+When it's done, it's done.
 
 **Black and white like film.** Measured variable-contrast paper, soft
 and hard light mixed like an enlarger. Highlights roll off the way
 silver does.
 
-**Colour like slide film.** Three separate colour plates printed
-together. Saturated, deep, alive. No colour science borrowed from a
-phone.
+**Colour the way it was first photographed.** Three separate colour
+plates printed together. Saturated, deep, alive. No colour science
+borrowed from a phone.
 
 **See the print before you take it.** The viewfinder shows the paper,
-not the camera's picture: zone strip, zebra, grade. What you see is
-what develops. (Android; the Pro iPhones with Apple Log are in
-TestFlight.)
+not the camera's picture. What you see is what develops. (Android, and
+the Pro iPhones with Apple Log.)
 
 **Sharp without the halo.** Peak measures the negative and stops before
 the edge becomes a line.
 
-**Not a filter. A pipeline.** The look isn't applied afterwards. It's
-what happens when light goes through paper.
+**Your pictures are yours.** No cloud. No AI. No account. Nothing
+leaves the phone unless you send it.
 
-**Medium-format quality. Pocket-sized.** Prints that stand next to a
-medium-format negative, from the phone you already carry.
+**Buy it once.** The camera, the developer, Mono and Colour and the
+print at half size are free. One purchase, no subscription, unlocks the
+full-size print, the 16-bit TIFF and the negative for the desktop
+darkroom. Shared with your family.
 
-**Your file stays yours.** Export the linear negative as a 16-bit TIFF
-and finish it in the desktop darkroom on Mac, Windows or Linux.
-
-**No cloud. No AI. No account.** Everything happens on your phone.
-Nothing leaves it.
+**From the phone you already carry.** Prints that stand next to a
+medium-format negative, from your pocket.
 
 Only finished pictures leave the app. The raw frame stays in the app
 cache and can be developed again, or deleted there. Android writes no
