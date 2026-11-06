@@ -95,13 +95,14 @@ final class Darkroom {
 
     /// Called from the camera: persists the DNG, reads what it is, then
     /// queues the development. The name is ready at once, before the file
-    /// is written. `finder` is the paper finder's measurement of the
+    /// is written. `print` is where the frame starts: the standing pair
+    /// under a paper finder, the base print where the finder is the
+    /// camera's picture. `finder` is the paper finder's measurement of the
     /// moment, matched against the negative once it is developed.
     @discardableResult
-    func submit(dng: Data, lens: String, capturedAt: Date, settings: DevelopSettings, developNow: Bool = true, finder: FinderSample? = nil) -> String {
+    func submit(dng: Data, lens: String, capturedAt: Date, settings: DevelopSettings, print: Print, developNow: Bool = true, finder: FinderSample? = nil) -> String {
         let name = Darkroom.nameFor(capturedAt)
         let provisional = ShotMeta(info: FrameInfo.empty, lens: lens, capturedAt: capturedAt, imported: false)
-        let print = prefs.standingPrint
         shots.insert(Shot(name: name, meta: provisional, settings: settings, print: print, status: .saving, finder: finder), at: 0)
         let cache = cache
         Task {
@@ -365,7 +366,8 @@ final class Darkroom {
     func developParams(make: String, model: String, pattern: BayerPattern, _ s: DevelopSettings) -> DevelopParams {
         var p = defaultDevelopParams()
         p.separation = s.separation
-        p.binning = UInt32(s.binning)
+        // Every development at full size; the core keeps binning for the desktop.
+        p.binning = 1
         p.filter = s.filter
         p.whiteBalance = s.whiteBalance
         p.cameraFileJson = cameraFiles.forModel(make: make, model: model, pattern: pattern)

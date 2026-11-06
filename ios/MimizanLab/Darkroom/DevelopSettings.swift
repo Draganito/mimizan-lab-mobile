@@ -5,8 +5,6 @@ import MimizanCore
 /// How a frame is developed; chosen in the viewfinder, changeable in review.
 struct DevelopSettings: Equatable {
     var separation: SeparationMode = .dubois
-    /// 2 = CFA-preserving 2x binning before ingest (quick mode).
-    var binning: Int = 1
     var filter: Filter = .none
     var whiteBalance: WhiteBalanceMode = .asShot
     /// Save a finished JPEG when this development was started by a JPEG shot.

@@ -46,7 +46,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -354,12 +353,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     if (showSettings) {
         ModalBottomSheet(onDismissRequest = { showSettings = false }) {
             Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 8.dp).padding(bottom = 32.dp)) {
-                SettingRow("Quick development", develop.binning == 2) { vm.setQuick(it) }
-                Text(
-                    "Quick development bins the frame and finishes in about a quarter of the time.",
-                    style = MaterialTheme.typography.bodySmall, color = Color.Gray,
-                )
-                Spacer(Modifier.height(8.dp))
+                Text("Development", style = MaterialTheme.typography.titleMedium)
                 Text(
                     "The standing paper is under the finder. The slider is the grade: hard light against soft, in stops; zero is the paper's grade 2, left is softer, right harder. The strip is the exposure: left prints darker, right lighter, a double tap is the base print. The finder, the automatic JPEG and a new frame start there. In the developer the grade is the picture's own and stays with it.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
@@ -508,14 +502,6 @@ fun PeakRow(mode: PeakMode, modes: List<PeakMode>, onMode: (PeakMode) -> Unit) {
                 )
             }
         }
-    }
-}
-
-@Composable
-fun SettingRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onChange)
     }
 }
 

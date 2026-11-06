@@ -57,7 +57,6 @@ final class ReviewViewModel {
     private let gate = Gate(label: "ch.bojovic.mimizanlab.review")
 
     var shot: Shot? { darkroom.shots.first { $0.name == name } }
-    var shotSettings: DevelopSettings? { shot?.settings }
     /// Radius and amount the 1:1 view and the exports apply.
     var peakApplied: (radius: Double, amount: Double) { print.peak.applied(peakMeasured) }
 

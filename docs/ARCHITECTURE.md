@@ -106,8 +106,10 @@ frame stays queued and `Darkroom.resumeQueue`, called from the camera's
 frame:
 
 * `RawMeta.toRawInput(pixels)` -> `develop(input, params)`; `params` are
-  `default_develop_params()` with the shot's separation, binning, filter,
-  white balance, and the camera file text.
+  `default_develop_params()` with the shot's separation, filter, white
+  balance, and the camera file text; `binning` is always 1 (the apps
+  print small through the recipe's sheet size, never through a binned
+  negative; the field stays for the desktop).
 * Rust (`session.rs::develop_impl`): `to_raw_frame` validates and converts
   LE bytes to `u16` (rayon), optional `bin_cfa_2x`, then `negative_from_frame`
   with `keep_separation = true`. The three separation planes (L̂, Ĉ1', Ĉ2')
@@ -125,7 +127,8 @@ frame:
 Memory budget per development at 12.5 MP (f64 planes): ingest ~200 MB,
 Dubois separation ~1 GB peak (measured 1016 MB on the host for the same
 frame size), steady state afterwards ~375 MB (3 planes + previews). "Mask
-off" needs about 60 % of that, Quick mode a quarter.
+off" needs about 60 % of that (`binning = 2` a quarter, which the apps
+no longer use).
 
 ## Review
 
@@ -154,7 +157,11 @@ separation:
   the zone strip write it back to the frame only (`Darkroom.setPrint`:
   the roll entry and the sidecar), never to `Prefs.grade`, so the
   standing grade — the finder, the automatic JPEG, the start of the next
-  frame — does not drift with a correction made on one negative. Each preview
+  frame — does not drift with a correction made on one negative. On iOS
+  the standing pair is only offered under a paper finder;
+  `CaptureViewModel.startingPrint` hands `Darkroom.submit` the base grade
+  where the finder is the camera's picture, and `shotModes` leaves out
+  JPEG there (a kept JPEG setting reads as Developer). Each preview
   render also refreshes the roll's thumbnail (`Darkroom.setThumbnail`),
   so the roll shows the frame as it was last left. Exports use the shown
   pair.

@@ -170,9 +170,6 @@ struct ReviewView: View {
                 LabeledSlider(label: String(format: "peak σ %.2f", peak.radius), value: Binding(get: { peak.radius }, set: { vm.setPeak(radius: $0, amount: peak.amount) }), range: lim.radiusMin...lim.radiusMax)
                 LabeledSlider(label: String(format: "peak ×%.2f", peak.amount), value: Binding(get: { peak.amount }, set: { vm.setPeak(radius: peak.radius, amount: $0) }), range: 0...lim.amountMax)
             }
-            if let cur = vm.shotSettings, cur.binning == 2 {
-                Button("Full size") { var s = cur; s.binning = 1; vm.develop(s) }
-            }
         }
     }
 }

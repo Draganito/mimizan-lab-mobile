@@ -407,8 +407,9 @@ pub struct DevelopParams {
     pub white_balance: WhiteBalanceMode,
     /// 1 = full resolution; 2 = CFA-preserving 2x binning before ingest
     /// (each 4x4 block becomes one 2x2 RGGB cell: quarter of the pixels,
-    /// quarter of the memory, about a quarter of the time). A quick mode
-    /// for previews or low battery, never the deliverable.
+    /// quarter of the memory, about a quarter of the time). Kept for the
+    /// interface; the apps develop at 1 and print small through the
+    /// recipe's sheet size instead, the whole development on fewer pixels.
     #[uniffi(default = 1)]
     pub binning: u32,
     /// Noise model `sigma(s) = a*sqrt(s) + b` in normalised units; `None` =

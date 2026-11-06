@@ -249,8 +249,6 @@ final class CaptureViewModel {
 
     func setFilter(_ f: Filter) { local.filter = f }
     func setSeparation(_ m: SeparationMode) { local.separation = m }
-    func setQuick(_ on: Bool) { local.binning = on ? 2 : 1 }
-    func setAutoJpeg(_ on: Bool) { local.autoJpeg = on }
     /// The standing grade: the automatic JPEG, and where a new frame starts.
     func setContrast(_ stops: Double) { prefs.setContrast(stops) }
     func setGrade(soft: Double, hard: Double) { prefs.setGrade(soft: soft, hard: hard) }
@@ -263,12 +261,30 @@ final class CaptureViewModel {
     func setPlateSpace(_ s: PlateSpace) { prefs.setPlateSpace(s) }
     func setShotMode(_ mode: ShotMode) { prefs.setShotMode(mode) }
 
+    /// The shot modes this device offers. The automatic JPEG is the print
+    /// the finder showed, so it is only offered where the finder is the
+    /// paper; elsewhere the picture is made in the developer, on the
+    /// screen, or the frame waits on the roll.
+    var shotModes: [ShotMode] { state.paperFinder ? ShotMode.allCases : [.developer, .raw] }
+
+    /// The standing choice, read against what this device offers: a JPEG
+    /// setting kept from a Pro, or from before, opens the developer here.
+    var shotMode: ShotMode { shotModes.contains(prefs.shotMode) ? prefs.shotMode : .developer }
+
+    /// Where a new frame starts: the standing pair under a paper finder,
+    /// where it was seen; the base print where the finder is the camera's
+    /// picture, so nothing set out of sight shapes the shot.
+    var startingPrint: Print {
+        state.paperFinder ? prefs.standingPrint : Print(grade: .base, peak: prefs.standingPrint.peak)
+    }
+
     // MARK: the shot
 
     func capture() {
         guard let l = lens, !state.capturing else { return }
         var settings = develop
-        let mode = prefs.shotMode
+        let mode = shotMode
+        let start = startingPrint
         settings.autoJpeg = mode == .jpeg
         Task {
             do {
@@ -277,7 +293,7 @@ final class CaptureViewModel {
                 let finder = still.finderMedian.flatMap { median in
                     tone?.paper.map { FinderSample(median: median, format: state.finderFormat, applied: log2(Double($0.gain))) }
                 }
-                let name = darkroom.submit(dng: still.dng, lens: l.label, capturedAt: Date(), settings: settings, developNow: mode != .raw, finder: finder)
+                let name = darkroom.submit(dng: still.dng, lens: l.label, capturedAt: Date(), settings: settings, print: start, developNow: mode != .raw, finder: finder)
                 if mode == .developer { pendingReview = name }
                 // Once: a JPEG that came out wrong is not lost. The frame
                 // is on the roll and prints again at another grade.

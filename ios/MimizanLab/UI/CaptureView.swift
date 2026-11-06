@@ -69,13 +69,17 @@ struct CaptureView: View {
             // The standing paper under the finder, the pair that the
             // paper finder, the automatic JPEG and a new frame start from:
             // the grade, and the strip for the exposure, darker to the
-            // left, lighter to the right; the grade stays.
-            VStack(spacing: 2) {
-                GradeSlider(soft: vm.prefs.soft, hard: vm.prefs.hard, onContrast: vm.setContrast)
-                ZoneStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, onBoth: vm.setGrade)
+            // left, lighter to the right; the grade stays. Only where the
+            // finder is the paper and answers the drag; elsewhere the
+            // paper is set in the developer, on the picture.
+            if state.paperFinder {
+                VStack(spacing: 2) {
+                    GradeSlider(soft: vm.prefs.soft, hard: vm.prefs.hard, onContrast: vm.setContrast)
+                    ZoneStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, onBoth: vm.setGrade)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
 
             // The hand's two sliders, only in M. In A the automatics expose
             // and the paper is corrected in the developer, where the stops
@@ -284,26 +288,25 @@ struct SettingsSheet: View {
     @State private var confirmDeleteAll = false
 
     var body: some View {
-        let develop = vm.develop
         let shots = vm.darkroom.shots
         let paperFinder = vm.state.paperFinder
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    SettingRow(label: "Quick development", on: Binding(get: { develop.binning == 2 }, set: vm.setQuick))
-                    Text("Quick development bins the frame and finishes in about a quarter of the time.")
-                        .font(.caption).foregroundStyle(.gray)
+                    Text("Development").font(.headline)
                     Text(paperFinder
                         ? "The standing paper is under the finder. The slider is the grade: hard light against soft, in stops; zero is the paper's grade 2, left is softer, right harder. The strip is the exposure: left prints darker, right lighter; double-tap it for the base print. The viewfinder, the automatic JPEG and a new frame start there. In the developer the grade is the picture's own and stays with it."
-                        : "The standing paper is under the finder. The slider is the grade: hard light against soft, in stops; zero is the paper's grade 2, left is softer, right harder. The strip is the exposure: left prints darker, right lighter; double-tap it for the base print. The automatic JPEG and a new frame start there. In the developer the grade is the picture's own and stays with it.")
-                        .font(.caption).foregroundStyle(.gray).padding(.top, 8)
+                        : "On this device the finder is the camera's picture, so the paper is set in the developer, on each picture, where it shows at once: the slider is the grade, the strip the exposure, a double tap the base print. A new frame starts at the base print.")
+                        .font(.caption).foregroundStyle(.gray)
                     PeakRow(mode: vm.prefs.peakMode, modes: PeakMode.standing, onMode: vm.setPeakMode)
                     Text(paperFinder
                         ? "The standing Peak: the automatic JPEG, and where a new frame starts. Auto measures each negative. A hand pair is set in the developer and stays with that picture. The viewfinder does not show Peak."
-                        : "The standing Peak: the automatic JPEG, and where a new frame starts. Auto measures each negative. A hand pair is set in the developer and stays with that picture. The viewfinder does not follow the grade or Peak.")
+                        : "The standing Peak: where a new frame starts. Auto measures each negative. A hand pair is set in the developer and stays with that picture.")
                         .font(.caption).foregroundStyle(.gray)
-                    ShotRow(mode: vm.prefs.shotMode, onMode: vm.setShotMode)
-                    Text("JPEG writes the picture and stays here. Developer opens it. Raw keeps the frame for later, and the picture waits for Export.")
+                    ShotRow(mode: vm.shotMode, modes: vm.shotModes, onMode: vm.setShotMode)
+                    Text(paperFinder
+                        ? "JPEG writes the picture and stays here. Developer opens it. Raw keeps the frame for later, and the picture waits for Export."
+                        : "Developer opens the picture. Raw keeps the frame for later, and the picture waits for Export.")
                         .font(.caption).foregroundStyle(.gray)
                     Text("Plate colour space").font(.subheadline).padding(.top, 8)
                     HStack(spacing: 6) {

@@ -44,16 +44,18 @@ struct LabeledSlider: View {
     }
 }
 
-/// A shot: JPEG, Developer, or Raw.
+/// A shot, out of `modes`: JPEG, Developer, or Raw under a paper finder;
+/// Developer or Raw where the finder is the camera's picture.
 struct ShotRow: View {
     let mode: ShotMode
+    let modes: [ShotMode]
     let onMode: (ShotMode) -> Void
 
     var body: some View {
         HStack(spacing: 6) {
             Text("A shot")
             Spacer(minLength: 8)
-            ForEach(ShotMode.allCases, id: \.self) { m in
+            ForEach(modes, id: \.self) { m in
                 Chip(label: m.label, selected: mode == m) { onMode(m) }
             }
         }
@@ -75,15 +77,6 @@ struct PeakRow: View {
                 Chip(label: m.label, selected: mode == m) { onMode(m) }
             }
         }
-    }
-}
-
-struct SettingRow: View {
-    let label: String
-    @Binding var on: Bool
-
-    var body: some View {
-        Toggle(label, isOn: $on).padding(.vertical, 2)
     }
 }
 

@@ -266,10 +266,6 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                             range = 0f..lim.amountMax.toFloat(),
                         )
                     }
-                    val cur = vm.shotSettings()
-                    if (cur != null && cur.binning == 2) {
-                        TextButton(onClick = { vm.develop(cur.copy(binning = 1)) }) { Text("Full size") }
-                    }
                 }
             }
         }

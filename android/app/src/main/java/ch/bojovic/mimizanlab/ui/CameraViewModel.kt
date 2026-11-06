@@ -275,7 +275,6 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun setPlateFilters(f: PlateFilters) = darkroom.prefs.setPlateFilters(f)
     fun setPlateSpace(s: PlateSpace) = darkroom.prefs.setPlateSpace(s)
     fun setSeparation(m: SeparationMode) = _develop.update { it.copy(separation = m) }
-    fun setQuick(quick: Boolean) = _develop.update { it.copy(binning = if (quick) 2 else 1) }
     fun setContrast(stops: Double) = darkroom.prefs.setContrast(stops)
     fun setGrade(soft: Double, hard: Double) = darkroom.prefs.setGrade(soft, hard)
     fun setPeakMode(mode: PeakMode) = darkroom.prefs.setPeakMode(mode)

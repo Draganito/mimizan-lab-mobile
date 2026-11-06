@@ -159,17 +159,19 @@ the camera's own preview, desaturated in mono, untouched in colour.
    double tap on it is the base print again. Behind the two sit the
    same soft and hard exposures as on the desktop (±3 each, twelfths),
    written to the frame's `.grade` file unchanged: the slider only
-   chooses the pair, the print is the same. The pair under the finder
-   is the standing grade: the paper finder, the automatic JPEG, and
-   where a new frame starts. The exposure line (process, ISO and
-   shutter, flash, A/M) is the bar above the finder. Slider and strip
-   are white at the base print and amber away from it, each for its
-   own half: a grade set yesterday shows before the shot, and the
-   double tap turns both white again.
-   Where the finder is the paper (Android, Apple Log iPhones) the strip
-   is the one exposure correction there is: the drag shows the print
-   you will get. On the other iPhones and the iPad the finder does not
-   follow the pair; the JPEG does. Every frame then keeps a grade of its own, stored
+   chooses the pair, the print is the same. The pair sits under the
+   finder where the finder is the paper (Android, the Apple Log
+   iPhones) and answers the drag: it is the standing grade, the paper
+   finder, the automatic JPEG, and where a new frame starts, and the
+   strip is the one exposure correction there is. Slider and strip are
+   white at the base print and amber away from it, each for its own
+   half: a grade set yesterday shows before the shot, and the double
+   tap turns both white again. On the other iPhones and the iPad the
+   finder is the camera's picture and nothing answers, so there is no
+   pair under it and none in Settings: a new frame starts at the base
+   print, and the paper is set in the developer, on the picture. The
+   exposure line (process, ISO and shutter, flash, A/M) is the bar
+   above the finder. Every frame keeps a grade of its own, stored
    beside it on the roll: moving a slider in the developer changes
    that picture alone, and the next shot starts from the standing
    grade again, not from the last correction.
@@ -180,10 +182,14 @@ the camera's own preview, desaturated in mono, untouched in colour.
    like the grade, stays with that picture alone. The preview is never
    sharpened; the 1:1 view is.
 5. **A shot** is JPEG, Developer or Raw. JPEG writes the picture at
-   this grade and stays on the finder. Developer opens the picture and
-   the JPEG waits for Export. Raw keeps the frame on the roll and
-   writes nothing until you open it. A fresh Android install starts on
-   JPEG, a fresh iOS install on Developer.
+   this grade and stays on the finder; it is the print the finder
+   showed, so it is only offered where the finder is the paper. On the
+   other iPhones and the iPad a shot is Developer or Raw. Developer
+   opens the picture and the JPEG waits for Export. Raw keeps the
+   frame on the roll and writes nothing until you open it. A fresh
+   Android install starts on JPEG, a fresh iOS install on Developer.
+   Every development is at full size; a small print is the same
+   development on a smaller sheet, never a binned negative.
 6. **The shutter** records one RAW frame into the cache and, in JPEG
    and Developer, develops it at once (on Android in a foreground
    service). The JPEG lands in `Pictures/Mimizan Lab` on Android, and
@@ -355,7 +361,7 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.17.7 on Android and iOS: RAW capture, the finder as the paper
+0.17.8 on Android and iOS: RAW capture, the finder as the paper
 (Android, and iPhones with Apple Log), Mono and Plate, the split-grade
 paper, the zone strip and Peak with a print per frame, review with
 remix and 1:1 detail, the exports, the roll. Checked on a Pixel 9 (main
@@ -384,7 +390,9 @@ same print. 0.17.5 puts the exposure line in a bar above the finder
 and the grade and the strip under it, on every phone; 0.17.6 takes
 the label off the grade and moves the finder's buttons to its lower
 edge; 0.17.7 colours slider and strip amber when they are off the base
-print, in place of a mark in the line. 0.17.0 adds the store builds' one purchase (the
+print, in place of a mark in the line; 0.17.8 offers the pair and the
+JPEG shot only under a paper finder, starts every other frame at the
+base print, and drops the binned quick development. 0.17.0 adds the store builds' one purchase (the
 print at full resolution) through StoreKit 2 and Play Billing; the
 product has to exist in App Store Connect and the Play Console before
 the Unlock button can show a price. Open: the Pro-iPhone question, the

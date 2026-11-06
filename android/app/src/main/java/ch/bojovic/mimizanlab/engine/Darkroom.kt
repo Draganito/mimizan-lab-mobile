@@ -41,8 +41,6 @@ enum class Process { MONO, PLATE }
 /** How a frame is developed; chosen in the viewfinder, changeable in review. */
 data class DevelopSettings(
     val separation: SeparationMode = SeparationMode.DUBOIS,
-    /** 2 = CFA-preserving 2x binning before ingest (quick mode). */
-    val binning: Int = 1,
     val filter: Filter = Filter.NONE,
     val whiteBalance: WhiteBalanceMode = WhiteBalanceMode.AsShot,
     /** A JPEG shot writes the picture as soon as this development finishes. A frame opened from the roll leaves it for Export. */
@@ -307,7 +305,8 @@ class Darkroom private constructor(private val context: Context) {
         val base = defaultDevelopParams()
         return base.copy(
             separation = s.separation,
-            binning = s.binning.toUInt(),
+            // Every development at full size; the core keeps binning for the desktop.
+            binning = 1u,
             filter = s.filter,
             whiteBalance = s.whiteBalance,
             cameraFileJson = cameraFiles.forModel(make, model, RawMeta.patternOf(cfa)),
