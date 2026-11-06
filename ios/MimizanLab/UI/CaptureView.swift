@@ -25,30 +25,7 @@ struct CaptureView: View {
         let shots = vm.darkroom.shots
         let exposure = vm.exposure
         VStack(spacing: 0) {
-            // The finder fills the height the line and the shutter leave,
-            // as wide as the picture's own aspect allows.
-            GeometryReader { geo in
-                let aspect = state.frameAspect
-                let h = min(geo.size.height, geo.size.width / aspect)
-                let w = h * aspect
-                ZStack {
-                    finder(size: CGSize(width: w, height: h))
-                }
-                .frame(width: w, height: h)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                // The iPad's interface turns a moment after the device does;
-                // the new size is the sign that it has.
-                .onChange(of: geo.size) { _, _ in vm.refreshOrientation() }
-            }
-
-            // The paper finder's one correction: the standing paper time,
-            // darker to the left, lighter to the right; the grade stays.
-            if state.paperFinder {
-                ZoneStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, onBoth: vm.setGrade)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-            }
-
+            // The line above the finder: process, exposure, flash, A/M.
             HStack(spacing: 16) {
                 Button(develop.isPlate ? "Color" : "Mono") {
                     vm.setProcess(develop.isPlate ? .mono : .plate)
@@ -58,7 +35,9 @@ struct CaptureView: View {
                 Text(Format.exposureLine(iso: state.iso, seconds: state.exposureSeconds, manual: exposure.manual))
                     .font(.subheadline.monospaced())
                     .foregroundStyle(exposure.manual ? manualInk : .white)
-                if state.paperFinder, let shift = Format.paperShift(soft: vm.prefs.soft, hard: vm.prefs.hard) {
+                // Where the paper stands when it is off the base print, so a
+                // strip left at +1 yesterday is seen before the shot.
+                if let shift = Format.paperShift(soft: vm.prefs.soft, hard: vm.prefs.hard) {
                     Text(shift).font(.subheadline.monospaced()).foregroundStyle(manualInk)
                 }
                 if lens?.hasFlash == true {
@@ -75,8 +54,34 @@ struct CaptureView: View {
                 .disabled(lens?.hasManualExposure != true)
             }
             .padding(.horizontal, 20)
-            .padding(.top, 10)
-            .padding(.bottom, 4)
+            .padding(.vertical, 8)
+
+            // The finder fills the height the line, the grade and the
+            // shutter leave, as wide as the picture's own aspect allows.
+            GeometryReader { geo in
+                let aspect = state.frameAspect
+                let h = min(geo.size.height, geo.size.width / aspect)
+                let w = h * aspect
+                ZStack {
+                    finder(size: CGSize(width: w, height: h))
+                }
+                .frame(width: w, height: h)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // The iPad's interface turns a moment after the device does;
+                // the new size is the sign that it has.
+                .onChange(of: geo.size) { _, _ in vm.refreshOrientation() }
+            }
+
+            // The standing paper under the finder, the pair that the
+            // paper finder, the automatic JPEG and a new frame start from:
+            // the grade, and the strip for the exposure, darker to the
+            // left, lighter to the right; the grade stays.
+            VStack(spacing: 2) {
+                GradeSlider(soft: vm.prefs.soft, hard: vm.prefs.hard, onContrast: vm.setContrast)
+                ZoneStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, onBoth: vm.setGrade)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
 
             // The hand's two sliders, only in M. In A the automatics expose
             // and the paper is corrected in the developer, where the stops
@@ -303,16 +308,10 @@ struct SettingsSheet: View {
                     SettingRow(label: "Quick development", on: Binding(get: { develop.binning == 2 }, set: vm.setQuick))
                     Text("Quick development bins the frame and finishes in about a quarter of the time.")
                         .font(.caption).foregroundStyle(.gray)
-                    GradeSlider(soft: vm.prefs.soft, hard: vm.prefs.hard, onContrast: vm.setContrast)
-                        .padding(.top, 8)
-                    if paperFinder {
-                        Text("The standing grade: hard light against soft, in stops; zero is the paper's grade 2, left is softer, right harder. The viewfinder, the automatic JPEG and a new frame start here. The strip under the finder is the exposure: left prints darker, right lighter; double-tap it for the base print. In the developer the grade is the picture's own and stays with it.")
-                            .font(.caption).foregroundStyle(.gray)
-                    } else {
-                        ZoneStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, onBoth: vm.setGrade)
-                        Text("The standing grade: hard light against soft, in stops; zero is the paper's grade 2, left is softer, right harder. The automatic JPEG and a new frame start here. The strip is the exposure: left prints darker, right lighter; double-tap it for the base print. In the developer the grade is the picture's own and stays with it.")
-                            .font(.caption).foregroundStyle(.gray)
-                    }
+                    Text(paperFinder
+                        ? "The standing paper is under the finder. The slider is the grade: hard light against soft, in stops; zero is the paper's grade 2, left is softer, right harder. The strip is the exposure: left prints darker, right lighter; double-tap it for the base print. The viewfinder, the automatic JPEG and a new frame start there. In the developer the grade is the picture's own and stays with it."
+                        : "The standing paper is under the finder. The slider is the grade: hard light against soft, in stops; zero is the paper's grade 2, left is softer, right harder. The strip is the exposure: left prints darker, right lighter; double-tap it for the base print. The automatic JPEG and a new frame start there. In the developer the grade is the picture's own and stays with it.")
+                        .font(.caption).foregroundStyle(.gray).padding(.top, 8)
                     PeakRow(mode: vm.prefs.peakMode, modes: PeakMode.standing, onMode: vm.setPeakMode)
                     Text(paperFinder
                         ? "The standing Peak: the automatic JPEG, and where a new frame starts. Auto measures each negative. A hand pair is set in the developer and stays with that picture. The viewfinder does not show Peak."

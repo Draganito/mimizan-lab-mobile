@@ -146,7 +146,50 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        // The picture takes the height the line and the shutter row leave.
+        // The line above the finder: process, exposure, flash, A/M.
+        // Settings, hand exposure and a standing paper shift are amber, so
+        // a dark finder reads as a setting, not a fault.
+        val settingInk = Color(0xFFFFB74D)
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = { vm.setProcess(if (develop.isPlate) Process.MONO else Process.PLATE) }) {
+                Text(if (develop.isPlate) "Color" else "Mono", fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.weight(1f))
+            Text(
+                Format.exposureLine(stream.iso, stream.exposureNs, exposure.manual),
+                fontFamily = FontFamily.Monospace,
+                color = if (exposure.manual) settingInk else Color.White,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            )
+            // Where the paper stands when it is off the base print, so a
+            // strip left at +1 yesterday is seen before the shot.
+            Format.paperShift(soft, hard)?.let {
+                Text(it, fontFamily = FontFamily.Monospace, color = settingInk, modifier = Modifier.padding(end = 8.dp))
+            }
+            if (lens?.hasFlash == true) {
+                IconButton(onClick = vm::cycleFlash) {
+                    Icon(
+                        when (stream.flash) {
+                            FlashMode.Off -> Icons.Filled.FlashOff
+                            FlashMode.Auto -> Icons.Filled.FlashAuto
+                            FlashMode.On -> Icons.Filled.FlashOn
+                        },
+                        contentDescription = "Flash",
+                        tint = if (stream.flash == FlashMode.Off) Color.Gray else Color.White,
+                    )
+                }
+            }
+            TextButton(
+                onClick = { if (exposure.manual) vm.setAuto() else vm.enterManual() },
+                enabled = lens?.hasManualSensor == true,
+            ) { Text(if (exposure.manual) "M" else "A", fontWeight = FontWeight.Bold, color = if (exposure.manual) settingInk else Color.White) }
+        }
+
+        // The picture takes the height the line, the grade and the shutter
+        // row leave.
         Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.TopCenter) {
             Box(
                 Modifier
@@ -250,54 +293,16 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
             }
         }
 
-        // The zone strip under the finder: the standing paper time, the one
-        // exposure correction there is. The finder is the paper, so the
-        // drag shows what the print will be; the JPEG and the next frame
-        // follow. A double tap is the base print.
-        Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+        // The standing paper under the finder, the pair the finder, the
+        // automatic JPEG and the next frame start from: the grade, and the
+        // zone strip for the exposure, the one correction there is. The
+        // finder is the paper, so the drag shows what the print will be.
+        // A double tap on the strip is the base print.
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            GradeSlider(soft, hard, onContrast = vm::setContrast)
             ZoneStrip(soft, hard, onBoth = vm::setGrade)
         }
 
-        // Settings, hand exposure and a standing paper shift are amber, so
-        // a dark finder reads as a setting, not a fault.
-        val settingInk = Color(0xFFFFB74D)
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            TextButton(onClick = { vm.setProcess(if (develop.isPlate) Process.MONO else Process.PLATE) }) {
-                Text(if (develop.isPlate) "Color" else "Mono", fontWeight = FontWeight.SemiBold)
-            }
-            Spacer(Modifier.weight(1f))
-            Text(
-                Format.exposureLine(stream.iso, stream.exposureNs, exposure.manual),
-                fontFamily = FontFamily.Monospace,
-                color = if (exposure.manual) settingInk else Color.White,
-                modifier = Modifier.padding(horizontal = 8.dp),
-            )
-            // Where the paper stands when it is off the base print, so a
-            // strip left at +1 yesterday is seen before the shot.
-            Format.paperShift(soft, hard)?.let {
-                Text(it, fontFamily = FontFamily.Monospace, color = settingInk, modifier = Modifier.padding(end = 8.dp))
-            }
-            if (lens?.hasFlash == true) {
-                IconButton(onClick = vm::cycleFlash) {
-                    Icon(
-                        when (stream.flash) {
-                            FlashMode.Off -> Icons.Filled.FlashOff
-                            FlashMode.Auto -> Icons.Filled.FlashAuto
-                            FlashMode.On -> Icons.Filled.FlashOn
-                        },
-                        contentDescription = "Flash",
-                        tint = if (stream.flash == FlashMode.Off) Color.Gray else Color.White,
-                    )
-                }
-            }
-            TextButton(
-                onClick = { if (exposure.manual) vm.setAuto() else vm.enterManual() },
-                enabled = lens?.hasManualSensor == true,
-            ) { Text(if (exposure.manual) "M" else "A", fontWeight = FontWeight.Bold, color = if (exposure.manual) settingInk else Color.White) }
-        }
         // The hand's two sliders, only in M. In A the automatics expose and
         // the paper is corrected in the developer, where the stops are real.
         val l = lens
@@ -365,9 +370,8 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 Spacer(Modifier.height(8.dp))
-                GradeSlider(soft, hard, onContrast = vm::setContrast)
                 Text(
-                    "The standing grade: hard light against soft, in stops; zero is the paper's grade 2, left is softer, right harder. The finder, the automatic JPEG and a new frame start here. The strip under the finder is the exposure: left prints darker, right lighter, a double tap is the base print. In the developer the grade is the picture's own and stays with it.",
+                    "The standing paper is under the finder. The slider is the grade: hard light against soft, in stops; zero is the paper's grade 2, left is softer, right harder. The strip is the exposure: left prints darker, right lighter, a double tap is the base print. The finder, the automatic JPEG and a new frame start there. In the developer the grade is the picture's own and stays with it.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 PeakRow(peakMode, PeakMode.STANDING, onMode = vm::setPeakMode)

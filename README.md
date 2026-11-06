@@ -158,15 +158,15 @@ the camera's own preview, desaturated in mono, untouched in colour.
    double tap on it is the base print again. Behind the two sit the
    same soft and hard exposures as on the desktop (±3 each, twelfths),
    written to the frame's `.grade` file unchanged: the slider only
-   chooses the pair, the print is the same. The pair in Settings is
-   the standing grade: the paper finder, the automatic JPEG, and where
-   a new frame starts. Where the finder is the paper (Android, Apple Log
-   iPhones) the strip sits under the finder, the one exposure
-   correction there is: the drag shows the print you will get, and the
-   amber number beside the exposure says where the paper stands when
-   it is off the base print. On the other iPhones and the iPad the
-   strip is in Settings, because that finder does not follow the
-   paper. Every frame then keeps a grade of its own, stored
+   chooses the pair, the print is the same. The pair under the finder
+   is the standing grade: the paper finder, the automatic JPEG, and
+   where a new frame starts. The exposure line (process, ISO and
+   shutter, flash, A/M) is the bar above the finder; the amber number
+   in it says where the paper stands when it is off the base print.
+   Where the finder is the paper (Android, Apple Log iPhones) the strip
+   is the one exposure correction there is: the drag shows the print
+   you will get. On the other iPhones and the iPad the finder does not
+   follow the pair; the JPEG does. Every frame then keeps a grade of its own, stored
    beside it on the roll: moving a slider in the developer changes
    that picture alone, and the next shot starts from the standing
    grade again, not from the last correction.
@@ -352,7 +352,7 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.17.4 on Android and iOS: RAW capture, the finder as the paper
+0.17.5 on Android and iOS: RAW capture, the finder as the paper
 (Android, and iPhones with Apple Log), Mono and Plate, the split-grade
 paper, the zone strip and Peak with a print per frame, review with
 remix and 1:1 detail, the exports, the roll. Checked on a Pixel 9 (main
@@ -377,7 +377,8 @@ still with the exposure the finder stood at, and swaps back; the Settings note
 reads "Apple Log for the finder; the Bayer RAW still comes from the
 photo format". 0.17.4 shows the grade as one slider over the zone
 strip (contrast and exposure), the same soft and hard behind it, the
-same print. 0.17.0 adds the store builds' one purchase (the
+same print. 0.17.5 puts the exposure line in a bar above the finder
+and the grade and the strip under it, on every phone. 0.17.0 adds the store builds' one purchase (the
 print at full resolution) through StoreKit 2 and Play Billing; the
 product has to exist in App Store Connect and the Play Console before
 the Unlock button can show a price. Open: the Pro-iPhone question, the
