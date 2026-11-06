@@ -1,9 +1,12 @@
 // AVFoundation session: a video stream for the finder and the histogram,
 // and a photo output that writes the still as a Bayer DNG. On a camera
-// with Apple Log the stream is the log frame in 10-bit 4:2:0 or 4:2:2, which the
-// finder reads as the negative; elsewhere it is the ISP's BGRA picture.
-// Nothing of either reaches the negative; the DNG is the measurement and
-// goes to the core as the desktop would read it.
+// with Apple Log the stream is the log frame in 10-bit 4:2:0 or 4:2:2,
+// which the finder reads as the negative; elsewhere it is the ISP's BGRA
+// picture. Where the Log format carries no Bayer RAW (the iPhone 16 Pro:
+// Log on the video formats, RAW on the photo format), the still swaps
+// the camera to the photo format for the shot and back. Nothing of the
+// stream reaches the negative; the DNG is the measurement and goes to
+// the core as the desktop would read it.
 import AVFoundation
 import CoreVideo
 import Foundation
@@ -114,6 +117,14 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     private var rawFormat: OSType = 0
     /// The stream is Apple Log (camera queue's copy of `state.paperFinder`).
     private var paperStream = false
+    /// The Log format the finder runs in, and the photo format the still
+    /// swaps to when the Log format has no Bayer RAW; nil when the still
+    /// is taken in the stream's own format.
+    private var finderFormat: AVCaptureDevice.Format?
+    private var stillFormat: AVCaptureDevice.Format?
+    /// A swap is under way: frames of the photo format are dropped, the
+    /// shutter waits.
+    private var swapping = false
     /// Clockwise quarter-turns that bring the sensor buffer upright on the
     /// screen: the interface orientation, which is fixed to portrait on the
     /// phone and follows the iPad. The shader applies them; the video
@@ -252,33 +263,27 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         if photoOutput.isAppleProRAWSupported { photoOutput.isAppleProRAWEnabled = false }
         let bayer = { self.photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }) }
 
-        // The stream: Apple Log where the camera has it and the still keeps
-        // its Bayer RAW in that format, else the ISP's picture. Nothing of
-        // this is known without the device in hand, so each step is checked
-        // and the picture is the fallback at every one; the step that
-        // failed is written down for Settings and `formats.json`.
+        // The stream: Apple Log where the camera has it, with the Bayer RAW
+        // still in that format or, failing that, in the camera's photo
+        // format with a swap at the shutter; else the ISP's picture. Each
+        // step is checked and the picture is the fallback at every one;
+        // the step that decided is written down for Settings and
+        // `formats.json`.
         let logCapable = device.formats.filter { $0.supportedColorSpaces.contains(.appleLog) }
         let logPhoto = logCapable.filter { $0.isHighPhotoQualitySupported }.count
         let counts = "\(logCapable.count) Apple Log format\(logCapable.count == 1 ? "" : "s") on this camera, \(logPhoto) of them photo formats, \(device.formats.count) formats in all"
         var logFormat = CaptureSession.logFormat(of: device)
         var note = logFormat == nil ? "No Apple Log format in 10-bit 4:2:0 or 4:2:2 at 30 fps: \(counts)." : ""
         var logRawTypes: [String]?
+        var swapStill: AVCaptureDevice.Format?
+        var swapRaw: OSType?
         if let f = logFormat {
             session.sessionPreset = .inputPriority
-            do {
-                try device.lockForConfiguration()
-                device.activeFormat = f
-                device.activeColorSpace = .appleLog
-                device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
-                device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
-                device.unlockForConfiguration()
+            if CaptureSession.setFormat(device, f, appleLog: true) {
                 // With a format set by hand the still's size is ours to ask for.
-                if let dims = f.supportedMaxPhotoDimensions.max(by: { Int($0.width) * Int($0.height) < Int($1.width) * Int($1.height) }) {
-                    photoOutput.maxPhotoDimensions = dims
-                }
-            } catch {
-                log.warning("Apple Log format: \(error.localizedDescription)")
-                note = "The Apple Log format was refused: \(error.localizedDescription). \(counts)."
+                photoOutput.maxPhotoDimensions = CaptureSession.stillDimensions(of: f, appleLog: true)
+            } else {
+                note = "The Apple Log format was refused. \(counts)."
                 logFormat = nil
             }
             if logFormat != nil {
@@ -289,9 +294,21 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                     note = "No 10-bit stream in the Apple Log format's own subtype (\(FormatDump.fourcc(CMFormatDescriptionGetMediaSubType(f.formatDescription)))). \(counts)."
                     logFormat = nil
                 } else if bayer() == nil {
-                    log.warning("Apple Log format offers no Bayer RAW still")
-                    note = "No Bayer RAW still in the Apple Log format (RAW types there: \(rawThere.isEmpty ? "none" : rawThere.joined(separator: ", "))). \(counts)."
-                    logFormat = nil
+                    // Log and RAW on different formats: the finder keeps the
+                    // Log, the still swaps to the photo format and back.
+                    let rawList = rawThere.isEmpty ? "none" : rawThere.joined(separator: ", ")
+                    if let pf = CaptureSession.photoFormat(of: device), CaptureSession.setFormat(device, pf, appleLog: false), let raw = bayer() {
+                        let pd = pf.formatDescription.dimensions
+                        swapStill = pf
+                        swapRaw = raw
+                        note = "Apple Log for the finder; the Bayer RAW still comes from the photo format \(pd.width)×\(pd.height), switched at the shutter (RAW types in the Log format: \(rawList)). \(counts)."
+                        CaptureSession.setFormat(device, f, appleLog: true)
+                        photoOutput.maxPhotoDimensions = CaptureSession.stillDimensions(of: f, appleLog: true)
+                    } else {
+                        log.warning("Apple Log format offers no Bayer RAW still, nor does the photo format")
+                        note = "No Bayer RAW still in the Apple Log format (RAW types there: \(rawList)), and none in the photo format either. \(counts)."
+                        logFormat = nil
+                    }
                 } else {
                     note = "Apple Log with a Bayer RAW still. \(counts)."
                 }
@@ -311,11 +328,13 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         }
         // The log stream in the format's own subtype: 4:2:0 or 4:2:2, both
         // 10-bit biplanar video range; the GPU and the analysis read either.
-        videoOutput.videoSettings = [
-            kCVPixelBufferPixelFormatTypeKey as String: logFormat.map { CMFormatDescriptionGetMediaSubType($0.formatDescription) } ?? kCVPixelFormatType_32BGRA,
-        ]
-        guard let fmt = bayer() else { throw CaptureError(message: "\(lens.label) offers no Bayer RAW") }
+        videoOutput.videoSettings = CaptureSession.streamSettings(appleLog: logFormat)
+        // The RAW type of the format the still is taken in.
+        guard let fmt = swapRaw ?? bayer() else { throw CaptureError(message: "\(lens.label) offers no Bayer RAW") }
         rawFormat = fmt
+        finderFormat = logFormat
+        stillFormat = swapStill
+        swapping = false
         self.input = input
         self.device = device
         self.lens = lens
@@ -434,6 +453,65 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         return pool.filter { area($0) <= 2100 * 1600 }.max { area($0) < area($1) } ?? pool.min { area($0) < area($1) }
     }
 
+    /// The camera's own photo format, where the Bayer RAW lives when the
+    /// Log formats carry none: 8-bit 4:2:0, the highest photo quality,
+    /// the largest in 4:3 — what the `.photo` preset settles on.
+    static func photoFormat(of device: AVCaptureDevice) -> AVCaptureDevice.Format? {
+        let pool = device.formats.filter { f in
+            let t = CMFormatDescriptionGetMediaSubType(f.formatDescription)
+            return (t == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange || t == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)
+                && f.isHighestPhotoQualitySupported
+        }
+        let area = { (f: AVCaptureDevice.Format) -> Int in
+            let d = f.formatDescription.dimensions
+            return Int(d.width) * Int(d.height)
+        }
+        let fourThree = pool.filter { f in
+            let d = f.formatDescription.dimensions
+            return abs(Double(d.width) / Double(d.height) - 4.0 / 3.0) < 0.02
+        }
+        return (fourThree.isEmpty ? pool : fourThree).max { area($0) < area($1) }
+    }
+
+    /// Make `f` the active format: Apple Log at 30 fps for the finder, or
+    /// the photo format in sRGB for the still. False when the device
+    /// refused the lock. Inside the caller's configuration.
+    @discardableResult
+    static func setFormat(_ device: AVCaptureDevice, _ f: AVCaptureDevice.Format, appleLog: Bool) -> Bool {
+        do {
+            try device.lockForConfiguration()
+            defer { device.unlockForConfiguration() }
+            device.activeFormat = f
+            if appleLog {
+                device.activeColorSpace = .appleLog
+                device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
+                device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
+            } else {
+                device.activeColorSpace = .sRGB
+            }
+            return true
+        } catch {
+            log.warning("format \(f.formatDescription.dimensions.width)×\(f.formatDescription.dimensions.height): \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// The still's size in `f`: the largest the Log format offers (its
+    /// full-sensor still), the photo format's own size (what the camera
+    /// gives by default; a 48 MP sensor is not asked for its 48 MP).
+    static func stillDimensions(of f: AVCaptureDevice.Format, appleLog: Bool) -> CMVideoDimensions {
+        let dims = f.supportedMaxPhotoDimensions
+        let largest = dims.max { Int($0.width) * Int($0.height) < Int($1.width) * Int($1.height) } ?? f.formatDescription.dimensions
+        if appleLog { return largest }
+        let own = f.formatDescription.dimensions
+        return dims.first { $0.width == own.width && $0.height == own.height } ?? largest
+    }
+
+    /// The stream's pixel format: the Log format's own 10-bit subtype, else BGRA.
+    static func streamSettings(appleLog f: AVCaptureDevice.Format?) -> [String: Any] {
+        [kCVPixelBufferPixelFormatTypeKey as String: f.map { CMFormatDescriptionGetMediaSubType($0.formatDescription) } ?? kCVPixelFormatType_32BGRA]
+    }
+
     private func teardown() {
         observers = []
         session.beginConfiguration()
@@ -443,6 +521,9 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         input = nil
         device = nil
         lens = nil
+        finderFormat = nil
+        stillFormat = nil
+        swapping = false
     }
 
     /// Clockwise quarter-turns that stand the back camera's sensor buffer
@@ -602,50 +683,127 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     // MARK: the still
 
     /// One Bayer RAW still as a DNG, with the finder's measurement of the
-    /// moment. The flash fires only here.
+    /// moment. The flash fires only here. Where the still lives in another
+    /// format than the finder, the camera swaps to it, the exposure is
+    /// given a moment to settle (the hand's values set again, the
+    /// automatics watched until they stop), the still is taken, and the
+    /// finder's format comes back; the finder holds its last frame
+    /// meanwhile.
     func capture() async throws -> Still {
         await MainActor.run { self.state.capturing = true }
         defer { Task { @MainActor in self.state.capturing = false } }
         return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Still, Error>) in
             queue.async {
-                guard self.device != nil, self.rawFormat != 0 else {
+                guard let d = self.device, self.rawFormat != 0 else {
                     cont.resume(throwing: CaptureError(message: "camera not running"))
                     return
                 }
+                guard !self.swapping else {
+                    cont.resume(throwing: CaptureError(message: "the camera is still changing formats"))
+                    return
+                }
                 let finderMedian = self.medianLock.withLock { $0 }
-                let settings = AVCapturePhotoSettings(rawPixelFormatType: self.rawFormat)
-                // The photo preset sizes the still itself; the Log format is told.
-                if self.paperStream { settings.maxPhotoDimensions = self.photoOutput.maxPhotoDimensions }
-                // With the exposure set by hand the automatics cannot decide,
-                // so Auto does not fire; On fires once, as on Android. Whether
-                // AVFoundation fires the flash under a custom exposure is to
-                // be verified on a device.
-                let wanted: AVCaptureDevice.FlashMode
-                switch self.flash {
-                case .off: wanted = .off
-                case .auto: wanted = self.exposure.manual ? .off : .auto
-                case .on: wanted = .on
+                guard let still = self.stillFormat, let finder = self.finderFormat else {
+                    self.shoot(finderMedian: finderMedian) { cont.resume(with: $0) }
+                    return
                 }
-                settings.flashMode = self.photoOutput.supportedFlashModes.contains(wanted) ? wanted : .off
-                // The DNG's orientation tag follows the device, not the screen.
-                if let c = self.photoOutput.connection(with: .video) {
-                    let a = CGFloat(self.stillQuarters * 90)
-                    if c.isVideoRotationAngleSupported(a) { c.videoRotationAngle = a }
+                self.swapping = true
+                self.swap(d, to: still, appleLog: false)
+                self.settleExposure(d) { [weak self] in
+                    guard let self, self.device === d else {
+                        cont.resume(throwing: CaptureError(message: "camera stopped"))
+                        return
+                    }
+                    self.shoot(finderMedian: finderMedian) { result in
+                        self.queue.async {
+                            if self.device === d {
+                                self.swap(d, to: finder, appleLog: true)
+                                self.applyExposure()
+                            }
+                            self.swapping = false
+                            cont.resume(with: result)
+                        }
+                    }
                 }
-                let processor = PhotoProcessor { [weak self] result in
-                    self?.queue.async { self?.processor = nil }
-                    cont.resume(with: result.map { Still(dng: $0, finderMedian: finderMedian) })
-                }
-                self.processor = processor
-                self.photoOutput.capturePhoto(with: settings, delegate: processor)
             }
         }
+    }
+
+    /// The device to `f` with the matching still size and stream, in one
+    /// configuration. On the camera queue.
+    private func swap(_ d: AVCaptureDevice, to f: AVCaptureDevice.Format, appleLog: Bool) {
+        session.beginConfiguration()
+        CaptureSession.setFormat(d, f, appleLog: appleLog)
+        photoOutput.maxPhotoDimensions = CaptureSession.stillDimensions(of: f, appleLog: appleLog)
+        videoOutput.videoSettings = CaptureSession.streamSettings(appleLog: appleLog ? f : nil)
+        session.commitConfiguration()
+    }
+
+    /// After a format change: the hand's ISO and time set again on the new
+    /// format (the device says when they are in), or the automatics
+    /// watched until `isAdjustingExposure` drops, at most 0.8 s.
+    private func settleExposure(_ d: AVCaptureDevice, then: @escaping () -> Void) {
+        if exposure.manual, let iso = exposure.iso, let s = exposure.seconds, d.isExposureModeSupported(.custom) {
+            do {
+                try d.lockForConfiguration()
+                defer { d.unlockForConfiguration() }
+                let f = d.activeFormat
+                let isoC = Float(min(max(iso, Double(f.minISO)), Double(f.maxISO)))
+                let secC = min(max(s, f.minExposureDuration.seconds), f.maxExposureDuration.seconds)
+                d.setExposureModeCustom(duration: CMTime(seconds: secC, preferredTimescale: 1_000_000_000), iso: isoC) { [weak self] _ in
+                    self?.queue.async(execute: then)
+                }
+                return
+            } catch {
+                log.warning("exposure after the swap: \(error.localizedDescription)")
+            }
+        }
+        let deadline = Date().addingTimeInterval(0.8)
+        func check() {
+            if !d.isAdjustingExposure || Date() >= deadline {
+                then()
+            } else {
+                queue.asyncAfter(deadline: .now() + 0.02, execute: check)
+            }
+        }
+        // The first frames after a format change are not to be trusted.
+        queue.asyncAfter(deadline: .now() + 0.1, execute: check)
+    }
+
+    /// The exposure itself, in whatever format is active.
+    private func shoot(finderMedian: Double?, done: @escaping (Result<Still, Error>) -> Void) {
+        let settings = AVCapturePhotoSettings(rawPixelFormatType: self.rawFormat)
+        // The photo preset sizes the still itself; a format set by hand is told.
+        if self.paperStream { settings.maxPhotoDimensions = self.photoOutput.maxPhotoDimensions }
+        // With the exposure set by hand the automatics cannot decide,
+        // so Auto does not fire; On fires once, as on Android. Whether
+        // AVFoundation fires the flash under a custom exposure is to
+        // be verified on a device.
+        let wanted: AVCaptureDevice.FlashMode
+        switch self.flash {
+        case .off: wanted = .off
+        case .auto: wanted = self.exposure.manual ? .off : .auto
+        case .on: wanted = .on
+        }
+        settings.flashMode = self.photoOutput.supportedFlashModes.contains(wanted) ? wanted : .off
+        // The DNG's orientation tag follows the device, not the screen.
+        if let c = self.photoOutput.connection(with: .video) {
+            let a = CGFloat(self.stillQuarters * 90)
+            if c.isVideoRotationAngleSupported(a) { c.videoRotationAngle = a }
+        }
+        let processor = PhotoProcessor { [weak self] result in
+            self?.queue.async { self?.processor = nil }
+            done(result.map { Still(dng: $0, finderMedian: finderMedian) })
+        }
+        self.processor = processor
+        self.photoOutput.capturePhoto(with: settings, delegate: processor)
     }
 
     // MARK: finder frames
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        guard let pb = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        // The photo format's frames during a swap are not the finder's: it holds its last.
+        guard !swapping, let pb = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         onFrame?(pb)
         let now = Date()
         if now.timeIntervalSince(lastAnalysis) >= 0.066 {

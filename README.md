@@ -60,10 +60,14 @@ that offer Bayer RAW. An iPad without one can open the app but cannot
 take a frame. The finder is the paper on the iPhones with Apple Log
 (15 Pro and 15 Pro Max, 16 Pro and 16 Pro Max, 17 Pro and 17 Pro Max):
 there the stream is the log frame, decoded to scene light and printed
-through the paper as on Android. On the other iPhones and on the iPad
-the finder is the camera's own picture. The app asks the camera, not
-the model name. Not yet checked on a device: the Apple Log path is in
-TestFlight first (see *Status*).
+through the paper as on Android. Apple keeps the log on the video
+formats and the Bayer RAW on the photo format, so the shutter swaps
+the camera for the still and back: the finder holds its last frame for
+about a second while the exposure settles in the other format and the
+RAW is taken. On the other iPhones and on the iPad the finder is the
+camera's own picture, and the still is immediate. The app asks the
+camera, not the model name. The swap is in TestFlight first (see
+*Status*).
 
 ## Install
 
@@ -308,7 +312,7 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.17.1 on Android and iOS: RAW capture, the finder as the paper
+0.17.2 on Android and iOS: RAW capture, the finder as the paper
 (Android, and iPhones with Apple Log), Mono and Plate, the split-grade
 paper, the zone strip and Peak with a print per frame, review with
 remix and 1:1 detail, the exports, the roll. Checked on a Pixel 9 (main
@@ -325,9 +329,13 @@ of the lens to `formats.json` beside the match file, and shares both
 files from there. The first `formats.json` from an iPhone 16 Pro
 (iOS 26.6) answered it: eight Apple Log formats, every one in 10-bit
 4:2:2 (`x422`), none in the 4:2:0 the app insisted on, and among them
-1920×1440 at 30 fps with a 4032×3024 still. 0.17.1 accepts 4:2:2;
-whether the Bayer RAW is still offered in that format is the next
-thing the note will say. 0.17.0 adds the store builds' one purchase (the
+1920×1440 at 30 fps with a 4032×3024 still. 0.17.1 accepted 4:2:2, and
+the second file said the rest: with the Log format active the camera
+offers no RAW type at all (`logRawTypes: []`). 0.17.2 keeps the finder
+in the Log format and swaps the camera to the photo format for the
+still, settles the exposure there, and swaps back; the Settings note
+reads "Apple Log for the finder; the Bayer RAW still comes from the
+photo format". 0.17.0 adds the store builds' one purchase (the
 print at full resolution) through StoreKit 2 and Play Billing; the
 product has to exist in App Store Connect and the Play Console before
 the Unlock button can show a price. Open: the Pro-iPhone question, the
