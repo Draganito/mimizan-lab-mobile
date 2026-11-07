@@ -183,7 +183,13 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                     self.shownQuarters = o.shown
                     self.stillQuarters = o.still
                     try self.configure(lens)
-                    if !self.session.isRunning { self.session.startRunning() }
+                    if !self.session.isRunning, !self.runSession() {
+                        log.warning("Apple Log session would not start; the picture instead")
+                        try self.configure(lens, allowLog: false)
+                        if !self.session.isRunning, !self.runSession() {
+                            throw CaptureError(message: "the camera refused to start")
+                        }
+                    }
                     cont.resume()
                 } catch {
                     self.teardown()
@@ -240,7 +246,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     private func interruptionEnded() {
         guard lens != nil else { return }
         log.info("session interruption ended")
-        if !session.isRunning { session.startRunning() }
+        if !session.isRunning { _ = runSession() }
         Task { @MainActor in self.state.error = nil }
     }
 
@@ -250,7 +256,10 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         // Open the same lens again; `configure` tears the old graph down first.
         do {
             try configure(lens)
-            if !session.isRunning { session.startRunning() }
+            if !session.isRunning, !runSession() {
+                try configure(lens, allowLog: false)
+                if !session.isRunning, !runSession() { throw CaptureError(message: "the camera refused to start") }
+            }
         } catch {
             teardown()
             let message = error.localizedDescription
@@ -258,68 +267,77 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         }
     }
 
-    private func configure(_ lens: LensInfo) throws {
+    @discardableResult
+    private func runSession() -> Bool {
+        var err: NSError?
+        if MimizanTry({ self.session.startRunning() }, &err) { return true }
+        log.warning("startRunning: \(err?.localizedDescription ?? "refused")")
+        return false
+    }
+
+    private func configure(_ lens: LensInfo, allowLog: Bool = true) throws {
         teardown()
         let device = lens.device
+        // Two commits: the photo preset first, so the RAW type is the one
+        // Apple actually publishes (empty until this commit, empty again
+        // the moment a format is set by hand). Then, if the camera has
+        // Apple Log, a second commit for that format, and the stream type
+        // is checked only after it. A throw never leaves a configuration
+        // open; AVFoundation exceptions from a setting become Swift errors
+        // (`MimizanTry`) and fall back to the picture.
         session.beginConfiguration()
-        defer { session.commitConfiguration() }
-        // The colour space is chosen below, not by the session.
         session.automaticallyConfiguresCaptureDeviceForWideColor = false
-        let input = try AVCaptureDeviceInput(device: device)
-        guard session.canAddInput(input) else { throw CaptureError(message: "\(lens.label): cannot add the camera") }
-        session.addInput(input)
-        guard session.canAddOutput(photoOutput) else { throw CaptureError(message: "\(lens.label): no photo output") }
-        session.addOutput(photoOutput)
-        guard session.canAddOutput(videoOutput) else { throw CaptureError(message: "\(lens.label): no video output") }
-        session.addOutput(videoOutput)
-        // Bayer RAW, not ProRAW: the mosaic as the sensor measured it.
-        if photoOutput.isAppleProRAWSupported { photoOutput.isAppleProRAWEnabled = false }
+        do {
+            let input = try AVCaptureDeviceInput(device: device)
+            guard session.canAddInput(input) else { throw CaptureError(message: "\(lens.label): cannot add the camera") }
+            session.addInput(input)
+            guard session.canAddOutput(photoOutput) else { throw CaptureError(message: "\(lens.label): no photo output") }
+            session.addOutput(photoOutput)
+            guard session.canAddOutput(videoOutput) else { throw CaptureError(message: "\(lens.label): no video output") }
+            session.addOutput(videoOutput)
+            if photoOutput.isAppleProRAWSupported { photoOutput.isAppleProRAWEnabled = false }
+            session.sessionPreset = .photo
+            session.commitConfiguration()
+            self.input = input
+        } catch {
+            session.commitConfiguration()
+            throw error
+        }
         let bayer = { self.photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }) }
-
-        // The Bayer RAW is offered under the photo preset and nowhere
-        // else: a format set by hand puts the session on `.inputPriority`,
-        // and there `availableRawPhotoPixelFormatTypes` is empty whichever
-        // format it is (the iPhone 17 Pro's `formats.json` showed the same
-        // 4032×3024 format with no RAW type set by hand and `bgg4` under
-        // the preset). So the preset first, and the RAW type from there.
-        session.sessionPreset = .photo
         guard let photoRaw = bayer() else { throw CaptureError(message: "\(lens.label) offers no Bayer RAW") }
 
-        // The stream: Apple Log where the camera has it, with the Bayer RAW
-        // still in that format or, as on every Pro iPhone so far, under the
-        // photo preset with a swap at the shutter; else the ISP's picture.
-        // Each step is checked and the picture is the fallback at every
-        // one; the step that decided is written down for Settings and
-        // `formats.json`.
         let logCapable = device.formats.filter { $0.supportedColorSpaces.contains(.appleLog) }
         let logPhoto = logCapable.filter { $0.isHighPhotoQualitySupported }.count
         let counts = "\(logCapable.count) Apple Log format\(logCapable.count == 1 ? "" : "s") on this camera, \(logPhoto) of them photo formats, \(device.formats.count) formats in all"
-        var logFormat = CaptureSession.logFormat(of: device)
-        var note = logFormat == nil ? "No Apple Log format in 10-bit 4:2:0 or 4:2:2 at 30 fps: \(counts)." : ""
+        var logFormat = allowLog ? CaptureSession.logFormat(of: device) : nil
+        var note: String
+        if allowLog {
+            note = logFormat == nil ? "No Apple Log format in 10-bit 4:2:0 or 4:2:2 at 30 fps: \(counts)." : ""
+        } else {
+            note = "Apple Log session would not start; the camera's picture. \(counts)."
+        }
         var logRawTypes: [String]?
         var swapStill: AVCaptureDevice.Format?
         var swapRaw: OSType?
         if let f = logFormat {
-            session.sessionPreset = .inputPriority
-            if CaptureSession.setFormat(device, f, appleLog: true) {
-                // With a format set by hand the still's size is ours to ask for.
-                photoOutput.maxPhotoDimensions = CaptureSession.stillDimensions(of: f, appleLog: true)
-            } else {
+            session.beginConfiguration()
+            let set = CaptureSession.setFormat(device, f, appleLog: true)
+            session.commitConfiguration()
+            if !set {
                 note = "The Apple Log format was refused. \(counts)."
                 logFormat = nil
-            }
-            if logFormat != nil {
+            } else {
                 let rawThere = photoOutput.availableRawPhotoPixelFormatTypes.map(FormatDump.fourcc)
                 logRawTypes = rawThere
-                if !videoOutput.availableVideoPixelFormatTypes.contains(CMFormatDescriptionGetMediaSubType(f.formatDescription)) {
+                let subtype = CMFormatDescriptionGetMediaSubType(f.formatDescription)
+                if !videoOutput.availableVideoPixelFormatTypes.contains(subtype) {
                     log.warning("Apple Log format offers no 10-bit stream of its own subtype")
-                    note = "No 10-bit stream in the Apple Log format's own subtype (\(FormatDump.fourcc(CMFormatDescriptionGetMediaSubType(f.formatDescription)))). \(counts)."
+                    note = "No 10-bit stream in the Apple Log format's own subtype (\(FormatDump.fourcc(subtype))). \(counts)."
+                    logFormat = nil
+                } else if !setStream(appleLog: f) {
+                    note = "The 10-bit stream was refused. \(counts)."
                     logFormat = nil
                 } else if bayer() == nil {
-                    // The Log format set by hand, the RAW under the preset:
-                    // the finder keeps the Log, the still swaps the session to
-                    // the photo preset and back. `photoFormat(of:)` is the
-                    // format the preset settles on, for the still's ranges.
                     let pf = CaptureSession.photoFormat(of: device)
                     let size = pf.map { "\($0.formatDescription.dimensions.width)×\($0.formatDescription.dimensions.height)" } ?? "its own size"
                     swapStill = pf ?? f
@@ -331,8 +349,10 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
             }
         }
         if logFormat == nil {
-            // The ISP's picture for the finder: no HDR fusion, the plain colour space.
+            session.beginConfiguration()
             session.sessionPreset = .photo
+            session.commitConfiguration()
+            _ = setStream(appleLog: nil)
             do {
                 try device.lockForConfiguration()
                 if device.activeFormat.isVideoHDRSupported { device.automaticallyAdjustsVideoHDREnabled = false; device.isVideoHDREnabled = false }
@@ -342,17 +362,11 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                 log.warning("finder configuration: \(error.localizedDescription)")
             }
         }
-        // The log stream in the format's own subtype: 4:2:0 or 4:2:2, both
-        // 10-bit biplanar video range; the GPU and the analysis read either.
-        videoOutput.videoSettings = CaptureSession.streamSettings(appleLog: logFormat)
-        // The RAW type where the still is taken: under the preset, or in
-        // a Log format that offers one itself.
         let fmt = swapRaw ?? bayer() ?? photoRaw
         rawFormat = fmt
         finderFormat = logFormat
         stillFormat = swapStill
         swapping = false
-        self.input = input
         self.device = device
         self.lens = lens
         let d = device.activeFormat.formatDescription.dimensions
@@ -370,8 +384,6 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
             if !paper { self.state.wbGains = nil }
         }
         medianLock.withLock { $0 = nil }
-        // The dump after the configuration has been committed (the output's
-        // types follow the commit), on this queue, then written off it.
         let label = lens.label
         queue.async { [weak self] in
             guard let self, let device = self.device, self.lens?.id == lens.id else { return }
@@ -389,11 +401,6 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                 Task { @MainActor in self.state.formatsFile = status }
             }
         }
-
-        // The app subscribes to device orientation notifications in
-        // `MimizanLabApp.init`; the interface may turn a moment after the
-        // device does, so the screen also calls `refreshOrientation` when
-        // its size changes.
         if orientationObserver == nil {
             orientationObserver = NotificationCenter.default.addObserver(
                 forName: UIDevice.orientationDidChangeNotification, object: nil, queue: .main
@@ -408,7 +415,6 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                 Task { @MainActor in self?.state.iso = iso }
             },
             device.observe(\.exposureDuration, options: [.new]) { [weak self] d, _ in
-                // An invalid CMTime reads as NaN: keep the last good value then.
                 let s = d.exposureDuration.seconds
                 guard s.isFinite, s > 0 else { return }
                 Task { @MainActor in self?.state.exposureSeconds = s }
@@ -419,8 +425,6 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
             },
         ]
         if paper {
-            // The Log frame is balanced by the ISP; the still's mix weights
-            // for the same balance come from the core with these gains.
             observers.append(device.observe(\.deviceWhiteBalanceGains, options: [.initial, .new]) { [weak self] d, _ in
                 let g = d.deviceWhiteBalanceGains
                 guard g.redGain.isFinite, g.greenGain.isFinite, g.blueGain.isFinite, g.greenGain > 0 else { return }
@@ -440,6 +444,16 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
             self.state.focusPoint = nil
             self.state.flash = f
         }
+    }
+
+    /// The stream's pixel format. False when AVFoundation refused it.
+    @discardableResult
+    private func setStream(appleLog f: AVCaptureDevice.Format?) -> Bool {
+        var err: NSError?
+        let settings = CaptureSession.streamSettings(appleLog: f)
+        if MimizanTry({ self.videoOutput.videoSettings = settings }, &err) { return true }
+        log.warning("stream: \(err?.localizedDescription ?? "refused")")
+        return false
     }
 
     /// The two 10-bit biplanar video-range subtypes Apple Log comes in:
@@ -500,22 +514,29 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     /// refused the lock. Inside the caller's configuration.
     @discardableResult
     static func setFormat(_ device: AVCaptureDevice, _ f: AVCaptureDevice.Format, appleLog: Bool) -> Bool {
-        do {
-            try device.lockForConfiguration()
-            defer { device.unlockForConfiguration() }
-            device.activeFormat = f
-            if appleLog {
-                device.activeColorSpace = .appleLog
-                device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
-                device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
-            } else {
-                device.activeColorSpace = .sRGB
+        var err: NSError?
+        var ok = false
+        let ran = MimizanTry({
+            do {
+                try device.lockForConfiguration()
+                defer { device.unlockForConfiguration() }
+                device.activeFormat = f
+                if appleLog {
+                    device.activeColorSpace = .appleLog
+                    device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
+                    device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
+                } else {
+                    device.activeColorSpace = .sRGB
+                }
+                ok = true
+            } catch {
+                log.warning("format \(f.formatDescription.dimensions.width)×\(f.formatDescription.dimensions.height): \(error.localizedDescription)")
             }
-            return true
-        } catch {
-            log.warning("format \(f.formatDescription.dimensions.width)×\(f.formatDescription.dimensions.height): \(error.localizedDescription)")
-            return false
+        }, &err)
+        if !ran {
+            log.warning("format \(f.formatDescription.dimensions.width)×\(f.formatDescription.dimensions.height): \(err?.localizedDescription ?? "refused")")
         }
+        return ran && ok
     }
 
     /// The still's size in `f`: the largest the Log format offers (its
@@ -810,9 +831,10 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     /// camera queue.
     private func swapToPhoto(_ d: AVCaptureDevice) -> Bool {
         session.beginConfiguration()
-        videoOutput.videoSettings = CaptureSession.streamSettings(appleLog: nil)
         session.sessionPreset = .photo
         session.commitConfiguration()
+        _ = setStream(appleLog: nil)
+        photoOutput.maxPhotoDimensions = CaptureSession.stillDimensions(of: d.activeFormat, appleLog: false)
         guard photoOutput.availableRawPhotoPixelFormatTypes.contains(rawFormat) else {
             log.warning("photo preset: RAW \(FormatDump.fourcc(self.rawFormat)) not offered (\(self.photoOutput.availableRawPhotoPixelFormatTypes.map(FormatDump.fourcc).joined(separator: ", ")))")
             return false
@@ -835,12 +857,11 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     @discardableResult
     private func swapToLog(_ d: AVCaptureDevice, _ f: AVCaptureDevice.Format) -> Bool {
         session.beginConfiguration()
-        defer { session.commitConfiguration() }
         session.sessionPreset = .inputPriority
-        guard CaptureSession.setFormat(d, f, appleLog: true) else { return false }
-        photoOutput.maxPhotoDimensions = CaptureSession.stillDimensions(of: f, appleLog: true)
-        videoOutput.videoSettings = CaptureSession.streamSettings(appleLog: f)
-        return true
+        let set = CaptureSession.setFormat(d, f, appleLog: true)
+        session.commitConfiguration()
+        guard set else { return false }
+        return setStream(appleLog: f)
     }
 
     /// After the swap: an exposure set by hand on the preset's format —
@@ -994,6 +1015,8 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         let chromaStride = CVPixelBufferGetBytesPerRowOfPlane(pb, 1) / 2
         let luma = lumaBase.assumingMemoryBound(to: UInt16.self)
         let chroma = chromaBase.assumingMemoryBound(to: UInt16.self)
+        let lumaCount = lumaStride * h
+        let chromaCount = chromaStride * ch
         let ycc = YccMatrix.of(pb)
         var bins = [Int](repeating: 0, count: 64)
         // log2 of the mix from 2^-16 to 2^6 in 1/32 stop.
@@ -1006,14 +1029,20 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         let yScale: Float = 1 / (876 * 64), cScale: Float = 1 / (896 * 64)
         let yBlack: Float = 64 * 64, cMid: Float = 512 * 64
         // The chroma plane is half the width (4:2:2) or half of both (4:2:0).
+        // Two UInt16 per chroma pixel when the row is wide enough; else the
+        // width already counts the pair and a *2 would walk off the buffer
+        // (the 17 Pro's first Log frame must not abort the process).
+        let pair = chromaStride >= cw * 2 ? 2 : 1
         var y = 0
         while y < h {
             let row = y * lumaStride
             let crow = min(y * ch / h, ch - 1) * chromaStride
             var x = 0
             while x < w {
-                let yy = (Float(luma[row + x]) - yBlack) * yScale
-                let ci = crow + min(x * cw / w, cw - 1) * 2
+                let li = row + x
+                let ci = crow + min(x * cw / w, cw - 1) * pair
+                guard li < lumaCount, ci >= 0, ci + 1 < chromaCount else { x += step; continue }
+                let yy = (Float(luma[li]) - yBlack) * yScale
                 let cb = (Float(chroma[ci]) - cMid) * cScale
                 let cr = (Float(chroma[ci + 1]) - cMid) * cScale
                 let enc = ycc * SIMD3<Float>(yy, cb, cr)
@@ -1022,9 +1051,9 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                 let g = min(max(mix * paper.gain, 0), 1)
                 let d = grayTable[min(Int(g * scale + 0.5), grayTable.count - 1)]
                 bins[min(max(Int(d * 63.999), 0), 63)] += 1
-                if g > 0.002, g < 0.98 {
+                if g > 0.002, g < 0.98, mix > 0, mix.isFinite {
                     let s = (log2(mix) - stopsLow) / stopsPerBin
-                    stops[min(max(Int(s), 0), stops.count - 1)] += 1
+                    if s.isFinite { stops[min(max(Int(s), 0), stops.count - 1)] += 1 }
                     counted += 1
                 }
                 x += step

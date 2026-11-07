@@ -375,7 +375,7 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.17.11 on Android and iOS: RAW capture, the finder as the paper
+0.17.12 on Android and iOS: RAW capture, the finder as the paper
 (Android, and iPhones with Apple Log), Mono and Color, the split-grade
 paper, the zone strip and Peak with a print per frame, review with
 remix and 1:1 detail, the exports, the roll. Checked on a Pixel 9 (main
@@ -402,10 +402,13 @@ the same 4032×3024 format offers no RAW type when set by hand and
 `bgg4` under the `.photo` preset, so the empty list in the second file
 was about `.inputPriority`, not about the Log format (AVFoundation has
 offered Bayer RAW under the photo preset alone since 2016). 0.17.10
-swaps the session's preset at the shutter, not the format; the
-Settings note reads "Apple Log for the finder; the Bayer RAW still
-(bgg4) comes from the photo preset, 4032×3024, the session switched at
-the shutter". The 17 Pro also lists three `btp2` Apple-Log-only video
+swaps the session's preset at the shutter, not the format. 0.17.12
+commits the photo preset before reading the RAW type, catches the
+NSException AVFoundation raises instead of aborting, and if the Log
+session will not start falls back to the camera's picture; the
+histogram of a Log frame stays inside the buffer. The Settings note
+reads "Apple Log for the finder; the Bayer RAW still (bgg4) comes from
+the photo preset, 4032×3024, the session switched at the shutter". The 17 Pro also lists three `btp2` Apple-Log-only video
 formats (4224×2240, 4224×3024; the ProRes RAW ones) and a colour space
 the iOS 26 SDK has no name for (`4`); neither is used. 0.17.4 to 0.17.9
 settle the camera screen: the grade as one slider

@@ -13,7 +13,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.17.11"
+    MARKETING_VERSION: "0.17.12"
     CURRENT_PROJECT_VERSION: "27"
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     ENABLE_USER_SCRIPT_SANDBOXING: NO
@@ -31,6 +31,7 @@ targets:
       - path: MimizanLab
         excludes:
           - "MimizanLab.entitlements"
+          - "MimizanLab-Bridging-Header.h"
       - path: ../cameras
         type: folder
         buildPhase: resources
@@ -69,5 +70,7 @@ targets:
         OTHER_LDFLAGS: "-liconv -lresolv"
         MTL_ENABLE_DEBUG_INFO: NO
         SWIFT_STRICT_CONCURRENCY: minimal
+        SWIFT_OBJC_BRIDGING_HEADER: MimizanLab/MimizanLab-Bridging-Header.h
+        HEADER_SEARCH_PATHS: "$(SRCROOT)/MimizanLab"
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: ""
