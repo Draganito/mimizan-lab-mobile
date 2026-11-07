@@ -87,36 +87,85 @@ struct ProcessChoice: View {
     }
 }
 
-struct FilterRow: View {
-    let selected: Filter
-    let onSelect: (Filter) -> Void
+/// The taking filters as one row over the paper strip, the width shared
+/// in equal fields, one type size whichever process stands: in Mono the
+/// seven glasses (Pan and the six Wratten numbers), in Color the three
+/// ways to the plate. The chosen one is written in its own colour — the
+/// glass in front of the lens, read without reading — with a line under
+/// it that slides over on a change; the others grey. A tap chooses, a
+/// finger drawn along the row scrubs through them with the picture
+/// following. A field that cannot be used as it stands (Camera without
+/// the lens's matrix yet) is dimmed, and still answers: the fallback
+/// shows what it is.
+struct FilterStrip: View {
+    let labels: [String]
+    let inks: [Color]
+    let selected: Int
+    var dimmed: Set<Int> = []
+    let onSelect: (Int) -> Void
 
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(Filter.all, id: \.self) { f in
-                    Chip(label: Format.filterShort(f), selected: f == selected) { onSelect(f) }
-                }
-            }
-            .padding(.vertical, 4)
+    static func mono(selected: Filter, onSelect: @escaping (Filter) -> Void) -> FilterStrip {
+        FilterStrip(
+            labels: Filter.all.map(Format.filterShort), inks: Filter.all.map(FilterStrip.ink),
+            selected: Filter.all.firstIndex(of: selected) ?? 0,
+            onSelect: { onSelect(Filter.all[$0]) }
+        )
+    }
+
+    static func plate(selected: PlateFilters, hasMatrix: Bool, onSelect: @escaping (PlateFilters) -> Void) -> FilterStrip {
+        FilterStrip(
+            labels: PlateFilters.all.map(Format.plateFilters), inks: PlateFilters.all.map { _ in .white },
+            selected: PlateFilters.all.firstIndex(of: selected) ?? 0,
+            dimmed: hasMatrix ? [] : [PlateFilters.all.firstIndex(of: .camera) ?? 0],
+            onSelect: { onSelect(PlateFilters.all[$0]) }
+        )
+    }
+
+    /// The glass's own colour, as it looks held up to the light.
+    static func ink(_ f: Filter) -> Color {
+        switch f {
+        case .none: return .white
+        case .yellow8: return Color(red: 1.0, green: 0.85, blue: 0.2)
+        case .yellowGreen11: return Color(red: 0.75, green: 0.9, blue: 0.25)
+        case .orange16: return Color(red: 1.0, green: 0.6, blue: 0.2)
+        case .red25: return Color(red: 1.0, green: 0.32, blue: 0.26)
+        case .green58: return Color(red: 0.3, green: 0.85, blue: 0.4)
+        case .blue47: return Color(red: 0.4, green: 0.58, blue: 1.0)
         }
     }
-}
-
-struct PlateFilterRow: View {
-    let selected: PlateFilters
-    let hasMatrix: Bool
-    let onSelect: (PlateFilters) -> Void
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(PlateFilters.all, id: \.self) { f in
-                    Chip(label: f == .camera && !hasMatrix ? "Camera (no matrix)" : Format.plateFilters(f), selected: f == selected) { onSelect(f) }
+        let n = max(labels.count, 1)
+        GeometryReader { g in
+            let w = g.size.width / CGFloat(n)
+            ZStack(alignment: .bottomLeading) {
+                HStack(spacing: 0) {
+                    ForEach(labels.indices, id: \.self) { i in
+                        Text(labels[i])
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                            .foregroundStyle(i == selected ? inks[i] : Color.gray.opacity(dimmed.contains(i) ? 0.4 : 0.8))
+                            .frame(width: w, height: g.size.height)
+                            .contentShape(Rectangle())
+                            .onTapGesture { onSelect(i) }
+                    }
                 }
+                Rectangle()
+                    .fill(inks[min(selected, inks.count - 1)])
+                    .frame(width: w * 0.6, height: 2)
+                    .offset(x: w * CGFloat(selected) + w * 0.2)
+                    .animation(.easeOut(duration: 0.15), value: selected)
             }
-            .padding(.vertical, 4)
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 8)
+                    .onChanged { v in
+                        let i = min(max(Int(v.location.x / w), 0), n - 1)
+                        if i != selected { onSelect(i) }
+                    }
+            )
         }
+        .frame(height: 26)
     }
 }
 

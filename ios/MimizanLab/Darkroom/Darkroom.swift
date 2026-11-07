@@ -159,6 +159,7 @@ final class Darkroom {
     func withStandingProcess(_ s: DevelopSettings) -> DevelopSettings {
         var out = s
         out.process = prefs.process
+        out.filter = prefs.filter
         out.plateFilters = prefs.plateFilters
         out.plateSpace = prefs.plateSpace
         return out

@@ -158,9 +158,9 @@ struct ReviewView: View {
         let plate = vm.plate
         VStack(alignment: .leading, spacing: 12) {
             if plate == nil {
-                FilterRow(selected: vm.filter, onSelect: vm.setFilter)
+                FilterStrip.mono(selected: vm.filter, onSelect: vm.setFilter)
             } else {
-                PlateFilterRow(selected: prefs.plateFilters, hasMatrix: vm.info?.hasColourMatrix ?? false, onSelect: vm.setPlateFilters)
+                FilterStrip.plate(selected: prefs.plateFilters, hasMatrix: vm.info?.hasColourMatrix ?? false, onSelect: vm.setPlateFilters)
             }
             let grade = vm.print.grade
             let peak = vm.print.peak

@@ -43,7 +43,7 @@ final class CaptureViewModel {
     var prefs: Prefs { darkroom.prefs }
 
     /// What the next frame is developed with: the standing process and
-    /// the plate's filters; the mono filter is chosen in the developer.
+    /// the plate's filters, the mono filter.
     var develop: DevelopSettings { darkroom.withStandingProcess(DevelopSettings()) }
 
     /// ISO and time the hand's sliders run over: the range of the format
@@ -68,7 +68,7 @@ final class CaptureViewModel {
     private func observeTone() {
         withObservationTracking {
             _ = prefs.soft; _ = prefs.hard
-            _ = prefs.process; _ = prefs.plateFilters; _ = prefs.plateSpace
+            _ = prefs.process; _ = prefs.filter; _ = prefs.plateFilters; _ = prefs.plateSpace
             _ = prefs.finderMatch
             _ = viewfinder.zebra; _ = lens
             _ = session.state.paperFinder
@@ -262,7 +262,11 @@ final class CaptureViewModel {
     func toggleHistogram() { viewfinder.showHistogram.toggle(); prefs.setHistogram(viewfinder.showHistogram) }
     func setPeakMode(_ mode: PeakMode) { prefs.setPeakMode(mode) }
     func setProcess(_ p: Process) { prefs.setProcess(p) }
+    func setFilter(_ f: Filter) { prefs.setFilter(f) }
+    func setPlateFilters(_ f: PlateFilters) { prefs.setPlateFilters(f) }
     func setPlateSpace(_ s: PlateSpace) { prefs.setPlateSpace(s) }
+    /// Whether this lens has brought its colour matrix yet (a DNG of it developed).
+    var hasMatrix: Bool { lens.flatMap { prefs.xyzToCam(lens: $0.label) } != nil }
     func setShotMode(_ mode: ShotMode) { prefs.setShotMode(mode) }
 
     /// The shutter may fire: a lens is open and no still is under way.

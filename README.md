@@ -149,13 +149,19 @@ the camera's own preview, desaturated in mono, untouched in colour.
    Auto flash does not fire. There is no EV slider: the automatics
    expose, and a print that came out dark is corrected in the
    developer, where the stops are what they say.
-2. **Process.** Mono or Color, kept across starts; Color is the
-   three-colour plate. The filter is chosen in the developer, on the
-   picture, a re-mix without developing again: in Mono the row is the
-   film (Pan, Y8, YG11, O16, R25, G58, B47), in Color the three taking
-   filters, Camera (the sensor's colour matrix), Wratten (25/58/47) or
-   Channels. The frame remembers the choice in its `.grade` file beside
-   the grade, so the roll says what it was last printed as. The colour
+2. **Process and filter.** Mono or Color, kept across starts; Color is
+   the three-colour plate. The taking filter is a row over the paper
+   strip, under the finder (where the finder is the paper) and in the
+   developer: in Mono the seven glasses (Pan, Y8, YG11, O16, R25, G58,
+   B47), in Color the three ways to the plate, Camera (the sensor's
+   colour matrix), Wratten (25/58/47) or Channels — the width shared in
+   equal fields, the chosen one written in the glass's own colour with
+   a line under it, a tap or a finger drawn along the row. The finder
+   shows the standing filter, the next frame is mixed with it, and a
+   change in the developer (a re-mix without developing again) becomes
+   the standing one, as the process does. The frame remembers the
+   choice in its `.grade` file beside the grade, so the roll says what
+   it was last printed as. The colour
    space starts at sRGB; Adobe RGB is under *Color space* in Settings.
 3. **Grade.** One strip, the paper itself: it is drawn from
    the core's paper table for the standing pair, over ten zones of
@@ -382,7 +388,7 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.17.23 on Android and iOS: RAW capture, the finder as the paper
+0.17.24 on Android and iOS: RAW capture, the finder as the paper
 (Android, and iPhones with Apple Log), Mono and Color, the split-grade
 paper, the zone strip and Peak with a print per frame, review with
 remix and 1:1 detail, the exports, the roll. Checked on a Pixel 9 (main

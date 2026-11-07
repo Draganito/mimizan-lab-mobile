@@ -239,9 +239,9 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (plate == null) {
-                        FilterRow(selected = s.filter, onSelect = vm::setFilter)
+                        MonoFilterStrip(selected = s.filter, onSelect = vm::setFilter)
                     } else {
-                        PlateFilterRow(
+                        PlateFilterStrip(
                             selected = plateFilters,
                             hasMatrix = s.info?.hasColourMatrix ?: false,
                             onSelect = vm::setPlateFilters,

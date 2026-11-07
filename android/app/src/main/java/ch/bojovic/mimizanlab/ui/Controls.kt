@@ -1,6 +1,12 @@
 package ch.bojovic.mimizanlab.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,7 +15,6 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -18,7 +23,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
@@ -54,38 +58,96 @@ import ch.bojovic.mimizanlab.store.ShotMode
 // The widgets the camera and the developer share: the chip rows, the
 // grade slider and the zone strip, the shutter, the histogram.
 
+/**
+ * The taking filters as one row over the paper strip, the width shared
+ * in equal fields, one type size whichever process stands: in Mono the
+ * seven glasses (Pan and the six Wratten numbers), in Color the three
+ * ways to the plate. The chosen one is written in its own colour — the
+ * glass in front of the lens, read without reading — with a line under
+ * it that slides over on a change; the others grey. A tap chooses, a
+ * finger drawn along the row scrubs through them with the picture
+ * following. A field that cannot be used as it stands (Camera without
+ * the lens's matrix yet) is dimmed, and still answers: the fallback
+ * shows what it is. Twin of the iOS `FilterStrip`.
+ */
 @Composable
-fun PlateFilterRow(selected: PlateFilters, hasMatrix: Boolean, onSelect: (PlateFilters) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+fun FilterStrip(labels: List<String>, inks: List<Color>, selected: Int, dimmed: Set<Int> = emptySet(), onSelect: (Int) -> Unit) {
+    val n = labels.size.coerceAtLeast(1)
+    val latest = rememberUpdatedState(selected)
+    val slide by animateFloatAsState(selected.toFloat(), label = "filter")
+    BoxWithConstraints(
+        Modifier
+            .fillMaxWidth()
+            .height(26.dp)
+            .pointerInput(n) {
+                detectHorizontalDragGestures { change, _ ->
+                    change.consume()
+                    val i = (change.position.x / (size.width / n)).toInt().coerceIn(0, n - 1)
+                    if (i != latest.value) onSelect(i)
+                }
+            },
     ) {
-        for (f in PlateFilters.entries) {
-            FilterChip(
-                selected = f == selected,
-                onClick = { onSelect(f) },
-                label = { Text(if (f == PlateFilters.CAMERA && !hasMatrix) "Camera (no matrix)" else Format.plateFilters(f)) },
-                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF3A3A3A)),
-            )
+        val w = maxWidth / n
+        Row(Modifier.fillMaxWidth().height(26.dp)) {
+            for (i in 0 until n) {
+                Box(
+                    Modifier
+                        .width(w)
+                        .height(26.dp)
+                        .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { onSelect(i) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        labels[i],
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        color = if (i == selected) inks[i] else Color.Gray.copy(alpha = if (i in dimmed) 0.4f else 0.8f),
+                    )
+                }
+            }
         }
+        Box(
+            Modifier
+                .align(Alignment.BottomStart)
+                .offset(x = w * slide + w * 0.2f)
+                .width(w * 0.6f)
+                .height(2.dp)
+                .background(inks[selected.coerceIn(0, inks.size - 1)]),
+        )
     }
 }
 
 @Composable
-fun FilterRow(selected: Filter, onSelect: (Filter) -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        for (f in Filter.entries) {
-            FilterChip(
-                selected = f == selected,
-                onClick = { onSelect(f) },
-                label = { Text(Format.filterShort(f)) },
-                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFF3A3A3A)),
-            )
-        }
-    }
+fun MonoFilterStrip(selected: Filter, onSelect: (Filter) -> Unit) {
+    val all = Filter.entries
+    FilterStrip(
+        labels = all.map(Format::filterShort), inks = all.map(::filterInk),
+        selected = all.indexOf(selected).coerceAtLeast(0),
+        onSelect = { onSelect(all[it]) },
+    )
+}
+
+@Composable
+fun PlateFilterStrip(selected: PlateFilters, hasMatrix: Boolean, onSelect: (PlateFilters) -> Unit) {
+    val all = PlateFilters.entries
+    FilterStrip(
+        labels = all.map(Format::plateFilters), inks = all.map { Color.White },
+        selected = all.indexOf(selected).coerceAtLeast(0),
+        dimmed = if (hasMatrix) emptySet() else setOf(all.indexOf(PlateFilters.CAMERA)),
+        onSelect = { onSelect(all[it]) },
+    )
+}
+
+/** The glass's own colour, as it looks held up to the light. */
+fun filterInk(f: Filter): Color = when (f) {
+    Filter.NONE -> Color.White
+    Filter.YELLOW8 -> Color(0xFFFFD933)
+    Filter.YELLOW_GREEN11 -> Color(0xFFBFE640)
+    Filter.ORANGE16 -> Color(0xFFFF9933)
+    Filter.RED25 -> Color(0xFFFF5242)
+    Filter.GREEN58 -> Color(0xFF4DD966)
+    Filter.BLUE47 -> Color(0xFF6694FF)
 }
 
 @Composable

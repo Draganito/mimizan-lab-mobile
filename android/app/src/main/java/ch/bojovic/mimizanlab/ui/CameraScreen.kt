@@ -267,11 +267,17 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
         }
 
         // The standing paper under the finder, the pair the finder, the
-        // automatic JPEG and the next frame start from, as one strip: a
-        // drag is the exposure, a spread the grade. The finder is the
+        // automatic JPEG and the next frame start from: the taking filter
+        // as a row, and the paper as one strip — a drag is the exposure,
+        // a spread the grade. The finder is the
         // paper, so the gesture shows what the print will be. A double
         // tap on the strip is the base print.
-        Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (develop.isPlate) {
+                PlateFilterStrip(selected = develop.plateFilters, hasMatrix = lens?.xyzToCam != null, onSelect = vm::setPlateFilters)
+            } else {
+                MonoFilterStrip(selected = develop.filter, onSelect = vm::setFilter)
+            }
             PaperStrip(grade.soft, grade.hard, onBoth = vm::setGrade)
         }
 

@@ -224,6 +224,7 @@ class Darkroom private constructor(private val context: Context) {
     /** `s` in the process the darkroom stands in now (a second development follows the switch made in review). */
     fun withStandingProcess(s: DevelopSettings): DevelopSettings = s.copy(
         process = prefs.process.value,
+        filter = prefs.filter.value,
         plateFilters = prefs.plateFilters.value,
         plateSpace = prefs.plateSpace.value,
     )

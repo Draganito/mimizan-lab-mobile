@@ -3,6 +3,7 @@ package ch.bojovic.mimizanlab.store
 import android.content.Context
 import androidx.core.content.edit
 import ch.bojovic.mimizanlab.engine.PeakLimits
+import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.PlateFilters
 import ch.bojovic.mimizanlab.engine.PlateSpace
 import ch.bojovic.mimizanlab.engine.Process
@@ -97,6 +98,15 @@ class Prefs(context: Context) {
     fun setProcess(p: Process) {
         _process.value = p
         sp.edit { putString(KEY_PROCESS, p.name) }
+    }
+
+    private val _filter = MutableStateFlow(GradeMath.enumOr(sp.getString(KEY_FILTER, null), Filter.NONE))
+    /** The monochrome taking filter in front of the lens: the finder shows it, the next shot is mixed with it, the developer may change it. */
+    val filter: StateFlow<Filter> = _filter.asStateFlow()
+
+    fun setFilter(f: Filter) {
+        _filter.value = f
+        sp.edit { putString(KEY_FILTER, f.name) }
     }
 
     private val _plateFilters = MutableStateFlow(GradeMath.enumOr(sp.getString(KEY_PLATE_FILTERS, null), PlateFilters.CAMERA))
@@ -204,6 +214,7 @@ class Prefs(context: Context) {
         private const val KEY_PEAK = "peak_on"
         private const val KEY_PEAK_MODE = "peak_mode"
         private const val KEY_PROCESS = "process"
+        private const val KEY_FILTER = "filter"
         private const val KEY_PLATE_FILTERS = "plate_filters"
         private const val KEY_PLATE_SPACE = "plate_space"
         private const val KEY_STAY_ON_FINDER = "stay_on_finder"

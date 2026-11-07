@@ -130,8 +130,10 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
         darkroom.redevelop(shot.name, darkroom.withStandingProcess(shot.settings).copy(autoJpeg = false))
     }
 
+    /** This frame's filter; the roll remembers it for the next shot, as it does the process and the plate's filters. */
     fun setFilter(f: Filter) {
         _state.update { it.copy(filter = f) }
+        darkroom.prefs.setFilter(f)
         remixAndRender()
     }
 

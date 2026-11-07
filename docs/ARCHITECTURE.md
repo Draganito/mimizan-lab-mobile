@@ -151,7 +151,14 @@ separation:
   filter to the frame's recipe (`Darkroom.setSettings`), so the roll's
   line and a later "Develop again" start from the choice.
 * soft / hard -> stops of time from the paper's base exposure, ±3, in
-  twelfths. Zero is the base print (about grade 2). Both apps show
+  twelfths. Zero is the base print (about grade 2). The taking filter
+  stands in `Prefs.filter` (`"filter"`, the engine's enum name) beside
+  the process and the plate's filters; `withStandingProcess` puts it
+  into the next frame's `DevelopSettings`, the finder's tone follows
+  it, and the developer's `setFilter` writes the frame's choice back to
+  it. `FilterStrip` (Compose and SwiftUI) shows the seven glasses or
+  the three plate filters in equal fields over the paper strip, the
+  chosen one in the glass's colour, tap or drag. Both apps show
   them as one strip (`PaperStrip`, Compose and SwiftUI alike), drawn
   from `paper_lut` for the pair over ten zones of
   linear grey — a one-finger drag shifts the pair (`shiftGrade`), a

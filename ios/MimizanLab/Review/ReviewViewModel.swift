@@ -129,8 +129,11 @@ final class ReviewViewModel {
 
     // MARK: controls
 
+    /// This frame's filter; the roll remembers it for the next shot, as
+    /// it does the process and the plate's filters.
     func setFilter(_ f: Filter) {
         filter = f
+        darkroom.prefs.setFilter(f)
         remixAndRender()
     }
 

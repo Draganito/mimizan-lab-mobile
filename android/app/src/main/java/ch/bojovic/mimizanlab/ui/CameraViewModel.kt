@@ -18,6 +18,8 @@ import ch.bojovic.mimizanlab.engine.DevelopSettings
 import ch.bojovic.mimizanlab.engine.PlateSpace
 import ch.bojovic.mimizanlab.engine.Process
 import ch.bojovic.mimizanlab.engine.mixWeights
+import ch.bojovic.mimizanlab.engine.Filter
+import ch.bojovic.mimizanlab.engine.PlateFilters
 import ch.bojovic.mimizanlab.engine.paperLut
 import ch.bojovic.mimizanlab.engine.plateWeights
 import ch.bojovic.mimizanlab.store.Grade
@@ -57,7 +59,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private val _exposure = MutableStateFlow(ExposureSettings())
     val exposure: StateFlow<ExposureSettings> = _exposure.asStateFlow()
 
-    /** What the next frame is developed with: the standing process and the plate's filters; the mono filter is chosen in the developer. */
+    /** What the next frame is developed with: the standing process, the mono filter and the plate's filters. */
     private val _develop = MutableStateFlow(darkroom.withStandingProcess(DevelopSettings()))
     val develop: StateFlow<DevelopSettings> = _develop.asStateFlow()
 
@@ -110,8 +112,9 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { tone.collect { controller.tone = it } }
         // The review changes the standing process too; the viewfinder follows.
         viewModelScope.launch {
-            combine(darkroom.prefs.process, darkroom.prefs.plateFilters, darkroom.prefs.plateSpace) { p, f, s -> Triple(p, f, s) }
-                .collect { (p, f, s) -> _develop.update { it.copy(process = p, plateFilters = f, plateSpace = s) } }
+            combine(darkroom.prefs.process, darkroom.prefs.filter, darkroom.prefs.plateFilters, darkroom.prefs.plateSpace) { p, m, f, s ->
+                DevelopSettings(process = p, filter = m, plateFilters = f, plateSpace = s)
+            }.collect { d -> _develop.update { it.copy(process = d.process, filter = d.filter, plateFilters = d.plateFilters, plateSpace = d.plateSpace) } }
         }
     }
 
@@ -267,6 +270,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setProcess(p: Process) = darkroom.prefs.setProcess(p)
+    fun setFilter(f: Filter) = darkroom.prefs.setFilter(f)
+    fun setPlateFilters(f: PlateFilters) = darkroom.prefs.setPlateFilters(f)
     fun setPlateSpace(s: PlateSpace) = darkroom.prefs.setPlateSpace(s)
     fun setGrade(soft: Double, hard: Double) = darkroom.prefs.setGrade(soft, hard)
     fun setPeakMode(mode: PeakMode) = darkroom.prefs.setPeakMode(mode)

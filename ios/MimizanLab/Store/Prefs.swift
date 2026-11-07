@@ -119,6 +119,9 @@ final class Prefs {
     var standingPrint: Print { Print(grade: grade, peak: .standing(peakMode)) }
     /// The darkroom's process; the next shot opens in it.
     private(set) var process: Process
+    /// The monochrome taking filter in front of the lens: the finder shows
+    /// it, the next shot is mixed with it, the developer may change it.
+    private(set) var filter: Filter
     /// The plate's taking filters.
     private(set) var plateFilters: PlateFilters
     /// The plate's projection primaries, the colour space of the file.
@@ -151,6 +154,7 @@ final class Prefs {
             peakMode = .auto
         }
         process = Process(rawValue: store.string(forKey: Keys.process) ?? "") ?? .mono
+        filter = Filter.fromName(store.string(forKey: Keys.filter)) ?? .none
         plateFilters = PlateFilters.fromName(store.string(forKey: Keys.plateFilters)) ?? .camera
         plateSpace = PlateSpace.fromName(store.string(forKey: Keys.plateSpace)) ?? .srgb
         if let raw = store.string(forKey: Keys.shotMode), let mode = ShotMode(rawValue: raw) {
@@ -242,6 +246,11 @@ final class Prefs {
     func setProcess(_ p: Process) {
         process = p
         store.set(p.rawValue, forKey: Keys.process)
+    }
+
+    func setFilter(_ f: Filter) {
+        filter = f
+        store.set(f.name, forKey: Keys.filter)
     }
 
     func setPlateFilters(_ f: PlateFilters) {
@@ -347,6 +356,7 @@ final class Prefs {
         static let peak = "peak_on"
         static let peakMode = "peak_mode"
         static let process = "process"
+        static let filter = "filter"
         static let plateFilters = "plate_filters"
         static let plateSpace = "plate_space"
         static let stayOnFinder = "stay_on_finder"
