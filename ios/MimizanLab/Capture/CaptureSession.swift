@@ -322,13 +322,21 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         do {
             let input = try AVCaptureDeviceInput(device: device)
             guard session.canAddInput(input) else { throw CaptureError(message: "\(lens.label): cannot add the camera") }
-            var err: NSError?
-            let added = MimizanTry({
-                self.session.addInput(input)
-                self.session.addOutput(self.photoOutput)
-                self.session.addOutput(self.videoOutput)
-            }, &err)
-            guard added else { throw CaptureError(message: "\(lens.label): \(err?.localizedDescription ?? "cannot build the session")") }
+            // The video output still asks for the Log finder's 10-bit
+            // subtype from before; no format under the photo preset
+            // delivers it, and adding the output then raises
+            // ("Unsupported format (null)"). BGRA first, as at launch.
+            _ = setStream(appleLog: nil)
+            for (what, add) in [
+                ("the camera", { self.session.addInput(input) }),
+                ("the photo output", { self.session.addOutput(self.photoOutput) }),
+                ("the video output", { self.session.addOutput(self.videoOutput) }),
+            ] {
+                var err: NSError?
+                guard MimizanTry(add, &err) else {
+                    throw CaptureError(message: "\(lens.label): \(what) was refused: \(err?.localizedDescription ?? "no reason")")
+                }
+            }
             if photoOutput.isAppleProRAWSupported { photoOutput.isAppleProRAWEnabled = false }
             if !tryPreset(.photo) || !tryCommit() {
                 throw CaptureError(message: "\(lens.label): the photo preset was refused")
@@ -621,6 +629,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         // ("Unsupported format (null)") and raises. A preset instead.
         _ = tryPreset(.photo)
         _ = tryCommit()
+        _ = setStream(appleLog: nil)
         if let device { CaptureSession.resetDevice(device) }
         input = nil
         device = nil
