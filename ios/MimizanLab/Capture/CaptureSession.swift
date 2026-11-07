@@ -2,9 +2,10 @@
 // and a photo output that writes the still as a Bayer DNG. On a camera
 // with Apple Log the stream is the log frame in 10-bit 4:2:0 or 4:2:2,
 // which the finder reads as the negative; elsewhere it is the ISP's BGRA
-// picture. Where the Log format carries no Bayer RAW (the iPhone 16 Pro:
-// Log on the video formats, RAW on the photo format), the still swaps
-// the camera to the photo format for the shot and back. Nothing of the
+// picture. The Bayer RAW is offered under the photo preset alone, so
+// where the finder runs in a Log format (every Pro iPhone) the still
+// rebuilds the session under the preset for the shot and the Log finder
+// after it; the finder holds its last frame meanwhile. Nothing of the
 // stream reaches the negative; the DNG is the measurement and goes to
 // the core as the desktop would read it.
 import AVFoundation
@@ -309,45 +310,18 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         // is checked only after it. A throw never leaves a configuration
         // open; AVFoundation exceptions from a setting become Swift errors
         // (`MimizanTry`) and fall back to the picture.
-        // The device object is one per camera for the whole process: after
-        // a Log finder it still carries the Log colour space and the 30 fps
-        // lock, which the photo preset's format does not take. Undo both
-        // before the input goes in (the still's swap does the same).
-        CaptureSession.resetDevice(device)
         session.beginConfiguration()
         session.automaticallyConfiguresCaptureDeviceForWideColor = false
-        // The preset before the input goes in, as at launch (the session
-        // opens on a preset, never on `.inputPriority` from a finder before).
-        _ = tryPreset(.photo)
         do {
-            let input = try AVCaptureDeviceInput(device: device)
-            guard session.canAddInput(input) else { throw CaptureError(message: "\(lens.label): cannot add the camera") }
-            // The video output still asks for the Log finder's 10-bit
-            // subtype from before; no format under the photo preset
-            // delivers it, and adding the output then raises
-            // ("Unsupported format (null)"). BGRA first, as at launch.
-            _ = setStream(appleLog: nil)
-            for (what, add) in [
-                ("the camera", { self.session.addInput(input) }),
-                ("the photo output", { self.session.addOutput(self.photoOutput) }),
-                ("the video output", { self.session.addOutput(self.videoOutput) }),
-            ] {
-                var err: NSError?
-                guard MimizanTry(add, &err) else {
-                    throw CaptureError(message: "\(lens.label): \(what) was refused: \(err?.localizedDescription ?? "no reason")")
-                }
-            }
-            if photoOutput.isAppleProRAWSupported { photoOutput.isAppleProRAWEnabled = false }
+            try addGraph(device, label: lens.label, freshPhotoOutput: false)
             if !tryPreset(.photo) || !tryCommit() {
                 throw CaptureError(message: "\(lens.label): the photo preset was refused")
             }
-            self.input = input
         } catch {
             _ = tryCommit()
             throw error
         }
-        let bayer = { self.photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }) }
-        guard let photoRaw = bayer() else { throw CaptureError(message: "\(lens.label) offers no Bayer RAW") }
+        guard let photoRaw = bayerType() else { throw CaptureError(message: "\(lens.label) offers no Bayer RAW") }
 
         let logCapable = device.formats.filter { $0.supportedColorSpaces.contains(.appleLog) }
         let logPhoto = logCapable.filter { $0.isHighPhotoQualitySupported }.count
@@ -379,7 +353,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                 } else if !setStream(appleLog: f) {
                     note = "The 10-bit stream was refused. \(counts)."
                     logFormat = nil
-                } else if bayer() == nil {
+                } else if bayerType() == nil {
                     let pf = CaptureSession.photoFormat(of: device)
                     let size = pf.map { "\($0.formatDescription.dimensions.width)×\($0.formatDescription.dimensions.height)" } ?? "its own size"
                     swapStill = pf ?? f
@@ -404,7 +378,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                 log.warning("finder configuration: \(error.localizedDescription)")
             }
         }
-        let fmt = swapRaw ?? bayer() ?? photoRaw
+        let fmt = swapRaw ?? bayerType() ?? photoRaw
         rawFormat = fmt
         finderFormat = logFormat
         stillFormat = swapStill
@@ -622,15 +596,8 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         observers = []
         stopSession()
         session.beginConfiguration()
-        for i in session.inputs { session.removeInput(i) }
-        for o in session.outputs { session.removeOutput(o) }
-        // Never leave an empty session on `.inputPriority`: the next
-        // addInput then tries to restore a format it no longer has
-        // ("Unsupported format (null)") and raises. A preset instead.
-        _ = tryPreset(.photo)
+        clearGraph()
         _ = tryCommit()
-        _ = setStream(appleLog: nil)
-        if let device { CaptureSession.resetDevice(device) }
         input = nil
         device = nil
         lens = nil
@@ -638,6 +605,47 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         stillFormat = nil
         swapping = false
         pinned = nil
+    }
+
+    /// Inside a configuration: input and outputs out, and what a Log
+    /// finder leaves on the session undone — the preset back from
+    /// `.inputPriority` (an empty session committed there makes the next
+    /// `addInput` restore a format it no longer has), the video output
+    /// back to BGRA (no photo-preset format delivers the 10-bit subtype,
+    /// and `addOutput` would make the session set a nil format). Each
+    /// raised "Unsupported format ((null))" on the 17 Pro before.
+    private func clearGraph() {
+        for i in session.inputs { session.removeInput(i) }
+        for o in session.outputs { session.removeOutput(o) }
+        _ = tryPreset(.photo)
+        _ = setStream(appleLog: nil)
+    }
+
+    /// Inside a configuration, after `clearGraph`: the graph the lens
+    /// opens with — `device` in sRGB at its own frame rate (one device
+    /// object per camera for the process; a Log finder leaves its colour
+    /// space and 30 fps lock on it), its input, the photo output (a new
+    /// instance when `freshPhotoOutput`: one that has been through the
+    /// Log reports no RAW type under `.photo`) and the video output,
+    /// ProRAW off. Each add is caught; the error names what was refused.
+    private func addGraph(_ device: AVCaptureDevice, label: String, freshPhotoOutput: Bool) throws {
+        CaptureSession.resetDevice(device)
+        let input = try AVCaptureDeviceInput(device: device)
+        guard session.canAddInput(input) else { throw CaptureError(message: "\(label): cannot add the camera") }
+        if freshPhotoOutput { photoOutput = AVCapturePhotoOutput() }
+        let adds: [(String, () -> Void)] = [
+            ("the camera", { self.session.addInput(input) }),
+            ("the photo output", { self.session.addOutput(self.photoOutput) }),
+            ("the video output", { self.session.addOutput(self.videoOutput) }),
+        ]
+        for (what, add) in adds {
+            var err: NSError?
+            guard MimizanTry(add, &err) else {
+                throw CaptureError(message: "\(label): \(what) was refused: \(err?.localizedDescription ?? "no reason")")
+            }
+        }
+        if photoOutput.isAppleProRAWSupported { photoOutput.isAppleProRAWEnabled = false }
+        self.input = input
     }
 
     /// Clockwise quarter-turns that stand the back camera's sensor buffer
@@ -897,45 +905,28 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         }
     }
 
-    /// The session to the photo preset for the still, with a BGRA stream
-    /// (the Log subtype is not in the preset's format), in one
-    /// configuration; the preset's format is in once committed, and the
-    /// RAW type is looked for there. False when it is not offered. On the
-    /// camera queue.
+    /// The session rebuilt for the still as the lens opened it: the graph
+    /// under the photo preset (`clearGraph`, `addGraph` with a fresh photo
+    /// output), one commit, and the RAW type read there — the one path
+    /// that publishes it on the 17 Pro. False when it is not offered; the
+    /// caller puts the Log finder back. On the camera queue.
     private func swapToPhoto(_ d: AVCaptureDevice) -> Bool {
-        // The one path known to publish bgg4 on the 17 Pro is the one the
-        // lens opens with: a graph built under the photo preset, the
-        // device in sRGB with its own frame rate. So the still rebuilds
-        // that graph: stop, input and outputs out, the Log colour space
-        // and the 30 fps lock undone, input and fresh outputs in, the
-        // preset, one commit. The finder holds its last frame meanwhile.
         stopSession()
         session.beginConfiguration()
-        for o in session.outputs { session.removeOutput(o) }
-        for i in session.inputs { session.removeInput(i) }
-        _ = tryPreset(.photo)
-        CaptureSession.resetDevice(d)
-        guard let input = try? AVCaptureDeviceInput(device: d), session.canAddInput(input) else {
+        clearGraph()
+        do {
+            try addGraph(d, label: lens?.label ?? "camera", freshPhotoOutput: true)
+        } catch {
             _ = tryCommit()
-            log.warning("photo swap: cannot add the camera again")
+            log.warning("photo swap: \(error.localizedDescription)")
             return false
         }
-        session.addInput(input)
-        self.input = input
-        attachPhotoOutput(fresh: true)
-        _ = setStream(appleLog: nil)
-        if session.canAddOutput(videoOutput) { session.addOutput(videoOutput) }
-        let ok = tryPreset(.photo) && tryCommit()
-        if !ok {
-            log.warning("photo preset refused")
-            return false
-        }
-        // The list follows the commit; `configure` reads it there, and so
-        // does this. A short wait covers a slow daemon.
+        guard tryCommit() else { return false }
+        // The list follows the commit, as in `configure`; a short wait
+        // covers a slow daemon, and a start is tried before giving up.
         var deadline = Date().addingTimeInterval(0.5)
         while Date() < deadline, bayerType() == nil { Thread.sleep(forTimeInterval: 0.05) }
         if bayerType() == nil {
-            // Not yet: perhaps it wants the session running first.
             guard runSession() else { return false }
             deadline = Date().addingTimeInterval(1.0)
             while Date() < deadline, bayerType() == nil { Thread.sleep(forTimeInterval: 0.05) }
@@ -952,19 +943,6 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     /// The first Bayer RAW type the photo output offers now, if any.
     private func bayerType() -> OSType? {
         photoOutput.availableRawPhotoPixelFormatTypes.first { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }
-    }
-
-    /// Put `photoOutput` on the session. `fresh` replaces it: after Apple
-    /// Log the previous instance often reports no RAW types under `.photo`.
-    /// Inside the caller's configuration.
-    private func attachPhotoOutput(fresh: Bool) {
-        if session.outputs.contains(where: { $0 === photoOutput }) {
-            session.removeOutput(photoOutput)
-        }
-        if fresh { photoOutput = AVCapturePhotoOutput() }
-        guard session.canAddOutput(photoOutput) else { return }
-        session.addOutput(photoOutput)
-        if photoOutput.isAppleProRAWSupported { photoOutput.isAppleProRAWEnabled = false }
     }
 
     /// Back to the finder's Log format `f` with its still size and 10-bit
