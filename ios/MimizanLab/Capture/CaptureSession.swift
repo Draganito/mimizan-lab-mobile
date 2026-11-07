@@ -316,6 +316,9 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         CaptureSession.resetDevice(device)
         session.beginConfiguration()
         session.automaticallyConfiguresCaptureDeviceForWideColor = false
+        // The preset before the input goes in, as at launch (the session
+        // opens on a preset, never on `.inputPriority` from a finder before).
+        _ = tryPreset(.photo)
         do {
             let input = try AVCaptureDeviceInput(device: device)
             guard session.canAddInput(input) else { throw CaptureError(message: "\(lens.label): cannot add the camera") }
@@ -613,6 +616,10 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         session.beginConfiguration()
         for i in session.inputs { session.removeInput(i) }
         for o in session.outputs { session.removeOutput(o) }
+        // Never leave an empty session on `.inputPriority`: the next
+        // addInput then tries to restore a format it no longer has
+        // ("Unsupported format (null)") and raises. A preset instead.
+        _ = tryPreset(.photo)
         _ = tryCommit()
         if let device { CaptureSession.resetDevice(device) }
         input = nil
@@ -897,6 +904,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         session.beginConfiguration()
         for o in session.outputs { session.removeOutput(o) }
         for i in session.inputs { session.removeInput(i) }
+        _ = tryPreset(.photo)
         CaptureSession.resetDevice(d)
         guard let input = try? AVCaptureDeviceInput(device: d), session.canAddInput(input) else {
             _ = tryCommit()
