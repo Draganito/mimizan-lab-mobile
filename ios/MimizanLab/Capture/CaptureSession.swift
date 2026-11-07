@@ -555,10 +555,15 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         return ran && ok
     }
 
-    /// The device back to sRGB at its own frame rate, so a graph built
-    /// under the photo preset takes it. The device outlives the session
-    /// (one object per camera for the process) and keeps the Log colour
-    /// space and the 30 fps lock otherwise.
+    /// The device as a graph under the photo preset takes it: sRGB at
+    /// its own frame rate (the device outlives the session — one object
+    /// per camera for the process — and keeps the Log colour space and
+    /// the 30 fps lock otherwise), and no lens correction of its own:
+    /// geometric distortion correction off where the camera has it (on
+    /// by default on the ultra-wide), so the stream shows the lens as it
+    /// is, like the Bayer still; the DNG's correction opcodes stay
+    /// unapplied in the core, as on Android. Lens shading has no switch
+    /// in AVFoundation; the Bayer RAW is written before it either way.
     static func resetDevice(_ device: AVCaptureDevice) {
         var err: NSError?
         let ran = MimizanTry({
@@ -568,6 +573,9 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                 if device.activeFormat.supportedColorSpaces.contains(.sRGB) { device.activeColorSpace = .sRGB }
                 device.activeVideoMinFrameDuration = .invalid
                 device.activeVideoMaxFrameDuration = .invalid
+                if device.isGeometricDistortionCorrectionSupported, device.isGeometricDistortionCorrectionEnabled {
+                    device.isGeometricDistortionCorrectionEnabled = false
+                }
             } catch {
                 log.warning("device reset: \(error.localizedDescription)")
             }

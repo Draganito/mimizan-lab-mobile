@@ -167,6 +167,13 @@ widest. Phone numbers not yet measured.
   the ultra-wide −1.22 … −1.48 (half a stop below the main, every
   time), the tele −0.69 … −1.19 with one −2.42 on a dark subject at
   ISO 320 and 1/48 s. Hence the match per lens (0.17.19).
+* Lens corrections are left out on purpose, on every phone: Android
+  asks for `SHADING_MODE_OFF` and `DISTORTION_CORRECTION_MODE_OFF`
+  where the camera lists them (Samsung shades its RAW regardless), iOS
+  turns `isGeometricDistortionCorrectionEnabled` off where the device
+  has it (0.17.20), and the core never applies a DNG's `OpcodeList2/3`
+  (`rawler` copies the tags, nothing reads them). The negative is the
+  lens as it is: its vignetting and its distortion are the picture's.
 * Three things a Log finder leaves behind in the process, each of
   which made the next `addInput`/`addOutput` under the photo preset
   raise `-[AVCaptureDevice _setActiveFormat:…] Unsupported format
