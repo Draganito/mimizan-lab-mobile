@@ -50,7 +50,10 @@ struct LensFormats: Codable {
     /// The photo output's RAW types and the video output's stream types in the format settled on.
     var rawTypes: [String]
     var videoTypes: [String]
-    /// The RAW types the photo output offered while the Apple Log format was active (nil when none was tried).
+    /// The RAW types the photo output offered while the Apple Log format
+    /// was active (nil when none was tried). Empty on every Pro iPhone so
+    /// far, and that says nothing about the Log format: a format set by
+    /// hand puts the session on `.inputPriority`, where no RAW is offered.
     var logRawTypes: [String]?
     var formats: [FormatRecord]
 }

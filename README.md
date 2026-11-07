@@ -101,13 +101,13 @@ take a frame. The finder is the paper on the iPhones with Apple Log
 (15 Pro and 15 Pro Max, 16 Pro and 16 Pro Max, 17 Pro and 17 Pro Max):
 there the stream is the log frame, decoded to scene light and printed
 through the paper as on Android. Apple keeps the log on the video
-formats and the Bayer RAW on the photo format, so the shutter swaps
-the camera for the still and back: the finder holds its last frame for
-about a second while the finder's exposure is set in the other format
-and the RAW is taken. On the other iPhones and on the iPad the finder is the
-camera's own picture, and the still is immediate. The app asks the
-camera, not the model name. The swap is in TestFlight first (see
-*Status*).
+formats and offers the Bayer RAW under the photo preset alone, so the
+shutter swaps the session for the still and back: the finder holds its
+last frame for about a second while the finder's exposure is set in
+the photo format and the RAW is taken. On the other iPhones and on the
+iPad the finder is the camera's own picture, and the still is
+immediate. The app asks the camera, not the model name. The swap is in
+TestFlight first (see *Status*).
 
 ## Install
 
@@ -375,7 +375,7 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.17.9 on Android and iOS: RAW capture, the finder as the paper
+0.17.10 on Android and iOS: RAW capture, the finder as the paper
 (Android, and iPhones with Apple Log), Mono and Color, the split-grade
 paper, the zone strip and Peak with a print per frame, review with
 remix and 1:1 detail, the exports, the roll. Checked on a Pixel 9 (main
@@ -395,10 +395,20 @@ files from there. The first `formats.json` from an iPhone 16 Pro
 1920×1440 at 30 fps with a 4032×3024 still. 0.17.1 accepted 4:2:2, and
 the second file said the rest: with the Log format active the camera
 offers no RAW type at all (`logRawTypes: []`). 0.17.2/0.17.3 keep the finder
-in the Log format and swaps the camera to the photo format for the
-still with the exposure the finder stood at, and swaps back; the Settings note
-reads "Apple Log for the finder; the Bayer RAW still comes from the
-photo format". 0.17.4 to 0.17.9 settle the camera screen: the grade as one slider
+in the Log format and swap the camera to the photo format for the
+still with the exposure the finder stood at, and swap back. The third
+file, from an iPhone 17 Pro on iOS 27.0, said why that could not work:
+the same 4032×3024 format offers no RAW type when set by hand and
+`bgg4` under the `.photo` preset, so the empty list in the second file
+was about `.inputPriority`, not about the Log format (AVFoundation has
+offered Bayer RAW under the photo preset alone since 2016). 0.17.10
+swaps the session's preset at the shutter, not the format; the
+Settings note reads "Apple Log for the finder; the Bayer RAW still
+(bgg4) comes from the photo preset, 4032×3024, the session switched at
+the shutter". The 17 Pro also lists three `btp2` Apple-Log-only video
+formats (4224×2240, 4224×3024; the ProRes RAW ones) and a colour space
+the iOS 26 SDK has no name for (`4`); neither is used. 0.17.4 to 0.17.9
+settle the camera screen: the grade as one slider
 over the zone strip (the same soft and hard behind it, the same
 print), the exposure line as a bar above the finder, the finder's
 buttons along its lower edge, slider and strip amber when they are off

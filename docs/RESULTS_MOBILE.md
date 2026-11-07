@@ -144,3 +144,16 @@ widest. Phone numbers not yet measured.
 * The Pixel 9 main sensor reports **GBRG**, not RGGB; the camera file was
   corrected. The app only loads a camera file whose `bayer_phase` matches
   the frame, so a wrong file degrades to defaults instead of failing.
+* iPhone 17 Pro (`iPhone18,2`, iOS 27.0), main camera, `formats.json`
+  from 0.17.9: 72 formats, 11 with Apple Log (the 4:2:2 `x422` ones at
+  1920×1080, 1920×1440, 3840×2160, and three `btp2` ones at 4224×2240
+  and 4224×3024 that carry Apple Log alone, the ProRes RAW video
+  formats; a colour space `4` the iOS 26 SDK has no name for). The one
+  RAW type is `bgg4` (14-bit Bayer BGGR), and it is offered only while
+  the session is on the `.photo` preset: the same 4032×3024 `420f`
+  format set by hand through `activeFormat` (which puts the session on
+  `.inputPriority`) lists no RAW type at all. So the swap for the still
+  has to change the preset, not the format (0.17.10), and the empty
+  `logRawTypes` of the iPhone 16 Pro file was the preset talking, not
+  the Log format. The ISO range of the photo format is 54–12096, of
+  every video format 54–5184 (54–3456 at 120 fps, 54–2160 at 240).
