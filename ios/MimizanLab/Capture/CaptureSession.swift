@@ -821,10 +821,12 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                     // Back where the finder was; the RAW type was there when
                     // the lens opened, so this is the camera changing its mind.
                     let offered = self.photoOutput.availableRawPhotoPixelFormatTypes.map(FormatDump.fourcc)
-                    self.swapToLog(d, finder)
+                    let a = d.activeFormat.formatDescription.dimensions
+                    let active = "\(a.width)×\(a.height) \(FormatDump.fourcc(CMFormatDescriptionGetMediaSubType(d.activeFormat.formatDescription)))"
+                    if !self.swapToLog(d, finder) { _ = self.runSession() }
                     self.swapping = false
                     let list = offered.isEmpty ? "none" : offered.joined(separator: ", ")
-                    cont.resume(throwing: CaptureError(message: "the photo preset offers no Bayer RAW now (\(list))"))
+                    cont.resume(throwing: CaptureError(message: "no Bayer RAW under the photo preset: \(active), types \(list)"))
                     return
                 }
                 self.settleExposure(d, frozen: frozen) { [weak self] asAsked in
@@ -857,38 +859,57 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     /// RAW type is looked for there. False when it is not offered. On the
     /// camera queue.
     private func swapToPhoto(_ d: AVCaptureDevice) -> Bool {
-        // A running Log session cannot be switched to the photo preset in
-        // place: commit raises. Stop, drop the 10-bit stream, a new photo
-        // output (the old one keeps an empty RAW list after Log), the
-        // preset, then start — RAW types only appear once running.
+        // The one path known to publish bgg4 on the 17 Pro is the one the
+        // lens opens with: a graph built under the photo preset, the
+        // device in sRGB with its own frame rate. So the still rebuilds
+        // that graph: stop, input and outputs out, the Log colour space
+        // and the 30 fps lock undone, input and fresh outputs in, the
+        // preset, one commit. The finder holds its last frame meanwhile.
         stopSession()
         session.beginConfiguration()
-        _ = setStream(appleLog: nil)
-        attachPhotoOutput(fresh: true)
-        let ok = tryPreset(.photo) && tryCommit()
-        if !ok {
-            log.warning("photo preset refused")
-            _ = runSession()
-            return false
-        }
+        for o in session.outputs { session.removeOutput(o) }
+        for i in session.inputs { session.removeInput(i) }
         do {
             try d.lockForConfiguration()
             defer { d.unlockForConfiguration() }
             if d.activeFormat.supportedColorSpaces.contains(.sRGB) { d.activeColorSpace = .sRGB }
+            d.activeVideoMinFrameDuration = .invalid
+            d.activeVideoMaxFrameDuration = .invalid
         } catch {
-            log.warning("photo preset colour space: \(error.localizedDescription)")
+            log.warning("photo swap: \(error.localizedDescription)")
         }
-        guard runSession() else { return false }
-        let deadline = Date().addingTimeInterval(1.0)
-        while Date() < deadline, bayerType() == nil {
-            Thread.sleep(forTimeInterval: 0.05)
+        guard let input = try? AVCaptureDeviceInput(device: d), session.canAddInput(input) else {
+            _ = tryCommit()
+            log.warning("photo swap: cannot add the camera again")
+            return false
         }
-        if let raw = bayerType() {
-            rawFormat = raw
-            return true
+        session.addInput(input)
+        self.input = input
+        attachPhotoOutput(fresh: true)
+        _ = setStream(appleLog: nil)
+        if session.canAddOutput(videoOutput) { session.addOutput(videoOutput) }
+        let ok = tryPreset(.photo) && tryCommit()
+        if !ok {
+            log.warning("photo preset refused")
+            return false
         }
-        log.warning("photo preset: no Bayer RAW (\(self.photoOutput.availableRawPhotoPixelFormatTypes.map(FormatDump.fourcc).joined(separator: ", ")))")
-        return false
+        // The list follows the commit; `configure` reads it there, and so
+        // does this. A short wait covers a slow daemon.
+        var deadline = Date().addingTimeInterval(0.5)
+        while Date() < deadline, bayerType() == nil { Thread.sleep(forTimeInterval: 0.05) }
+        if bayerType() == nil {
+            // Not yet: perhaps it wants the session running first.
+            guard runSession() else { return false }
+            deadline = Date().addingTimeInterval(1.0)
+            while Date() < deadline, bayerType() == nil { Thread.sleep(forTimeInterval: 0.05) }
+        }
+        guard let raw = bayerType() else {
+            let a = d.activeFormat.formatDescription.dimensions
+            log.warning("photo preset: no Bayer RAW; active \(a.width)×\(a.height) \(FormatDump.fourcc(CMFormatDescriptionGetMediaSubType(d.activeFormat.formatDescription))), types \(self.photoOutput.availableRawPhotoPixelFormatTypes.map(FormatDump.fourcc).joined(separator: ", "))")
+            return false
+        }
+        rawFormat = raw
+        return session.isRunning || runSession()
     }
 
     /// The first Bayer RAW type the photo output offers now, if any.
