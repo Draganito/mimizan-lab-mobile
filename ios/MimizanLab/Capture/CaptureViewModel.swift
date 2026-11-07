@@ -256,7 +256,6 @@ final class CaptureViewModel {
     // MARK: development settings
 
     /// The standing grade: the automatic JPEG, and where a new frame starts.
-    func setContrast(_ stops: Double) { prefs.setContrast(stops) }
     func setGrade(soft: Double, hard: Double) { prefs.setGrade(soft: soft, hard: hard) }
     func toggleZebra() { viewfinder.zebra.toggle(); prefs.setZebra(viewfinder.zebra) }
     func toggleGrid() { viewfinder.grid.toggle(); prefs.setGrid(viewfinder.grid) }

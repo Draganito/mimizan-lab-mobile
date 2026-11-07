@@ -226,11 +226,6 @@ final class Prefs {
     }
 
     /// The standing grade as one number; the exposure (the strip) stays.
-    func setContrast(_ stops: Double) {
-        let g = Prefs.withContrast(soft: soft, hard: hard, contrast: stops)
-        setGrade(soft: g.soft, hard: g.hard)
-    }
-
     /// The standing Peak, Off or Auto.
     func setPeakMode(_ mode: PeakMode) {
         // A hand pair belongs to one negative: Custom is never standing.
@@ -303,12 +298,12 @@ final class Prefs {
     nonisolated static func contrast(soft: Double, hard: Double) -> Double { hard - soft }
 
     /// The pair with `contrast` stops between hard and soft and the same
-    /// exposure (the mean of the two, what the zone strip moves). Done in
+    /// exposure (the mean of the two, what a drag on the strip moves). Done in
     /// twenty-fourths so both land on the twelfth grid: when the mean sits
     /// between two twelfths the pair goes a twenty-fourth lighter, once.
     /// `contrast` is clamped so neither exposure leaves ±`stopLimit`. The
-    /// pair is the same two numbers the two sliders would have set:
-    /// nothing downstream changes. Twin of the Android `GradeMath.withContrast`.
+    /// pair is the same two numbers two sliders would have set: nothing
+    /// downstream changes. Twin of the Android `GradeMath.withContrast`.
     nonisolated static func withContrast(soft: Double, hard: Double, contrast: Double) -> Grade {
         let m24 = Int(((snapStops(soft) + snapStops(hard)) * 12).rounded())
         let lim24 = Int((stopLimit * 24).rounded())

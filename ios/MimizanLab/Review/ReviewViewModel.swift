@@ -185,12 +185,6 @@ final class ReviewViewModel {
         if let r = detailRegion { requestDetail(x: r.0, y: r.1, w: r.2, h: r.3) }
     }
 
-    /// This print's grade as one number; the exposure (the strip) stays.
-    func setContrast(_ stops: Double) {
-        let g = Prefs.withContrast(soft: print.grade.soft, hard: print.grade.hard, contrast: stops)
-        setGrade(soft: g.soft, hard: g.hard)
-    }
-
     /// Both exposures of this print. The frame on the roll takes the new
     /// grade at once; the standing grade in the settings stays where it
     /// is, so the next frame does not inherit this correction.

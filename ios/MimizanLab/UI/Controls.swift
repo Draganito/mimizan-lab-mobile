@@ -1,6 +1,5 @@
 // Small pieces the viewfinder and the review share: chips, labelled
-// sliders, the process and filter rows, the grade slider and the zone
-// strip, the histogram.
+// sliders, the process and filter rows, the paper strip, the histogram.
 import MimizanCore
 import SwiftUI
 
@@ -121,65 +120,129 @@ struct PlateFilterRow: View {
     }
 }
 
-/// The grade as one slider: hard light against soft, in stops, zero at
-/// the paper's grade 2; left is softer, right harder. The exposure (the
-/// mean of the two) stays where the zone strip put it. Behind it are the
-/// same two numbers as ever, soft and hard, and the print is the same.
-/// Steps of a sixth of a stop keep both on the twelfth grid. No label and
-/// no number: the picture is the reading, the slider is as wide as the
-/// zone strip under it, and a double tap on the strip is the way back.
-struct GradeSlider: View {
-    let soft: Double
-    let hard: Double
-    let onContrast: (Double) -> Void
-
-    var body: some View {
-        let lim = 2 * Prefs.stopLimit
-        let c = Prefs.contrast(soft: soft, hard: hard)
-        Slider(value: Binding(get: { c }, set: onContrast), in: -lim...lim, step: 1.0 / 6)
-            .tint(abs(c) < 1.0 / 24 ? .white : .settingInk)
-    }
-}
-
 /// Settings, hand exposure and a paper off the base print are amber, so
 /// a dark finder reads as a setting, not a fault.
 extension Color {
     static let settingInk = Color(red: 1, green: 0.72, blue: 0.3)
 }
 
-/// Drag left to print darker, right to print lighter. Both exposures move
-/// by the same stops, so the grade stays. A double tap is the base print:
-/// both exposures back to zero, the one way out of a grade set yesterday.
-/// The slider and the strip say themselves when they are off it: white
-/// at the base print, amber away from it, each for its own half, the
-/// grade or the exposure; the double tap turns both white again.
-struct ZoneStrip: View {
+/// The paper as one strip. It is drawn from the core's own paper table
+/// (`paperLut` for the standing soft and hard exposures) over a linear
+/// axis of `zones` stops around the grey card, so what the strip shows
+/// is what the paper does to the picture; the ticks are the zones. One
+/// finger drags the exposure: both exposures move by the same stops
+/// (`shiftGrade`), the ramp slides under the mark in the middle, the
+/// width of the strip is three stops. Two fingers spread the grade: the
+/// ramp widens (softer) or closes (harder) around the middle, the mean
+/// held (`withContrast`); the grade is kept within ±`contrastLimit` here
+/// — a pair from before that lies beyond shows at the end and is clipped
+/// only when touched. Both gestures together are allowed. A double tap
+/// is the base print; a second double tap on a strip already there
+/// brings the pair back. Behind it are the same two numbers as ever,
+/// soft and hard, and the print is the same. White at the base print,
+/// amber away from it.
+struct PaperStrip: View {
     let soft: Double
     let hard: Double
     let onBoth: (Double, Double) -> Void
+    /// The pair as a drag began; the grade as a spread began. Each
+    /// gesture its own, since both may run at once and end apart.
     @State private var origin: (Double, Double)?
+    @State private var pinchBase: Double?
+    @State private var remembered: (Double, Double)?
+
+    /// Stops of grade the strip reaches, each way: the core allows twice
+    /// that; the phone's sensors never want it.
+    static let contrastLimit: Double = Prefs.stopLimit
+    /// Stops of linear grey the strip spans; the grey card in the middle.
+    static let zones: Double = 10
+    private static let samples = 192
 
     var body: some View {
-        let off = abs(soft + hard) / 2 >= 1.0 / 24
+        let off = abs(soft) >= 1.0 / 24 || abs(hard) >= 1.0 / 24
+        let lut = PaperStrip.table(soft: soft, hard: hard)
         GeometryReader { g in
-            RoundedRectangle(cornerRadius: 6)
-                .fill(LinearGradient(colors: [.black, .white], startPoint: .leading, endPoint: .trailing))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(off ? Color.settingInk : Color.white.opacity(0.35), lineWidth: off ? 2 : 1))
-                .onTapGesture(count: 2) { onBoth(0, 0) }
-                .highPriorityGesture(
-                    DragGesture(minimumDistance: 4)
-                        .onChanged { v in
-                            let base = origin ?? (soft, hard)
-                            if origin == nil { origin = base }
-                            let width = max(g.size.width, 1)
-                            let delta = -Double(v.translation.width) / Double(width) * Prefs.stopLimit
-                            let pair = Prefs.shiftGrade(soft: base.0, hard: base.1, by: delta)
-                            onBoth(pair.0, pair.1)
-                        }
-                        .onEnded { _ in origin = nil }
-                )
+            let width = max(g.size.width, 1)
+            Canvas { ctx, size in
+                // The ramp: each slice the paper's value for the linear grey
+                // of its stop, the grey card at 0.18 in the middle.
+                let n = PaperStrip.samples
+                let w = size.width / CGFloat(n)
+                for i in 0..<n {
+                    let stops = (Double(i) + 0.5) / Double(n) * PaperStrip.zones - PaperStrip.zones / 2
+                    let linear = min(max(0.18 * pow(2, stops), 0), 1)
+                    let v = Double(PaperStrip.value(lut, at: linear))
+                    ctx.fill(Path(CGRect(x: CGFloat(i) * w, y: 0, width: w + 0.5, height: size.height)), with: .color(Color(white: v)))
+                }
+                // The zones, one stop apart, as ticks from the top edge.
+                for z in 1..<Int(PaperStrip.zones) {
+                    let x = size.width * CGFloat(Double(z) / PaperStrip.zones)
+                    ctx.fill(Path(CGRect(x: x - 0.5, y: 0, width: 1, height: size.height * 0.3)), with: .color(.gray.opacity(0.6)))
+                }
+                // The mark: the grey card's place, never moving.
+                let mx = size.width / 2
+                var mark = Path()
+                mark.move(to: CGPoint(x: mx - 5, y: size.height))
+                mark.addLine(to: CGPoint(x: mx + 5, y: size.height))
+                mark.addLine(to: CGPoint(x: mx, y: size.height - 7))
+                mark.closeSubpath()
+                ctx.fill(mark, with: .color(off ? .settingInk : .white))
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(off ? Color.settingInk : Color.white.opacity(0.35), lineWidth: off ? 2 : 1))
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                if off {
+                    remembered = (soft, hard)
+                    onBoth(0, 0)
+                } else if let r = remembered {
+                    onBoth(r.0, r.1)
+                }
+            }
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 4)
+                    .onChanged { v in
+                        let base = origin ?? (soft, hard)
+                        if origin == nil { origin = base }
+                        let delta = -Double(v.translation.width) / Double(width) * Prefs.stopLimit
+                        let pair = Prefs.shiftGrade(soft: base.0, hard: base.1, by: delta)
+                        onBoth(pair.0, pair.1)
+                    }
+                    .onEnded { _ in origin = nil }
+                    .simultaneously(with:
+                        MagnificationGesture()
+                            .onChanged { scale in
+                                let base = pinchBase ?? Prefs.contrast(soft: soft, hard: hard)
+                                if pinchBase == nil { pinchBase = base }
+                                // Spreading the ramp is the softer paper: the
+                                // grade falls by two stops per doubling. The
+                                // mean is the current one, so a drag at the
+                                // same time keeps its say.
+                                let c = base - 2 * log2(max(Double(scale), 0.05))
+                                let lim = PaperStrip.contrastLimit
+                                let g = Prefs.withContrast(soft: soft, hard: hard, contrast: min(max(c, -lim), lim))
+                                onBoth(g.soft, g.hard)
+                            }
+                            .onEnded { _ in pinchBase = nil }
+                    )
+            )
         }
-        .frame(height: 28)
+        .frame(height: 36)
+    }
+
+    /// The paper over linear grey for this pair, from the core; a straight
+    /// line only if the core refuses (it does not, inside ±`stopLimit`).
+    private static func table(soft: Double, hard: Double) -> [Float] {
+        (try? paperLut(soft: soft, hard: hard, n: 256)) ?? (0...256).map { Float($0) / 256 }
+    }
+
+    /// The table read at `linear`, between entries.
+    private static func value(_ lut: [Float], at linear: Double) -> Float {
+        guard lut.count > 1 else { return Float(linear) }
+        let x = linear * Double(lut.count - 1)
+        let i = min(Int(x), lut.count - 2)
+        let f = Float(x - Double(i))
+        return lut[i] * (1 - f) + lut[i + 1] * f
     }
 }
 

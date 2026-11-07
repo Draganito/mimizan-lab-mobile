@@ -151,20 +151,27 @@ separation:
   filter to the frame's recipe (`Darkroom.setSettings`), so the roll's
   line and a later "Develop again" start from the choice.
 * soft / hard -> stops of time from the paper's base exposure, ±3, in
-  twelfths. Zero is the base print (about grade 2). The screen shows
+  twelfths. Zero is the base print (about grade 2). Android shows
   them as one slider, the grade (`hard - soft`, ±6 in sixths), with the
-  zone strip as the exposure (their mean): `GradeMath.withContrast`
-  (Android) / `Prefs.withContrast` (iOS) turn a slider value back into
-  the pair in twenty-fourths so both stay on the twelfth grid and
-  neither leaves ±3, and the pair is what reaches the core, the files
-  and the exports, exactly as the two sliders set it before (the JVM
-  test walks the whole grid: every pair is its own fixed point). Preview, histogram and
+  zone strip as the exposure (their mean); iOS as one strip
+  (`PaperStrip`), drawn from `paper_lut` for the pair over ten zones of
+  linear grey — a one-finger drag shifts the pair (`shiftGrade`), a
+  two-finger spread sets the grade (`withContrast`, two stops per
+  doubling of the spread, kept within ±3 on the phone; a pair from
+  before that lies beyond is clipped only when touched), a double tap
+  is the base print and a second one brings the pair back.
+  `GradeMath.withContrast` (Android) / `Prefs.withContrast` (iOS) turn
+  a grade back into the pair in twenty-fourths so both stay on the
+  twelfth grid and neither leaves ±3, and the pair is what reaches the
+  core, the files and the exports, exactly as two sliders set it before
+  (the JVM test walks the whole grid: every pair is its own fixed
+  point). Preview, histogram and
   the 1:1 window evaluate `Tone::Paper` per pixel, the same map the JPEG
   and TIFF use, so the screen and the file agree. The viewfinder cannot
   do that per pixel in Rust, so it indexes `paper_lut` (4097 samples of
   that map over linear grey). The pair shown is the frame's own grade
-  (`Shot.print.grade`, read from `<name>.grade` on open). The sliders and
-  the zone strip write it back to the frame only (`Darkroom.setPrint`:
+  (`Shot.print.grade`, read from `<name>.grade` on open). The controls
+  write it back to the frame only (`Darkroom.setPrint`:
   the roll entry and the sidecar), never to `Prefs.grade`, so the
   standing grade — the finder, the automatic JPEG, the start of the next
   frame — does not drift with a correction made on one negative. On iOS

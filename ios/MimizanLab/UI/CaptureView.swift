@@ -1,6 +1,6 @@
 // The viewfinder screen. On an Apple Log camera the picture is the paper,
-// with the zone strip under it as the one exposure correction (as on
-// Android); elsewhere it is the camera's own preview, desaturated in
+// with the paper strip under it for exposure and grade (as on Android);
+// elsewhere it is the camera's own preview, desaturated in
 // monochrome, untouched in colour. One line names the process and the
 // exposure, the shutter sits below. The print is made afterwards, in the
 // developer.
@@ -65,18 +65,14 @@ struct CaptureView: View {
             }
 
             // The standing paper under the finder, the pair that the
-            // paper finder, the automatic JPEG and a new frame start from:
-            // the grade, and the strip for the exposure, darker to the
-            // left, lighter to the right; the grade stays. Only where the
-            // finder is the paper and answers the drag; elsewhere the
-            // paper is set in the developer, on the picture.
+            // paper finder, the automatic JPEG and a new frame start from,
+            // as one strip: a drag is the exposure, a spread the grade.
+            // Only where the finder is the paper and answers the gesture;
+            // elsewhere the paper is set in the developer, on the picture.
             if state.paperFinder {
-                VStack(spacing: 2) {
-                    GradeSlider(soft: vm.prefs.soft, hard: vm.prefs.hard, onContrast: vm.setContrast)
-                    ZoneStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, onBoth: vm.setGrade)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                PaperStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, onBoth: vm.setGrade)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
             }
 
             // The hand's two sliders, only in M. In A the automatics expose

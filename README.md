@@ -157,15 +157,22 @@ the camera's own preview, desaturated in mono, untouched in colour.
    Channels. The frame remembers the choice in its `.grade` file beside
    the grade, so the roll says what it was last printed as. The colour
    space starts at sRGB; Adobe RGB is under *Color space* in Settings.
-3. **Grade.** One slider: hard light against soft, in stops (±6,
-   steps of 1/6); zero, the middle, is the paper's grade 2, left is
-   softer, right harder. It carries no label and no number: the
-   picture is the reading. The zone strip under it is the exposure: it moves
-   both paper exposures by the same stops and keeps the grade; a
-   double tap on it is the base print again. Behind the two sit the
-   same soft and hard exposures as on the desktop (±3 each, twelfths),
-   written to the frame's `.grade` file unchanged: the slider only
-   chooses the pair, the print is the same. The pair sits under the
+3. **Grade.** On iOS one strip, the paper itself: it is drawn from
+   the core's paper table for the standing pair, over ten zones of
+   linear grey with the grey card under the mark in the middle, so
+   the strip shows what the paper does to the picture. One finger
+   drags the exposure — both paper exposures move by the same stops,
+   the ramp slides under the mark, the grade stays. Two fingers spread
+   the grade — the ramp widens (softer) or closes (harder) around the
+   middle, ±3 stops of hard against soft; zero is the paper's grade 2.
+   A double tap is the base print, a second double tap on a strip
+   already there brings the pair back. No label and no number: the
+   picture is the reading. (Android still has the slider for the
+   grade, ±6 in sixths, over the zone strip for the exposure.) Behind
+   the strip sit the same soft and hard exposures as on the desktop
+   (±3 each, twelfths), written to the frame's `.grade` file
+   unchanged: the strip only chooses the pair, the print is the same.
+   The pair sits under the
    finder where the finder is the paper (Android, the Apple Log
    iPhones) and answers the drag: it is the standing grade, the paper
    finder, the automatic JPEG, and where a new frame starts, and the
@@ -204,7 +211,7 @@ the camera's own preview, desaturated in mono, untouched in colour.
    in Files and, add-only, Photos on iOS.
 7. **Review** opens from the thumbnail, or after a Developer shot.
    Pinch to zoom; past the 2048 px preview the window is rendered 1:1
-   from the negative. The grade and the zone strip change the preview,
+   from the negative. The paper strip changes the preview,
    the histogram and every export, through the same paper. Export
    writes the JPEG, a 16-bit TIFF, or the linear negative plus
    saturation mask for the desktop (in Color the three-frame
@@ -376,7 +383,7 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.17.21 on Android and iOS: RAW capture, the finder as the paper
+0.17.22 on Android and iOS: RAW capture, the finder as the paper
 (Android, and iPhones with Apple Log), Mono and Color, the split-grade
 paper, the zone strip and Peak with a print per frame, review with
 remix and 1:1 detail, the exports, the roll. Checked on a Pixel 9 (main
