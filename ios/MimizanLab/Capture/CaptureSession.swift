@@ -309,16 +309,23 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         // is checked only after it. A throw never leaves a configuration
         // open; AVFoundation exceptions from a setting become Swift errors
         // (`MimizanTry`) and fall back to the picture.
+        // The device object is one per camera for the whole process: after
+        // a Log finder it still carries the Log colour space and the 30 fps
+        // lock, which the photo preset's format does not take. Undo both
+        // before the input goes in (the still's swap does the same).
+        CaptureSession.resetDevice(device)
         session.beginConfiguration()
         session.automaticallyConfiguresCaptureDeviceForWideColor = false
         do {
             let input = try AVCaptureDeviceInput(device: device)
             guard session.canAddInput(input) else { throw CaptureError(message: "\(lens.label): cannot add the camera") }
-            session.addInput(input)
-            guard session.canAddOutput(photoOutput) else { throw CaptureError(message: "\(lens.label): no photo output") }
-            session.addOutput(photoOutput)
-            guard session.canAddOutput(videoOutput) else { throw CaptureError(message: "\(lens.label): no video output") }
-            session.addOutput(videoOutput)
+            var err: NSError?
+            let added = MimizanTry({
+                self.session.addInput(input)
+                self.session.addOutput(self.photoOutput)
+                self.session.addOutput(self.videoOutput)
+            }, &err)
+            guard added else { throw CaptureError(message: "\(lens.label): \(err?.localizedDescription ?? "cannot build the session")") }
             if photoOutput.isAppleProRAWSupported { photoOutput.isAppleProRAWEnabled = false }
             if !tryPreset(.photo) || !tryCommit() {
                 throw CaptureError(message: "\(lens.label): the photo preset was refused")
@@ -563,6 +570,26 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         return ran && ok
     }
 
+    /// The device back to sRGB at its own frame rate, so a graph built
+    /// under the photo preset takes it. The device outlives the session
+    /// (one object per camera for the process) and keeps the Log colour
+    /// space and the 30 fps lock otherwise.
+    static func resetDevice(_ device: AVCaptureDevice) {
+        var err: NSError?
+        let ran = MimizanTry({
+            do {
+                try device.lockForConfiguration()
+                defer { device.unlockForConfiguration() }
+                if device.activeFormat.supportedColorSpaces.contains(.sRGB) { device.activeColorSpace = .sRGB }
+                device.activeVideoMinFrameDuration = .invalid
+                device.activeVideoMaxFrameDuration = .invalid
+            } catch {
+                log.warning("device reset: \(error.localizedDescription)")
+            }
+        }, &err)
+        if !ran { log.warning("device reset: \(err?.localizedDescription ?? "refused")") }
+    }
+
     /// The still's size in `f`: the largest the Log format offers (its
     /// full-sensor still), the photo format's own size (what the camera
     /// gives by default; a 48 MP sensor is not asked for its 48 MP).
@@ -587,6 +614,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         for i in session.inputs { session.removeInput(i) }
         for o in session.outputs { session.removeOutput(o) }
         _ = tryCommit()
+        if let device { CaptureSession.resetDevice(device) }
         input = nil
         device = nil
         lens = nil
@@ -869,15 +897,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         session.beginConfiguration()
         for o in session.outputs { session.removeOutput(o) }
         for i in session.inputs { session.removeInput(i) }
-        do {
-            try d.lockForConfiguration()
-            defer { d.unlockForConfiguration() }
-            if d.activeFormat.supportedColorSpaces.contains(.sRGB) { d.activeColorSpace = .sRGB }
-            d.activeVideoMinFrameDuration = .invalid
-            d.activeVideoMaxFrameDuration = .invalid
-        } catch {
-            log.warning("photo swap: \(error.localizedDescription)")
-        }
+        CaptureSession.resetDevice(d)
         guard let input = try? AVCaptureDeviceInput(device: d), session.canAddInput(input) else {
             _ = tryCommit()
             log.warning("photo swap: cannot add the camera again")
