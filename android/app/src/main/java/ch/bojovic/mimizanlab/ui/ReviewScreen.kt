@@ -247,8 +247,7 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                             onSelect = vm::setPlateFilters,
                         )
                     }
-                    GradeSlider(s.print.grade.soft, s.print.grade.hard, onContrast = vm::setContrast)
-                    ZoneStrip(s.print.grade.soft, s.print.grade.hard, onBoth = vm::setGrade)
+                    PaperStrip(s.print.grade.soft, s.print.grade.hard, onBoth = vm::setGrade)
                     val peak = s.print.peak
                     PeakRow(peak.mode, PeakMode.entries, onMode = vm::setPeakMode)
                     if (peak.mode == PeakMode.CUSTOM) {

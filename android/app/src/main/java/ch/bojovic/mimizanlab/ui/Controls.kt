@@ -4,7 +4,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -22,7 +25,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -34,15 +36,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.PlateFilters
+import ch.bojovic.mimizanlab.engine.paperLut
 import ch.bojovic.mimizanlab.store.GradeMath
 import ch.bojovic.mimizanlab.store.PeakMode
 import ch.bojovic.mimizanlab.store.Prefs
@@ -120,74 +123,131 @@ fun PeakRow(mode: PeakMode, modes: List<PeakMode>, onMode: (PeakMode) -> Unit) {
     }
 }
 
-/**
- * The grade as one slider: hard light against soft, in stops, zero at
- * the paper's grade 2; left is softer, right harder. The exposure (the
- * mean of the two) stays where the zone strip put it. Behind it are the
- * same two numbers as ever, soft and hard, and the print is the same.
- * Steps of a sixth of a stop keep both on the twelfth grid. No label and
- * no number: the picture is the reading, the slider is as wide as the
- * zone strip under it, and a double tap on the strip is the way back.
- */
-@Composable
-fun GradeSlider(soft: Double, hard: Double, onContrast: (Double) -> Unit) {
-    val lim = (2 * Prefs.STOP_LIMIT).toFloat()
-    val ink = if (kotlin.math.abs(GradeMath.contrast(soft, hard)) < 1.0 / 24.0) Color.White else SettingInk
-    Slider(
-        value = GradeMath.contrast(soft, hard).toFloat(),
-        onValueChange = { onContrast((kotlin.math.round(it * 6.0) / 6.0)) },
-        valueRange = -lim..lim,
-        colors = SliderDefaults.colors(thumbColor = ink, activeTrackColor = ink),
-        modifier = Modifier.fillMaxWidth(),
-    )
-}
-
 /** Settings, hand exposure and a paper off the base print are amber, so a dark finder reads as a setting, not a fault. */
 val SettingInk = Color(0xFFFFB74D)
 
 /**
- * Drag left to print darker, right to print lighter. Both exposures move
- * by the same stops, so the grade stays. A double tap is the base print:
- * both exposures back to zero, the one way out of a grade set yesterday.
- * The slider and the strip say themselves when they are off it: white at
- * the base print, amber away from it, each for its own half, the grade
- * or the exposure; the double tap turns both white again.
+ * The paper as one strip. It is drawn from the core's own paper table
+ * ([paperLut] for the standing soft and hard exposures) over a linear
+ * axis of [PaperStripZones] stops around the grey card, so what the
+ * strip shows is what the paper does to the picture; the ticks are the
+ * zones. One finger drags the exposure: both exposures move by the same
+ * stops ([Prefs.shiftGrade]), the ramp slides under the mark in the
+ * middle, the width of the strip is three stops. Two fingers spread the
+ * grade: the ramp widens (softer) or closes (harder) around the middle,
+ * the mean held ([Prefs.withContrast]); the grade is kept within
+ * ±[PaperStripContrastLimit] here — a pair from before that lies beyond
+ * shows at the end and is clipped only when touched. Both gestures
+ * together are allowed. A double tap is the base print; a second double
+ * tap on a strip already there brings the pair back. Behind it are the
+ * same two numbers as ever, soft and hard, and the print is the same.
+ * White at the base print, amber away from it. Twin of the iOS `PaperStrip`.
  */
 @Composable
-fun ZoneStrip(soft: Double, hard: Double, onBoth: (Double, Double) -> Unit) {
-    val off = kotlin.math.abs(soft + hard) / 2.0 >= 1.0 / 24.0
+fun PaperStrip(soft: Double, hard: Double, onBoth: (Double, Double) -> Unit) {
+    val off = kotlin.math.abs(soft) >= 1.0 / 24.0 || kotlin.math.abs(hard) >= 1.0 / 24.0
     val latest = rememberUpdatedState(soft to hard)
-    var origin by remember { mutableStateOf<Pair<Double, Double>?>(null) }
-    var dx by remember { mutableStateOf(0f) }
-    Box(
+    var remembered by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    val lut = remember(soft, hard) {
+        runCatching { paperLut(soft, hard, 256u).toFloatArray() }.getOrElse { FloatArray(257) { it / 256f } }
+    }
+    Canvas(
         Modifier
             .fillMaxWidth()
-            .height(28.dp)
+            .height(36.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(Brush.horizontalGradient(listOf(Color.Black, Color.White)))
             .border(if (off) 2.dp else 1.dp, if (off) SettingInk else Color.White.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
             .pointerInput(Unit) {
-                detectTapGestures(onDoubleTap = { onBoth(0.0, 0.0) })
+                detectTapGestures(onDoubleTap = {
+                    val (s, h) = latest.value
+                    if (kotlin.math.abs(s) >= 1.0 / 24.0 || kotlin.math.abs(h) >= 1.0 / 24.0) {
+                        remembered = s to h
+                        onBoth(0.0, 0.0)
+                    } else {
+                        remembered?.let { onBoth(it.first, it.second) }
+                    }
+                })
             }
             .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragStart = {
-                        origin = latest.value
-                        dx = 0f
-                    },
-                    onHorizontalDrag = { change, dragAmount ->
-                        change.consume()
-                        val base = origin ?: return@detectHorizontalDragGestures
-                        dx += dragAmount
-                        val delta = -dx.toDouble() / size.width.coerceAtLeast(1).toDouble() * Prefs.STOP_LIMIT
-                        val g = Prefs.shiftGrade(base.first, base.second, delta)
-                        onBoth(g.soft, g.hard)
-                    },
-                    onDragEnd = { origin = null },
-                    onDragCancel = { origin = null },
-                )
+                // Pan and zoom of one gesture, read together: the pan is the
+                // exposure from the pair as the gesture began, the zoom the
+                // grade from the grade as it began, each applied to the
+                // current pair so both have their say at once.
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    val base = latest.value
+                    val baseContrast = GradeMath.contrast(base.first, base.second)
+                    var dx = 0f
+                    var scale = 1f
+                    var moving = false
+                    do {
+                        val event = awaitPointerEvent()
+                        val canceled = event.changes.any { it.isConsumed }
+                        if (!canceled) {
+                            dx += event.calculatePan().x
+                            scale *= event.calculateZoom()
+                            if (!moving) {
+                                moving = kotlin.math.abs(dx) > viewConfiguration.touchSlop ||
+                                    kotlin.math.abs(kotlin.math.ln(scale.toDouble())) > 0.05
+                            }
+                            if (moving) {
+                                event.changes.forEach { if (it.positionChanged()) it.consume() }
+                                val delta = -dx.toDouble() / size.width.coerceAtLeast(1).toDouble() * Prefs.STOP_LIMIT
+                                val shifted = Prefs.shiftGrade(base.first, base.second, delta)
+                                // Spreading the ramp is the softer paper: the
+                                // grade falls by two stops per doubling.
+                                val c = baseContrast - 2.0 * kotlin.math.log2(scale.toDouble().coerceAtLeast(0.05))
+                                val g = Prefs.withContrast(
+                                    shifted.soft, shifted.hard,
+                                    c.coerceIn(-PaperStripContrastLimit, PaperStripContrastLimit),
+                                )
+                                onBoth(g.soft, g.hard)
+                            }
+                        }
+                    } while (!canceled && event.changes.any { it.pressed })
+                }
             },
-    )
+    ) {
+        // The ramp: each slice the paper's value for the linear grey of
+        // its stop, the grey card at 0.18 in the middle.
+        val n = 192
+        val w = size.width / n
+        for (i in 0 until n) {
+            val stops = (i + 0.5) / n * PaperStripZones - PaperStripZones / 2
+            val linear = (0.18 * Math.pow(2.0, stops)).coerceIn(0.0, 1.0)
+            val v = lutValue(lut, linear)
+            drawRect(Color(v, v, v), topLeft = Offset(i * w, 0f), size = androidx.compose.ui.geometry.Size(w + 0.5f, size.height))
+        }
+        // The zones, one stop apart, as ticks from the top edge.
+        for (z in 1 until PaperStripZones.toInt()) {
+            val x = size.width * (z / PaperStripZones).toFloat()
+            drawRect(Color.Gray.copy(alpha = 0.6f), topLeft = Offset(x - 0.5f, 0f), size = androidx.compose.ui.geometry.Size(1f, size.height * 0.3f))
+        }
+        // The mark: the grey card's place, never moving.
+        val mx = size.width / 2
+        val mark = Path().apply {
+            moveTo(mx - 5.dp.toPx(), size.height)
+            lineTo(mx + 5.dp.toPx(), size.height)
+            lineTo(mx, size.height - 7.dp.toPx())
+            close()
+        }
+        drawPath(mark, if (off) SettingInk else Color.White)
+    }
+}
+
+/** Stops of grade the strip reaches, each way: the core allows twice that; the phone's sensors never want it. */
+val PaperStripContrastLimit: Double get() = Prefs.STOP_LIMIT
+
+/** Stops of linear grey the strip spans; the grey card in the middle. */
+const val PaperStripZones: Double = 10.0
+
+/** The paper table read at [linear], between entries. */
+private fun lutValue(lut: FloatArray, linear: Double): Float {
+    if (lut.size < 2) return linear.toFloat()
+    val x = linear * (lut.size - 1)
+    val i = x.toInt().coerceAtMost(lut.size - 2)
+    val f = (x - i).toFloat()
+    return (lut[i] * (1 - f) + lut[i + 1] * f).coerceIn(0f, 1f)
 }
 
 /** A continuous slider with its reading in front, for the hand exposure and Peak's pair. */

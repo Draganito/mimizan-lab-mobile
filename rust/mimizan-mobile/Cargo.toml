@@ -2,7 +2,7 @@
 name = "mimizan-mobile"
 # The app's version: scripts/set_version.sh keeps this, build.gradle.kts and
 # ios/project.yml on the same number.
-version = "0.17.22"
+version = "0.17.23"
 edition = "2021"
 license = "GPL-3.0-or-later"
 authors = ["Dragan Bojovic"]

@@ -151,10 +151,9 @@ separation:
   filter to the frame's recipe (`Darkroom.setSettings`), so the roll's
   line and a later "Develop again" start from the choice.
 * soft / hard -> stops of time from the paper's base exposure, ±3, in
-  twelfths. Zero is the base print (about grade 2). Android shows
-  them as one slider, the grade (`hard - soft`, ±6 in sixths), with the
-  zone strip as the exposure (their mean); iOS as one strip
-  (`PaperStrip`), drawn from `paper_lut` for the pair over ten zones of
+  twelfths. Zero is the base print (about grade 2). Both apps show
+  them as one strip (`PaperStrip`, Compose and SwiftUI alike), drawn
+  from `paper_lut` for the pair over ten zones of
   linear grey — a one-finger drag shifts the pair (`shiftGrade`), a
   two-finger spread sets the grade (`withContrast`, two stops per
   doubling of the spread, kept within ±3 on the phone; a pair from

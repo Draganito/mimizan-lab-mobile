@@ -157,7 +157,7 @@ the camera's own preview, desaturated in mono, untouched in colour.
    Channels. The frame remembers the choice in its `.grade` file beside
    the grade, so the roll says what it was last printed as. The colour
    space starts at sRGB; Adobe RGB is under *Color space* in Settings.
-3. **Grade.** On iOS one strip, the paper itself: it is drawn from
+3. **Grade.** One strip, the paper itself: it is drawn from
    the core's paper table for the standing pair, over ten zones of
    linear grey with the grey card under the mark in the middle, so
    the strip shows what the paper does to the picture. One finger
@@ -167,8 +167,7 @@ the camera's own preview, desaturated in mono, untouched in colour.
    middle, ±3 stops of hard against soft; zero is the paper's grade 2.
    A double tap is the base print, a second double tap on a strip
    already there brings the pair back. No label and no number: the
-   picture is the reading. (Android still has the slider for the
-   grade, ±6 in sixths, over the zone strip for the exposure.) Behind
+   picture is the reading. Behind
    the strip sit the same soft and hard exposures as on the desktop
    (±3 each, twelfths), written to the frame's `.grade` file
    unchanged: the strip only chooses the pair, the print is the same.
@@ -383,7 +382,7 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.17.22 on Android and iOS: RAW capture, the finder as the paper
+0.17.23 on Android and iOS: RAW capture, the finder as the paper
 (Android, and iPhones with Apple Log), Mono and Color, the split-grade
 paper, the zone strip and Peak with a print per frame, review with
 remix and 1:1 detail, the exports, the roll. Checked on a Pixel 9 (main

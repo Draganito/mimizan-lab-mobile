@@ -267,13 +267,12 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
         }
 
         // The standing paper under the finder, the pair the finder, the
-        // automatic JPEG and the next frame start from: the grade, and the
-        // zone strip for the exposure, the one correction there is. The
-        // finder is the paper, so the drag shows what the print will be.
-        // A double tap on the strip is the base print.
-        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            GradeSlider(grade.soft, grade.hard, onContrast = vm::setContrast)
-            ZoneStrip(grade.soft, grade.hard, onBoth = vm::setGrade)
+        // automatic JPEG and the next frame start from, as one strip: a
+        // drag is the exposure, a spread the grade. The finder is the
+        // paper, so the gesture shows what the print will be. A double
+        // tap on the strip is the base print.
+        Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+            PaperStrip(grade.soft, grade.hard, onBoth = vm::setGrade)
         }
 
         // The hand's two sliders, only in M. In A the automatics expose and

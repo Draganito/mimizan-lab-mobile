@@ -57,12 +57,6 @@ class Prefs(context: Context) {
      */
     val grade: StateFlow<Grade> = _grade.asStateFlow()
 
-    /** The standing grade as one number: [GradeMath.withContrast] on the standing pair. */
-    fun setContrast(stops: Double) {
-        val g = withContrast(_grade.value.soft, _grade.value.hard, stops)
-        setGrade(g.soft, g.hard)
-    }
-
     /** Both exposures at once: one write, one emission of [grade]. */
     fun setGrade(soft: Double, hard: Double) {
         val g = snapGrade(soft, hard)

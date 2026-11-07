@@ -268,7 +268,6 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setProcess(p: Process) = darkroom.prefs.setProcess(p)
     fun setPlateSpace(s: PlateSpace) = darkroom.prefs.setPlateSpace(s)
-    fun setContrast(stops: Double) = darkroom.prefs.setContrast(stops)
     fun setGrade(soft: Double, hard: Double) = darkroom.prefs.setGrade(soft, hard)
     fun setPeakMode(mode: PeakMode) = darkroom.prefs.setPeakMode(mode)
     fun setShotMode(mode: ShotMode) = darkroom.prefs.setShotMode(mode)
