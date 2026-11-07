@@ -200,10 +200,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     }
 
     func stop() {
-        queue.async {
-            if self.session.isRunning { self.session.stopRunning() }
-            self.teardown()
-        }
+        queue.async { self.teardown() }
     }
 
     /// Interruptions (a call, the iPad's Split View, system pressure) and
@@ -275,6 +272,30 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         return false
     }
 
+    private func stopSession() {
+        guard session.isRunning else { return }
+        var err: NSError?
+        if !MimizanTry({ self.session.stopRunning() }, &err) {
+            log.warning("stopRunning: \(err?.localizedDescription ?? "refused")")
+        }
+    }
+
+    @discardableResult
+    private func tryCommit() -> Bool {
+        var err: NSError?
+        if MimizanTry({ self.session.commitConfiguration() }, &err) { return true }
+        log.warning("commit: \(err?.localizedDescription ?? "refused")")
+        return false
+    }
+
+    @discardableResult
+    private func tryPreset(_ p: AVCaptureSession.Preset) -> Bool {
+        var err: NSError?
+        if MimizanTry({ self.session.sessionPreset = p }, &err) { return true }
+        log.warning("preset: \(err?.localizedDescription ?? "refused")")
+        return false
+    }
+
     private func configure(_ lens: LensInfo, allowLog: Bool = true) throws {
         teardown()
         let device = lens.device
@@ -296,11 +317,12 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
             guard session.canAddOutput(videoOutput) else { throw CaptureError(message: "\(lens.label): no video output") }
             session.addOutput(videoOutput)
             if photoOutput.isAppleProRAWSupported { photoOutput.isAppleProRAWEnabled = false }
-            session.sessionPreset = .photo
-            session.commitConfiguration()
+            if !tryPreset(.photo) || !tryCommit() {
+                throw CaptureError(message: "\(lens.label): the photo preset was refused")
+            }
             self.input = input
         } catch {
-            session.commitConfiguration()
+            _ = tryCommit()
             throw error
         }
         let bayer = { self.photoOutput.availableRawPhotoPixelFormatTypes.first(where: { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }) }
@@ -322,8 +344,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         if let f = logFormat {
             session.beginConfiguration()
             let set = CaptureSession.setFormat(device, f, appleLog: true)
-            session.commitConfiguration()
-            if !set {
+            if !tryCommit() || !set {
                 note = "The Apple Log format was refused. \(counts)."
                 logFormat = nil
             } else {
@@ -350,8 +371,8 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         }
         if logFormat == nil {
             session.beginConfiguration()
-            session.sessionPreset = .photo
-            session.commitConfiguration()
+            _ = tryPreset(.photo)
+            _ = tryCommit()
             _ = setStream(appleLog: nil)
             do {
                 try device.lockForConfiguration()
@@ -558,10 +579,11 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     private func teardown() {
         generation &+= 1
         observers = []
+        stopSession()
         session.beginConfiguration()
         for i in session.inputs { session.removeInput(i) }
         for o in session.outputs { session.removeOutput(o) }
-        session.commitConfiguration()
+        _ = tryCommit()
         input = nil
         device = nil
         lens = nil
@@ -830,17 +852,31 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     /// RAW type is looked for there. False when it is not offered. On the
     /// camera queue.
     private func swapToPhoto(_ d: AVCaptureDevice) -> Bool {
+        // A running Log session cannot be switched to the photo preset in
+        // place: commit raises. Stop, preset, start; the finder holds its
+        // last frame (`swapping`).
+        stopSession()
         session.beginConfiguration()
-        session.sessionPreset = .photo
-        session.commitConfiguration()
-        _ = setStream(appleLog: nil)
-        photoOutput.maxPhotoDimensions = CaptureSession.stillDimensions(of: d.activeFormat, appleLog: false)
-        guard photoOutput.availableRawPhotoPixelFormatTypes.contains(rawFormat) else {
-            log.warning("photo preset: RAW \(FormatDump.fourcc(self.rawFormat)) not offered (\(self.photoOutput.availableRawPhotoPixelFormatTypes.map(FormatDump.fourcc).joined(separator: ", ")))")
+        let ok = tryPreset(.photo) && tryCommit()
+        if !ok {
+            log.warning("photo preset refused")
+            _ = runSession()
             return false
         }
-        // The plain colour space, as the picture finder has it; the still
-        // is RAW either way.
+        _ = setStream(appleLog: nil)
+        var err: NSError?
+        _ = MimizanTry({
+            self.photoOutput.maxPhotoDimensions = CaptureSession.stillDimensions(of: d.activeFormat, appleLog: false)
+        }, &err)
+        let deadline = Date().addingTimeInterval(0.5)
+        while Date() < deadline, !photoOutput.availableRawPhotoPixelFormatTypes.contains(rawFormat) {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        guard photoOutput.availableRawPhotoPixelFormatTypes.contains(rawFormat) else {
+            log.warning("photo preset: RAW \(FormatDump.fourcc(self.rawFormat)) not offered (\(self.photoOutput.availableRawPhotoPixelFormatTypes.map(FormatDump.fourcc).joined(separator: ", ")))")
+            _ = runSession()
+            return false
+        }
         do {
             try d.lockForConfiguration()
             defer { d.unlockForConfiguration() }
@@ -848,7 +884,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         } catch {
             log.warning("photo preset colour space: \(error.localizedDescription)")
         }
-        return true
+        return runSession()
     }
 
     /// Back to the finder's Log format `f` with its still size and 10-bit
@@ -856,12 +892,14 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     /// session on `.inputPriority`; said so as well). On the camera queue.
     @discardableResult
     private func swapToLog(_ d: AVCaptureDevice, _ f: AVCaptureDevice.Format) -> Bool {
+        stopSession()
         session.beginConfiguration()
-        session.sessionPreset = .inputPriority
+        _ = tryPreset(.inputPriority)
         let set = CaptureSession.setFormat(d, f, appleLog: true)
-        session.commitConfiguration()
-        guard set else { return false }
-        return setStream(appleLog: f)
+        _ = tryCommit()
+        guard set else { _ = runSession(); return false }
+        _ = setStream(appleLog: f)
+        return runSession()
     }
 
     /// After the swap: an exposure set by hand on the preset's format —
@@ -916,31 +954,45 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
 
     /// The exposure itself, in whatever format is active.
     private func shoot(finderMedian: Double?, done: @escaping (Result<Still, Error>) -> Void) {
-        let settings = AVCapturePhotoSettings(rawPixelFormatType: self.rawFormat)
-        // The photo preset sizes the still itself; a format set by hand is told.
-        if self.paperStream { settings.maxPhotoDimensions = self.photoOutput.maxPhotoDimensions }
-        // With the exposure set by hand the automatics cannot decide,
-        // so Auto does not fire; On fires once, as on Android. Whether
-        // AVFoundation fires the flash under a custom exposure is to
-        // be verified on a device.
+        let raw = rawFormat
+        let offered = photoOutput.availableRawPhotoPixelFormatTypes
+        guard offered.contains(raw) else {
+            done(.failure(CaptureError(message: "no Bayer RAW in this format (\(offered.map(FormatDump.fourcc).joined(separator: ", ")))")))
+            return
+        }
         let wanted: AVCaptureDevice.FlashMode
         switch self.flash {
         case .off: wanted = .off
         case .auto: wanted = self.exposure.manual ? .off : .auto
         case .on: wanted = .on
         }
-        settings.flashMode = self.photoOutput.supportedFlashModes.contains(wanted) ? wanted : .off
-        // The DNG's orientation tag follows the device, not the screen.
-        if let c = self.photoOutput.connection(with: .video) {
-            let a = CGFloat(self.stillQuarters * 90)
-            if c.isVideoRotationAngleSupported(a) { c.videoRotationAngle = a }
+        let flash = photoOutput.supportedFlashModes.contains(wanted) ? wanted : .off
+        let angle = CGFloat(stillQuarters * 90)
+        var settings: AVCapturePhotoSettings?
+        var err: NSError?
+        // RAW settings: the photo preset sizes the still. Telling
+        // maxPhotoDimensions on a RAW object is refused on iOS 27.
+        let built = MimizanTry({
+            let s = AVCapturePhotoSettings(rawPixelFormatType: raw)
+            s.flashMode = flash
+            if let c = self.photoOutput.connection(with: .video), c.isVideoRotationAngleSupported(angle) {
+                c.videoRotationAngle = angle
+            }
+            settings = s
+        }, &err)
+        guard built, let settings else {
+            done(.failure(CaptureError(message: err?.localizedDescription ?? "RAW still settings refused")))
+            return
         }
         let processor = PhotoProcessor { [weak self] result in
             self?.queue.async { self?.processor = nil }
             done(result.map { Still(dng: $0, finderMedian: finderMedian) })
         }
         self.processor = processor
-        self.photoOutput.capturePhoto(with: settings, delegate: processor)
+        if !MimizanTry({ self.photoOutput.capturePhoto(with: settings, delegate: processor) }, &err) {
+            self.processor = nil
+            done(.failure(CaptureError(message: err?.localizedDescription ?? "capturePhoto refused")))
+        }
     }
 
     // MARK: finder frames

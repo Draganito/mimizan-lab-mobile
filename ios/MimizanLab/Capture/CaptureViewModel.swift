@@ -175,6 +175,9 @@ final class CaptureViewModel {
         case .authorized: break
         case .notDetermined:
             if !(await AVCaptureDevice.requestAccess(for: .video)) { permissionDenied = true; return }
+            // The camera daemon is not ready on the same turn as the grant
+            // (a fresh install aborts in commitConfiguration otherwise).
+            try? await Task.sleep(nanoseconds: 400_000_000)
         default:
             permissionDenied = true
             return
