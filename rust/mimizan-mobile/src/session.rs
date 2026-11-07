@@ -156,7 +156,6 @@ pub fn frame_info_impl(path: &str) -> Result<FrameInfo> {
 fn develop_frame(frame: RawFrame, params: DevelopParams, t_all: Instant) -> Result<Developed> {
     let mut p = NegativeParams { keep_separation: true, ..NegativeParams::default() };
     p.ingest.wb = params.white_balance.core();
-    // Defects are counted, not repaired (core 0.15: every pixel measured).
     p.separate.mask = params.separation.mask_mode();
     if let Some(cam) = camera_file_of(&params)? {
         p = p.with_camera_file(cam);

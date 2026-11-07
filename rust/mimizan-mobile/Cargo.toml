@@ -39,9 +39,10 @@ serde_json = "1"
 thiserror = "2"
 tracing = "0.1"
 
+# Only the registry: `tracing-android` is the layer, logcat the output.
 [target.'cfg(target_os = "android")'.dependencies]
 tracing-android = "0.2"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"] }
 
 # stderr, which Xcode's console shows; `tracing-oslog` would need clang and
 # the Apple SDK at build time and cannot be cross-checked from Linux.

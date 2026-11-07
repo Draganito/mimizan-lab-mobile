@@ -582,7 +582,12 @@ class CameraController(context: Context) {
                 cancel.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_CANCEL)
                 runCatching { s.capture(cancel.build(), null, handler) }
             }
-            runCatching { startRepeatingLocked() }
+            // The finder back after the still; a failure here would freeze
+            // it silently, so it is said.
+            runCatching { startRepeatingLocked() }.onFailure {
+                Log.e(TAG, "preview after the still", it)
+                _state.update { s -> s.copy(error = "the finder did not restart: ${it.message}") }
+            }
             capture
         } catch (e: CameraAccessException) {
             Log.e(TAG, "capture", e)
