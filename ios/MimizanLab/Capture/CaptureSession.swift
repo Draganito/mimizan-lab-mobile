@@ -114,7 +114,10 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
 
     private let queue = DispatchQueue(label: "ch.bojovic.mimizanlab.camera", qos: .userInteractive)
     private let session = AVCaptureSession()
-    private let photoOutput = AVCapturePhotoOutput()
+    /// Replaced at the shutter: after Apple Log the same output often
+    /// keeps an empty RAW list under the photo preset. A new instance
+    /// reads the types the preset actually offers.
+    private var photoOutput = AVCapturePhotoOutput()
     private let videoOutput = AVCaptureVideoDataOutput()
     private var input: AVCaptureDeviceInput?
     private var device: AVCaptureDevice?
@@ -817,9 +820,11 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                 guard self.swapToPhoto(d) else {
                     // Back where the finder was; the RAW type was there when
                     // the lens opened, so this is the camera changing its mind.
+                    let offered = self.photoOutput.availableRawPhotoPixelFormatTypes.map(FormatDump.fourcc)
                     self.swapToLog(d, finder)
                     self.swapping = false
-                    cont.resume(throwing: CaptureError(message: "the photo preset offers no Bayer RAW now"))
+                    let list = offered.isEmpty ? "none" : offered.joined(separator: ", ")
+                    cont.resume(throwing: CaptureError(message: "the photo preset offers no Bayer RAW now (\(list))"))
                     return
                 }
                 self.settleExposure(d, frozen: frozen) { [weak self] asAsked in
@@ -853,27 +858,16 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     /// camera queue.
     private func swapToPhoto(_ d: AVCaptureDevice) -> Bool {
         // A running Log session cannot be switched to the photo preset in
-        // place: commit raises. Stop, preset, start; the finder holds its
-        // last frame (`swapping`).
+        // place: commit raises. Stop, drop the 10-bit stream, a new photo
+        // output (the old one keeps an empty RAW list after Log), the
+        // preset, then start — RAW types only appear once running.
         stopSession()
         session.beginConfiguration()
+        _ = setStream(appleLog: nil)
+        attachPhotoOutput(fresh: true)
         let ok = tryPreset(.photo) && tryCommit()
         if !ok {
             log.warning("photo preset refused")
-            _ = runSession()
-            return false
-        }
-        _ = setStream(appleLog: nil)
-        var err: NSError?
-        _ = MimizanTry({
-            self.photoOutput.maxPhotoDimensions = CaptureSession.stillDimensions(of: d.activeFormat, appleLog: false)
-        }, &err)
-        let deadline = Date().addingTimeInterval(0.5)
-        while Date() < deadline, !photoOutput.availableRawPhotoPixelFormatTypes.contains(rawFormat) {
-            Thread.sleep(forTimeInterval: 0.05)
-        }
-        guard photoOutput.availableRawPhotoPixelFormatTypes.contains(rawFormat) else {
-            log.warning("photo preset: RAW \(FormatDump.fourcc(self.rawFormat)) not offered (\(self.photoOutput.availableRawPhotoPixelFormatTypes.map(FormatDump.fourcc).joined(separator: ", ")))")
             _ = runSession()
             return false
         }
@@ -884,7 +878,35 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         } catch {
             log.warning("photo preset colour space: \(error.localizedDescription)")
         }
-        return runSession()
+        guard runSession() else { return false }
+        let deadline = Date().addingTimeInterval(1.0)
+        while Date() < deadline, bayerType() == nil {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        if let raw = bayerType() {
+            rawFormat = raw
+            return true
+        }
+        log.warning("photo preset: no Bayer RAW (\(self.photoOutput.availableRawPhotoPixelFormatTypes.map(FormatDump.fourcc).joined(separator: ", ")))")
+        return false
+    }
+
+    /// The first Bayer RAW type the photo output offers now, if any.
+    private func bayerType() -> OSType? {
+        photoOutput.availableRawPhotoPixelFormatTypes.first { AVCapturePhotoOutput.isBayerRAWPixelFormat($0) }
+    }
+
+    /// Put `photoOutput` on the session. `fresh` replaces it: after Apple
+    /// Log the previous instance often reports no RAW types under `.photo`.
+    /// Inside the caller's configuration.
+    private func attachPhotoOutput(fresh: Bool) {
+        if session.outputs.contains(where: { $0 === photoOutput }) {
+            session.removeOutput(photoOutput)
+        }
+        if fresh { photoOutput = AVCapturePhotoOutput() }
+        guard session.canAddOutput(photoOutput) else { return }
+        session.addOutput(photoOutput)
+        if photoOutput.isAppleProRAWSupported { photoOutput.isAppleProRAWEnabled = false }
     }
 
     /// Back to the finder's Log format `f` with its still size and 10-bit
