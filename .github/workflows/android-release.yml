@@ -20,6 +20,7 @@ jobs:
   apk:
     name: Release APK
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,6 +41,13 @@ jobs:
           t="${t#android-}"
           t="${t#v}"
           echo "name=$t" >> "$GITHUB_OUTPUT"
+          # The tag names the APK; the app must say the same number
+          # (scripts/set_version.sh keeps the three carriers together).
+          name=$(sed -n 's/^ *versionName = "\([^"]*\)"/\1/p' mimizan-lab-mobile/android/app/build.gradle.kts)
+          if [ "$name" != "$t" ]; then
+            echo "tag says $t, build.gradle.kts says $name" >&2
+            exit 1
+          fi
 
       - uses: dtolnay/rust-toolchain@stable
         with:

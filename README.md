@@ -150,12 +150,13 @@ the camera's own preview, desaturated in mono, untouched in colour.
    expose, and a print that came out dark is corrected in the
    developer, where the stops are what they say.
 2. **Process.** Mono or Color, kept across starts; Color is the
-   three-colour plate. In Mono the filter row (Pan, Y8, YG11, O16,
-   R25, G58, B47) is the film for the shot and can be changed in
-   review without developing again. In Color the row is the three
-   taking filters: Camera (the sensor's colour matrix), Wratten
-   (25/58/47) or Channels. The colour space starts at sRGB; Adobe RGB
-   is under *Color space* in Settings.
+   three-colour plate. The filter is chosen in the developer, on the
+   picture, a re-mix without developing again: in Mono the row is the
+   film (Pan, Y8, YG11, O16, R25, G58, B47), in Color the three taking
+   filters, Camera (the sensor's colour matrix), Wratten (25/58/47) or
+   Channels. The frame remembers the choice in its `.grade` file beside
+   the grade, so the roll says what it was last printed as. The colour
+   space starts at sRGB; Adobe RGB is under *Color space* in Settings.
 3. **Grade.** One slider: hard light against soft, in stops (±6,
    steps of 1/6); zero, the middle, is the paper's grade 2, left is
    softer, right harder. It carries no label and no number: the
@@ -210,15 +211,16 @@ the camera's own preview, desaturated in mono, untouched in colour.
    `.plate.tif`, which `mimizan print` prints in colour). In a store
    build without the purchase the JPEG is printed at half the edge,
    the same development on a smaller sheet, and the two TIFFs open the
-   purchase instead. Share sends the last
-   export.
-8. **The roll** lists every frame in the cache (1.5 GB, oldest first).
-   The bin, or a long press, deletes one. Exported pictures stay where
-   they were written. Settings shows how much the frames take and can
-   delete them all.
+   purchase instead. Share sends the last export, or the automatic
+   JPEG of the frame.
+8. **The roll** lists every frame in the cache (1.5 GB, newest first).
+   The bin on Android, a swipe on iOS, or a long press on either
+   deletes one. Exported pictures stay where they were written.
+   Settings shows how much the frames take and can delete them all.
 
-Only the most recent developed negative stays in memory (about 0.5 GB
-with its preview planes). Import from Files and Photos is off on iOS: a
+Only the most recent developed negative stays in memory (about 375 MB
+with its preview planes at 12.5 MP; about 1 GB passes through while it
+is separated). Import from Files and Photos is off on iOS: a
 full-size NEF develops past what an iPad can keep in memory. The roll
 is the camera's own frames.
 
@@ -246,9 +248,12 @@ both                     └─> app cache (re-developable)   └─> gallery or
 * `scripts/device_spike.sh` — timing and peak RSS on a phone.
 * `docs/ARCHITECTURE.md`, `docs/RESULTS_MOBILE.md`.
 
-A DNG developed on iOS matches `mimizan` on the desktop bit for bit
-(`develop_file_matches_develop_bit_for_bit`). The Android negative
-matched the desktop CLI on a DNG of the same frame to 0.015 % RMS.
+The file path (`develop_file`, the DNG on iOS) and the buffer path
+(`develop`, Camera2 on Android) give the same negative sample for sample
+on a NEF (`tests/host.rs`, run where the desktop's `testdata` is
+checked out; the CI runner has no such file and that test passes by
+saying so). The Android negative matched the desktop CLI on a DNG of
+the same frame to 0.015 % RMS.
 
 ### Build for Android
 
@@ -269,8 +274,9 @@ Prerequisites (user-local, no sudo):
 * Rust stable with the target `aarch64-linux-android`, and `cargo-ndk`
   (`cargo install cargo-ndk`).
 * Android SDK at `$ANDROID_HOME` (default `~/.local/opt/android-sdk`)
-  with `platforms;android-37.1`, build-tools, and NDK r27
-  (`ndk;27.3.13750724`).
+  with `platforms;android-37.1`, build-tools, and an NDK (the
+  workflows use `ndk;27.3.13750724`; Gradle takes `ANDROID_NDK_HOME`,
+  else the newest under `$ANDROID_HOME/ndk`).
 * JDK 21.
 
 ```bash

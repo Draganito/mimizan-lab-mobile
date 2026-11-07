@@ -39,15 +39,13 @@ struct PaperTone: Equatable, Sendable {
     /// In the plate process the three taking filters pulled back the
     /// same way (rows R, G, B); nil for the monochrome negative.
     var plate: (SIMD3<Float>, SIMD3<Float>, SIMD3<Float>)?
-    /// The lamps as linear factors (`2^stops`), green the reference.
-    var lampGain: SIMD3<Float>
     /// Log-linear → the negative's axis: `2^FinderMatch.stops`.
     var gain: Float
     /// The paper over the linear axis, `n + 1` display values.
     var lut: [Float]
 
     static func == (a: PaperTone, b: PaperTone) -> Bool {
-        a.v == b.v && a.lampGain == b.lampGain && a.gain == b.gain && a.lut == b.lut
+        a.v == b.v && a.gain == b.gain && a.lut == b.lut
             && a.plate?.0 == b.plate?.0 && a.plate?.1 == b.plate?.1 && a.plate?.2 == b.plate?.2
     }
 

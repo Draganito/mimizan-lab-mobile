@@ -12,6 +12,9 @@ import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
+/** Largest RAW frame the phone pipeline is sized for (Pixel 9 is 12.5 MP). */
+internal const val RAW_PIXEL_CAP = 16_000_000L
+
 /**
  * One back lens that can deliver `RAW_SENSOR` frames. Either a logical
  * camera ([physicalId] = null) or a physical camera behind a logical one
@@ -23,9 +26,6 @@ import kotlin.math.roundToInt
  * directly; [physicalId] is only used when the sensor is absent from
  * `cameraIdList`.
  */
-
-/** Largest RAW frame the phone pipeline is sized for (Pixel 9 is 12.5 MP). */
-internal const val RAW_PIXEL_CAP = 16_000_000L
 data class LensInfo(
     /** The id to open. */
     val cameraId: String,
@@ -43,8 +43,6 @@ data class LensInfo(
     val hasAutoFocus: Boolean,
     /** LED of the camera that is opened (the logical one, also for a physical lens). */
     val hasFlash: Boolean,
-    val physicalWidthMm: Float,
-    val physicalHeightMm: Float,
     /** `SENSOR_INFO_COLOR_FILTER_ARRANGEMENT` of the sensor (0 when unknown). */
     val cfa: Int = 0,
     /** XYZ → camera for D65, 9 values row-major, for the plate's camera filters in the viewfinder. */
@@ -61,9 +59,14 @@ object Lenses {
 
     /** Back lenses with RAW capability: main first, then by equivalent focal length. */
     fun enumerate(manager: CameraManager): List<LensInfo> {
-        val listed = manager.cameraIdList.toSet()
+        // The camera service can be away for a moment after a crash of its
+        // own; an empty list then, not a crash of the app.
+        val ids = runCatching { manager.cameraIdList.toList() }
+            .onFailure { Log.w(TAG, "camera list", it) }
+            .getOrDefault(emptyList())
+        val listed = ids.toSet()
         val lenses = mutableListOf<LensInfo>()
-        for (id in manager.cameraIdList) {
+        for (id in ids) {
             val c = runCatching { manager.getCameraCharacteristics(id) }.getOrNull() ?: continue
             if (c.get(CameraCharacteristics.LENS_FACING) != CameraMetadata.LENS_FACING_BACK) continue
             val hasFlash = c.get(CameraCharacteristics.FLASH_INFO_AVAILABLE) == true
@@ -140,8 +143,6 @@ object Lenses {
             hasManualSensor = CameraMetadata.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR in caps,
             hasAutoFocus = minFocus > 0f,
             hasFlash = hasFlash,
-            physicalWidthMm = phys?.width ?: 0f,
-            physicalHeightMm = phys?.height ?: 0f,
             cfa = c.get(CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT) ?: 0,
             xyzToCam = RawFrameBridge.colourMatrix(c),
         )

@@ -79,7 +79,7 @@ enum FinderMatchLog {
     /// hundred lines at most). Call off the main actor.
     static func append(_ r: FinderMatchRecord) {
         do {
-            var records = (try? JSONDecoder().decode([FinderMatchRecord].self, from: Data(contentsOf: url))) ?? []
+            var records = FormatDump.readOrSetAside([FinderMatchRecord].self, at: url) ?? []
             records.append(r)
             let enc = JSONEncoder()
             enc.outputFormatting = [.prettyPrinted, .sortedKeys]

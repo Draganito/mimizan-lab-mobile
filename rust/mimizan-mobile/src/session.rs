@@ -3,7 +3,7 @@
 //! copy for the interactive preview, and the print exports. Mirrors what the
 //! desktop GUI's `Session` does, with the same core calls.
 
-use crate::frame::{as_shot_from_gains, bin_cfa_2x, matrix_of, to_raw_frame};
+use crate::frame::{as_shot_from_gains, matrix_of, to_raw_frame};
 use crate::types::*;
 use mimizan_core::calib::CameraFile;
 use mimizan_core::decode::RawFrame;
@@ -14,7 +14,7 @@ use mimizan_core::plane::Plane;
 use mimizan_core::plate::{
     mix_plate_stacked, PlateInfo, PlateParams, PlateSpace as CorePlateSpace, PlateWeights as CorePlateWeights,
 };
-use mimizan_core::print::{self as pr, orient, rotated, PrintOutput, PrintParams, PrintSource, LAMP_LIMIT};
+use mimizan_core::print::{self as pr, orient, PrintOutput, PrintParams, PrintSource, LAMP_LIMIT};
 use mimizan_core::recipe::{Peak, Recipe, Sharpen};
 use mimizan_core::resize::{fit_dims, resize};
 use mimizan_core::separate::Separation;
@@ -67,7 +67,6 @@ struct Inner {
     mask8: Vec<u8>,
     orientation: u16,
     info: NegativeInfo,
-    binning: u32,
     separation_mode: SeparationMode,
     /// The monochrome mix (filter included). Kept while the plate is on,
     /// so the luminance histogram and the way back stay what they were.
@@ -153,22 +152,13 @@ pub fn frame_info_impl(path: &str) -> Result<FrameInfo> {
     })
 }
 
-/// The common part: optional binning, the negative, the separation kept.
+/// The common part: the negative at full size, the separation kept.
 fn develop_frame(frame: RawFrame, params: DevelopParams, t_all: Instant) -> Result<Developed> {
-    let (frame, binning) = match params.binning {
-        0 | 1 => (frame, 1),
-        2 => (bin_cfa_2x(&frame)?, 2),
-        n => return Err(MimizanError::Invalid { msg: format!("binning {n} not supported (1 or 2)") }),
-    };
-
     let mut p = NegativeParams { keep_separation: true, ..NegativeParams::default() };
     p.ingest.wb = params.white_balance.core();
     // Defects are counted, not repaired (core 0.15: every pixel measured).
     p.separate.mask = params.separation.mask_mode();
-    if let Some(json) = &params.camera_file_json {
-        let cam: CameraFile = serde_json::from_str(json)
-            .map_err(|e| MimizanError::Invalid { msg: format!("camera file: {e}") })?;
-        cam.validate()?;
+    if let Some(cam) = camera_file_of(&params)? {
         p = p.with_camera_file(cam);
     }
     if let Some(a) = params.noise_a {
@@ -176,11 +166,6 @@ fn develop_frame(frame: RawFrame, params: DevelopParams, t_all: Instant) -> Resu
     }
     if let Some(b) = params.noise_b {
         p.ingest.noise.b = b;
-    }
-    if binning == 2 {
-        // Mean of four independent sites: sigma halves.
-        p.ingest.noise.a *= 0.5;
-        p.ingest.noise.b *= 0.5;
     }
     let camera_default = (p.weights, p.weights_space);
     if let Some(w) = params.weights {
@@ -193,8 +178,11 @@ fn develop_frame(frame: RawFrame, params: DevelopParams, t_all: Instant) -> Resu
     drop(frame);
     let mut sep =
         neg.separation.take().ok_or_else(|| MimizanError::Internal { msg: "separation missing".into() })?;
-    // The sidecar is already quantised; the f64 mask plane is not needed again.
+    // The sidecar is already quantised; the f64 mask plane is not needed
+    // again, nor is the first mix: every picture is mixed from the
+    // separation. Both go before the preview planes are made.
     sep.mask_max = Plane::zeros(0, 0);
+    neg.plane = Plane::zeros(0, 0);
     let weights = neg.info.weights;
     let default_weights = camera_default.0.to_balanced(camera_default.1, neg.info.wb);
 
@@ -221,7 +209,6 @@ fn develop_frame(frame: RawFrame, params: DevelopParams, t_all: Instant) -> Resu
             mask8: neg.mask8,
             orientation: neg.orientation,
             info: neg.info,
-            binning,
             separation_mode: params.separation,
             weights,
             filter: params.filter,
@@ -411,31 +398,6 @@ fn source_rect(
     (x0, y0, x1 - x0 + 1, y1 - y0 + 1)
 }
 
-/// Rotate an 8-bit image of `C` interleaved channels 90° clockwise
-/// `quarter_turns` times; returns the new (width, height, pixels). The core
-/// keeps its copy for its own tests.
-fn rotate8_cw<const C: usize>(w: usize, h: usize, g: &[u8], quarter_turns: u8) -> (usize, usize, Vec<u8>) {
-    debug_assert_eq!(g.len(), w * h * C);
-    let k = quarter_turns % 4;
-    if k == 0 {
-        return (w, h, g.to_vec());
-    }
-    let (ow, oh) = if k % 2 == 1 { (h, w) } else { (w, h) };
-    let mut out = vec![0u8; ow * oh * C];
-    for (oy, row) in out.chunks_mut((ow * C).max(1)).enumerate() {
-        for (ox, o) in row.chunks_mut(C).enumerate() {
-            let (sx, sy) = match k {
-                1 => (oy, h - 1 - ox),
-                2 => (w - 1 - ox, h - 1 - oy),
-                _ => (w - 1 - oy, ox),
-            };
-            let i = (sy * w + sx) * C;
-            o.copy_from_slice(&g[i..i + C]);
-        }
-    }
-    (ow, oh, out)
-}
-
 fn crop(p: &Plane, x: usize, y: usize, w: usize, h: usize) -> Plane {
     let mut out = Plane::zeros(w, h);
     for r in 0..h {
@@ -444,7 +406,7 @@ fn crop(p: &Plane, x: usize, y: usize, w: usize, h: usize) -> Plane {
     out
 }
 
-/// The geometry of a 1:1 window: the asked rectangle in display
+/// The geometry of a 1:1 window: the asked rectangle in upright
 /// coordinates, clamped; the margin the peak's blur needs so it does not
 /// see the window edge; the source rectangle in the sensor frame.
 struct DetailWindow {
@@ -474,11 +436,10 @@ impl DetailWindow {
         height: u32,
         soft: f64,
         hard: f64,
-        extra_quarter_turns: u8,
         peak_radius: f64,
         peak_amount: f64,
     ) -> Result<Self> {
-        let o = rotated(g.orientation, extra_quarter_turns);
+        let o = g.orientation;
         let (sw, sh) = (g.sep.lum.width, g.sep.lum.height);
         let (dw, dh) = if matches!(o, 5..=8) { (sh, sw) } else { (sw, sh) };
         let x0 = (x as usize).min(dw.saturating_sub(1));
@@ -543,7 +504,6 @@ impl Inner {
             upright_height: uh as u32,
             orientation: self.orientation as u32,
             pattern: BayerPattern::from_phase(self.sep.phase),
-            binning: self.binning,
             separation: self.separation_mode,
             wb: self.info.wb.to_vec(),
             wb_source: self.info.report.wb_source.clone(),
@@ -609,9 +569,9 @@ impl Inner {
     /// The print: one grey positive, or the three of the plate rendered one
     /// after the other (one full-resolution mix alive at a time beside the
     /// finished sheets) and written as one RGB file.
-    fn export(&self, path: &Path, params: &PrintParams, turns: u8) -> Result<ExportInfo> {
+    fn export(&self, path: &Path, params: &PrintParams) -> Result<ExportInfo> {
         let t = Instant::now();
-        let orientation = rotated(self.orientation, turns);
+        let orientation = self.orientation;
         let mask = self.mask_plane();
         let out = match self.plate {
             None => self.render_positive(&self.weights, &mask, params, orientation, 0.0),
@@ -714,30 +674,28 @@ impl Developed {
 
     /// The negative as the viewer shows it: current mix on the cached
     /// upright preview planes, the paper applied pixel by pixel (the same
-    /// evaluation the file uses), no sharpening, then
-    /// `extra_quarter_turns` clockwise. `soft` and `hard` are stops from
-    /// the base exposure. In the plate process this is the luminance of
-    /// the plate (the monochrome mix); `preview_rgb` is the colour.
-    pub fn preview(&self, soft: f64, hard: f64, extra_quarter_turns: u8) -> Result<GrayImage> {
+    /// evaluation the file uses), no sharpening. `soft` and `hard` are
+    /// stops from the base exposure. In the plate process this is the
+    /// luminance of the plate (the monochrome mix); `preview_rgb` is the
+    /// colour.
+    pub fn preview(&self, soft: f64, hard: f64) -> Result<GrayImage> {
         let g = lock_msg(self.inner.lock());
         let (pv, map) = g.preview_and_paper(soft, hard)?;
         let plane = mix_planes(&pv.lum, &pv.c1, &pv.c2, &g.weights);
-        let bytes = gray8(&plane, &map);
-        let (w, h, data) = rotate8_cw::<1>(plane.width, plane.height, &bytes, extra_quarter_turns);
-        Ok(GrayImage { width: w as u32, height: h as u32, data })
+        let data = gray8(&plane, &map);
+        Ok(GrayImage { width: plane.width as u32, height: plane.height as u32, data })
     }
 
     /// The plate as the viewer shows it: the three positives from the
     /// cached preview planes, each placed by its lamp and put through the
     /// same paper, interleaved RGB. Needs the plate process.
-    pub fn preview_rgb(&self, soft: f64, hard: f64, extra_quarter_turns: u8) -> Result<RgbImage> {
+    pub fn preview_rgb(&self, soft: f64, hard: f64) -> Result<RgbImage> {
         let g = lock_msg(self.inner.lock());
         let p = g.plate_or_err()?;
         let (pv, map) = g.preview_and_paper(soft, hard)?;
         let planes = Inner::plate_planes(&pv.lum, &pv.c1, &pv.c2, &p.weights);
-        let bytes = rgb8(&planes, lamps_rgb(g.lamps), &map);
-        let (w, h, data) = rotate8_cw::<3>(pv.lum.width, pv.lum.height, &bytes, extra_quarter_turns);
-        Ok(RgbImage { width: w as u32, height: h as u32, data })
+        let data = rgb8(&planes, lamps_rgb(g.lamps), &map);
+        Ok(RgbImage { width: pv.lum.width as u32, height: pv.lum.height as u32, data })
     }
 
     /// Three 256-bin histograms, R then G then B, of the plate's positives
@@ -761,8 +719,7 @@ impl Developed {
     }
 
     /// 1:1 window of the full-resolution negative. The rectangle is in the
-    /// coordinates of the displayed picture (file orientation plus
-    /// `extra_quarter_turns`); it is clamped to the picture. A
+    /// coordinates of the upright picture; it is clamped to the picture. A
     /// `peak_amount` > 0 sharpens the window the way the full-size export
     /// does (`peak_radius` in pixels of the negative, which at 1:1 are the
     /// window's), with a margin so the blur does not see the window edge.
@@ -775,23 +732,11 @@ impl Developed {
         height: u32,
         soft: f64,
         hard: f64,
-        extra_quarter_turns: u8,
         peak_radius: f64,
         peak_amount: f64,
     ) -> Result<GrayImage> {
         let g = lock_msg(self.inner.lock());
-        let win = DetailWindow::new(
-            &g,
-            x,
-            y,
-            width,
-            height,
-            soft,
-            hard,
-            extra_quarter_turns,
-            peak_radius,
-            peak_amount,
-        )?;
+        let win = DetailWindow::new(&g, x, y, width, height, soft, hard, peak_radius, peak_amount)?;
         let (lum, c1, c2) = win.crops(&g);
         let mixed = if g.weights.is_native() { lum } else { mix_planes(&lum, &c1, &c2, &g.weights) };
         let plane = win.positive(mixed, 0.0);
@@ -811,24 +756,12 @@ impl Developed {
         height: u32,
         soft: f64,
         hard: f64,
-        extra_quarter_turns: u8,
         peak_radius: f64,
         peak_amount: f64,
     ) -> Result<RgbImage> {
         let g = lock_msg(self.inner.lock());
         let p = g.plate_or_err()?;
-        let win = DetailWindow::new(
-            &g,
-            x,
-            y,
-            width,
-            height,
-            soft,
-            hard,
-            extra_quarter_turns,
-            peak_radius,
-            peak_amount,
-        )?;
+        let win = DetailWindow::new(&g, x, y, width, height, soft, hard, peak_radius, peak_amount)?;
         let (lum, c1, c2) = win.crops(&g);
         let lamps = lamps_rgb(g.lamps);
         let rows = p.weights.weights();
@@ -927,20 +860,6 @@ impl Developed {
         Ok(Some(*mid))
     }
 
-    /// Stops to add to both exposures so the middle of this negative prints
-    /// where the grey card prints at `(soft, hard)`. The grade (the gap) is
-    /// untouched. 0 when the picture has no usable middle. The shift stays
-    /// inside the room both sliders still have.
-    pub fn zone_shift(&self, soft: f64, hard: f64) -> Result<f64> {
-        let Some(mid) = self.mix_median()? else { return Ok(0.0) };
-        let curve = crate::types::split_grade(soft, hard)?.curve();
-        let shift = curve.shift_for(mid, curve.eval(mimizan_core::zone::GRAY_CARD));
-        let limit = mimizan_core::paper::STOP_LIMIT;
-        let lo = -limit - soft.min(hard);
-        let hi = limit - soft.max(hard);
-        Ok(shift.clamp(lo, hi))
-    }
-
     /// Print as JPEG (8-bit grey, quality 100, grey ICC): the paper
     /// applied, then Peak's high-pass on the picture when `peak_amount` > 0
     /// (`peak_radius` σ in pixels of the negative, the pair `measure_peak`
@@ -957,7 +876,6 @@ impl Developed {
         path: String,
         soft: f64,
         hard: f64,
-        extra_quarter_turns: u8,
         peak_radius: f64,
         peak_amount: f64,
         binned: bool,
@@ -978,7 +896,7 @@ impl Developed {
         if !pr::is_jpeg_path(&p) {
             return Err(MimizanError::Invalid { msg: "export_jpeg needs a .jpg path".into() });
         }
-        g.export(&p, &params, extra_quarter_turns)
+        g.export(&p, &params)
     }
 
     /// Print as 16-bit grey TIFF, gamma 2.2 ICC, full resolution, the paper
@@ -990,7 +908,6 @@ impl Developed {
         path: String,
         soft: f64,
         hard: f64,
-        extra_quarter_turns: u8,
         peak_radius: f64,
         peak_amount: f64,
     ) -> Result<ExportInfo> {
@@ -1003,7 +920,7 @@ impl Developed {
         if pr::is_jpeg_path(&p) {
             return Err(MimizanError::Invalid { msg: "export_tiff16 needs a .tif path".into() });
         }
-        g.export(&p, &params, extra_quarter_turns)
+        g.export(&p, &params)
     }
 
     /// The linear negative exactly as the desktop CLI writes it
@@ -1054,11 +971,6 @@ impl Developed {
             o.copy_from_slice(&q.to_le_bytes());
         });
         out
-    }
-
-    /// Drop the preview planes (about 3 x 8 bytes per preview pixel).
-    pub fn release_preview(&self) {
-        lock_msg(self.inner.lock()).preview = None;
     }
 
     /// Full-resolution mix plane (host tests).

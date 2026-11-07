@@ -49,6 +49,40 @@ struct ShotMeta: Codable, Equatable {
     var bayerPattern: BayerPattern { BayerPattern.fromName(pattern) ?? .rggb }
 }
 
+/// `<name>.grade` on disk: the grade's two exposures, `peak`, and the
+/// process and filter the frame was last developed or re-mixed in, as
+/// the Android `Grade.kt` writes them (`PROCESS`/`FILTER` enum names).
+/// Every field past `soft` and `hard` is optional, so an older file reads.
+private struct RecipeFile: Codable {
+    var soft: Double
+    var hard: Double
+    var peak: Peak?
+    var process: String?
+    var filter: String?
+    var plateFilters: String?
+
+    init(print: Print, settings: DevelopSettings) {
+        soft = print.grade.soft
+        hard = print.grade.hard
+        peak = print.peak
+        process = settings.process.rawValue
+        filter = settings.filter.name
+        plateFilters = settings.plateFilters.name
+    }
+
+    func print(standingPeak: Peak) -> Print {
+        Print(grade: Prefs.snapGrade(soft: soft, hard: hard), peak: peak ?? standingPeak)
+    }
+
+    var settings: DevelopSettings {
+        var s = DevelopSettings()
+        s.process = process.flatMap(Process.init(rawValue:)) ?? .mono
+        s.filter = Filter.fromName(filter) ?? .none
+        s.plateFilters = PlateFilters.fromName(plateFilters) ?? .camera
+        return s
+    }
+}
+
 final class RawCache: @unchecked Sendable {
     let dir: URL
     private let budgetBytes: Int64
@@ -81,8 +115,8 @@ final class RawCache: @unchecked Sendable {
         try dng.write(to: rawFile(name), options: .atomic)
     }
 
-    func commit(_ name: String, meta: ShotMeta, print: Print) throws {
-        try savePrint(name, print)
+    func commit(_ name: String, meta: ShotMeta, print: Print, settings: DevelopSettings) throws {
+        try saveRecipe(name, print: print, settings: settings)
         let enc = JSONEncoder()
         enc.dateEncodingStrategy = .iso8601
         let data = try enc.encode(meta)
@@ -90,19 +124,19 @@ final class RawCache: @unchecked Sendable {
         trim(keep: name)
     }
 
-    /// Overwritten in place: the file is a few numbers, and the old ones are no loss.
-    func savePrint(_ name: String, _ print: Print) throws {
-        try JSONEncoder().encode(print).write(to: printFile(name), options: .atomic)
+    /// The frame's recipe, overwritten in place: the file is a few
+    /// numbers and names, and the old ones are no loss.
+    func saveRecipe(_ name: String, print: Print, settings: DevelopSettings) throws {
+        try JSONEncoder().encode(RecipeFile(print: print, settings: settings)).write(to: printFile(name), options: .atomic)
     }
 
-    /// The frame's print; nil when none was written (a frame from before
+    /// The frame's recipe; nil when none was written (a frame from before
     /// 0.15) or the file is damaged. A file with the grade alone (0.15.0)
-    /// takes `standingPeak`.
-    func loadPrint(_ name: String, standingPeak: Peak) -> Print? {
-        guard let data = try? Data(contentsOf: printFile(name)) else { return nil }
-        let dec = JSONDecoder()
-        dec.userInfo[Print.standingPeakKey] = standingPeak
-        return try? dec.decode(Print.self, from: data)
+    /// takes `standingPeak`; one without the process and filter (0.17.9
+    /// and earlier) reads as Mono, Pan.
+    func loadRecipe(_ name: String, standingPeak: Peak) -> (print: Print, settings: DevelopSettings)? {
+        guard let data = try? Data(contentsOf: printFile(name)), let f = try? JSONDecoder().decode(RecipeFile.self, from: data) else { return nil }
+        return (f.print(standingPeak: standingPeak), f.settings)
     }
 
     func has(_ name: String) -> Bool {
@@ -149,12 +183,13 @@ final class RawCache: @unchecked Sendable {
         files().reduce(0) { $0 + size(of: $1) }
     }
 
-    /// Names of cached frames, newest first.
+    /// Names of cached frames (both files present), newest first.
     func names() -> [String] {
         files()
             .filter { $0.pathExtension == "json" }
             .sorted { modified($0) > modified($1) }
             .map { $0.deletingPathExtension().lastPathComponent }
+            .filter(has)
     }
 
     /// A `.dng` without its `.json` is an orphan only once it is old: a
@@ -180,6 +215,13 @@ final class RawCache: @unchecked Sendable {
             // An old orphan from an interrupted put() is never a frame; it goes regardless of the budget.
             total -= size(of: f)
             remove(name)
+        }
+        // Sidecars whose frame is gone (a `commit` that landed after a
+        // `removeAll`, a DNG swept earlier) are never a frame either.
+        let dngs = Set(files().filter { $0.pathExtension == "dng" }.map { $0.deletingPathExtension().lastPathComponent })
+        for f in files() where f.pathExtension != "dng" {
+            let name = f.deletingPathExtension().lastPathComponent
+            if name != keep, !dngs.contains(name), now.timeIntervalSince(modified(f)) >= RawCache.orphanAge { try? fm.removeItem(at: f) }
         }
     }
 

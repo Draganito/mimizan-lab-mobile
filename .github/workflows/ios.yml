@@ -33,10 +33,15 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   rust:
     name: Rust core (host tests, iOS check)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,7 +60,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: mimizan-lab-mobile/rust/mimizan-mobile
+      - name: Format and lints
+        working-directory: mimizan-lab-mobile/rust/mimizan-mobile
+        run: |
+          cargo fmt --check
+          cargo clippy --release --all-targets --features host-raw -- -D warnings
       - name: Host tests (file decoder on)
+        # The desktop's `testdata/` (the NEF of the bit-for-bit round trip)
+        # is not in the mimizan checkout; that one test says so and passes.
         working-directory: mimizan-lab-mobile/rust/mimizan-mobile
         run: cargo test --release --features host-raw
       - name: iOS static library (cross-check from Linux)
@@ -65,6 +77,7 @@ jobs:
   app:
     name: Unsigned iOS app
     runs-on: macos-15
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:

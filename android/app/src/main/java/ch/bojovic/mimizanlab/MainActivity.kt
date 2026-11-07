@@ -87,7 +87,10 @@ private fun App() {
     }
     var asked by rememberSaveable { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
-        granted = result[Manifest.permission.CAMERA] == true
+        // The map can come back without the camera (a result restored
+        // after the process died); the system's answer is the truth.
+        granted = result[Manifest.permission.CAMERA] == true ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
         asked = true
     }
     val wanted = remember {

@@ -82,8 +82,8 @@ struct CaptureView: View {
             // The hand's two sliders, only in M. In A the automatics expose
             // and the paper is corrected in the developer, where the stops
             // are real.
-            if exposure.manual, let l = lens {
-                manualSliders(l)
+            if exposure.manual, let l = lens, let isoRange = vm.isoRange, let exposureRange = vm.exposureRange {
+                manualSliders(l, isoRange: isoRange, exposureRange: exposureRange)
             }
 
             HStack {
@@ -110,7 +110,7 @@ struct CaptureView: View {
                 .buttonStyle(.plain)
                 .disabled(last == nil)
                 Spacer()
-                ShutterButton(enabled: !state.capturing && lens != nil && state.lens != nil, action: vm.capture)
+                ShutterButton(enabled: vm.canShoot, action: vm.capture)
                 Spacer()
                 Button(action: onOpenRoll) {
                     Text("\(shots.count)\nroll").multilineTextAlignment(.center).frame(width: 56)
@@ -250,23 +250,24 @@ struct CaptureView: View {
         .buttonStyle(.plain)
     }
 
-    private func manualSliders(_ l: LensInfo) -> some View {
+    /// ISO and time by hand, over the range of the format the still is taken in.
+    private func manualSliders(_ l: LensInfo, isoRange: ClosedRange<Double>, exposureRange: ClosedRange<Double>) -> some View {
         let exposure = vm.exposure
-        let iso = exposure.iso ?? l.isoRange.lowerBound
-        let t = exposure.seconds ?? l.exposureRange.lowerBound
+        let iso = exposure.iso ?? isoRange.lowerBound
+        let t = exposure.seconds ?? exposureRange.lowerBound
         return VStack(spacing: 2) {
             LabeledSlider(
                 label: "ISO \(Int(iso))",
                 value: Binding(
-                    get: { Format.isoToSlider(iso, lo: l.isoRange.lowerBound, hi: l.isoRange.upperBound) },
-                    set: { vm.setManual(iso: Format.sliderToIso($0, lo: l.isoRange.lowerBound, hi: l.isoRange.upperBound), seconds: t) }
+                    get: { Format.isoToSlider(iso, lo: isoRange.lowerBound, hi: isoRange.upperBound) },
+                    set: { vm.setManual(iso: Format.sliderToIso($0, lo: isoRange.lowerBound, hi: isoRange.upperBound), seconds: t) }
                 )
             )
             LabeledSlider(
                 label: Format.shutter(seconds: t),
                 value: Binding(
-                    get: { Format.secondsToSlider(t, lo: l.exposureRange.lowerBound, hi: l.exposureRange.upperBound) },
-                    set: { vm.setManual(iso: iso, seconds: Format.sliderToSeconds($0, lo: l.exposureRange.lowerBound, hi: l.exposureRange.upperBound)) }
+                    get: { Format.secondsToSlider(t, lo: exposureRange.lowerBound, hi: exposureRange.upperBound) },
+                    set: { vm.setManual(iso: iso, seconds: Format.sliderToSeconds($0, lo: exposureRange.lowerBound, hi: exposureRange.upperBound)) }
                 )
             )
             Text(l.hasFlash
@@ -359,7 +360,8 @@ struct SettingsSheet: View {
                             Text("Pictures in Files and Photos are not touched.").font(.caption).foregroundStyle(.gray)
                         }
                         Spacer()
-                        Button("Delete all") { confirmDeleteAll = true }.disabled(shots.isEmpty)
+                        // Not while a frame is being written: its files would land after the sweep.
+                        Button("Delete all") { confirmDeleteAll = true }.disabled(shots.isEmpty || shots.contains { $0.status == .saving })
                     }
 
                     Text("engine \(version()) · core \(coreVersion()) · \(workerThreads()) threads")

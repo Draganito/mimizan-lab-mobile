@@ -37,9 +37,7 @@ uniform float3 v;
 uniform float3 vR;
 uniform float3 vG;
 uniform float3 vB;
-uniform float3 lampGain;
 uniform float plate;
-uniform float invGamma;
 uniform float lutLast;
 uniform float zebra;
 
@@ -48,8 +46,7 @@ float lin(float c) {
 }
 
 float paper(float g) {
-    float e = pow(g, invGamma);
-    return float(lut.eval(float2(e * lutLast + 0.5, 0.5)).r);
+    return float(lut.eval(float2(g * lutLast + 0.5, 0.5)).r);
 }
 
 half4 main(float2 xy) {
@@ -57,9 +54,9 @@ half4 main(float2 xy) {
     float3 l = float3(lin(float(c.r)), lin(float(c.g)), lin(float(c.b)));
     float3 o;
     if (plate > 0.5) {
-        // Three positives: each taking filter on the linear picture, its
-        // lamp, the same paper. A clipped site clamps at 1 in every channel.
-        float3 g = clamp(float3(dot(l, vR), dot(l, vG), dot(l, vB)), 0.0, 1.0) * lampGain;
+        // Three positives: each taking filter on the linear picture, the
+        // same paper. A clipped site clamps at 1 in every channel.
+        float3 g = clamp(float3(dot(l, vR), dot(l, vG), dot(l, vB)), 0.0, 1.0);
         o = float3(paper(g.r), paper(g.g), paper(g.b));
     } else {
         o = float3(paper(clamp(dot(l, v), 0.0, 1.0)));
@@ -117,16 +114,13 @@ fun MonoViewfinder(
                     shader.setFloatUniform("vR", p[0], p[1], p[2])
                     shader.setFloatUniform("vG", p[3], p[4], p[5])
                     shader.setFloatUniform("vB", p[6], p[7], p[8])
-                    shader.setFloatUniform("lampGain", tone.lampGain[0], tone.lampGain[1], tone.lampGain[2])
                     shader.setFloatUniform("plate", 1f)
                 } else {
                     shader.setFloatUniform("vR", 0f, 0f, 0f)
                     shader.setFloatUniform("vG", 0f, 0f, 0f)
                     shader.setFloatUniform("vB", 0f, 0f, 0f)
-                    shader.setFloatUniform("lampGain", 1f, 1f, 1f)
                     shader.setFloatUniform("plate", 0f)
                 }
-                shader.setFloatUniform("invGamma", tone.invGamma)
                 shader.setFloatUniform("lutLast", (tone.lut.size - 1).toFloat())
                 shader.setFloatUniform("zebra", tone.zebra)
                 shader.setInputShader("lut", lutShader)

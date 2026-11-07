@@ -1,7 +1,11 @@
 package ch.bojovic.mimizanlab.store
 
+import ch.bojovic.mimizanlab.engine.DevelopSettings
+import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.PeakLimits
 import ch.bojovic.mimizanlab.engine.PeakMeasured
+import ch.bojovic.mimizanlab.engine.PlateFilters
+import ch.bojovic.mimizanlab.engine.Process
 import org.json.JSONObject
 
 /** The paper's two exposures, in stops from the base print. */
@@ -42,7 +46,7 @@ data class Peak(val mode: PeakMode, val radius: Double, val amount: Double) {
         /** Peak from its object; a missing or unknown field falls back to Auto, the default radius, no amount. */
         fun fromJson(o: JSONObject, limits: PeakLimits): Peak =
             Peak(
-                GradeMath.enumOr(o.optString("mode", null), PeakMode.AUTO),
+                GradeMath.enumOr(o.takeIf { it.has("mode") }?.optString("mode"), PeakMode.AUTO),
                 GradeMath.clampPeakRadius(o.optDouble("radius", limits.radiusDefault), limits),
                 GradeMath.clampPeakAmount(o.optDouble("amount", 0.0), limits),
             )
@@ -50,25 +54,41 @@ data class Peak(val mode: PeakMode, val radius: Double, val amount: Double) {
 }
 
 /**
- * What one frame is printed with: the grade and Peak, the desktop's
- * recipe beside the RAW. A new frame takes the standing pair of the
- * moment; the developer moves this one alone.
+ * What one frame is printed with: the grade and Peak, the recipe beside
+ * the RAW. A new frame takes the standing pair of the moment; the
+ * developer moves this one alone. Written to `<name>.grade` by
+ * [Recipe] together with the frame's process and filter.
  */
-data class Print(val grade: Grade, val peak: Peak) {
-    fun toJson(): JSONObject = grade.toJson().put("peak", peak.toJson())
+data class Print(val grade: Grade, val peak: Peak)
 
-    companion object {
-        /**
-         * A print from its file; null when the text is not one. A file
-         * from 0.15.0 has the grade alone: Peak is [standingPeak] then.
-         */
-        fun fromJson(text: String, limit: Double, limits: PeakLimits, standingPeak: Peak): Print? = runCatching {
-            val o = JSONObject(text)
-            val grade = Grade.fromJson(o, limit) ?: return null
-            val peak = o.optJSONObject("peak")?.let { Peak.fromJson(it, limits) } ?: standingPeak
-            Print(grade, peak)
-        }.getOrNull()
-    }
+/**
+ * `<name>.grade` on disk: the grade's two exposures, `peak`, and the
+ * process and filter the frame was last developed or re-mixed in (enum
+ * names, as the iOS app writes them). Every field past `soft` and `hard`
+ * is optional, so an older file reads: one from 0.15.0 has the grade
+ * alone and takes the standing Peak; one from 0.17.9 or earlier has no
+ * process and reads as Mono, Pan.
+ */
+object Recipe {
+    fun toJson(print: Print, settings: DevelopSettings): JSONObject =
+        print.grade.toJson()
+            .put("peak", print.peak.toJson())
+            .put("process", settings.process.name)
+            .put("filter", settings.filter.name)
+            .put("plateFilters", settings.plateFilters.name)
+
+    /** The print and the settings from the file's text; null when the text is not a recipe. */
+    fun fromJson(text: String, limit: Double, limits: PeakLimits, standingPeak: Peak): Pair<Print, DevelopSettings>? = runCatching {
+        val o = JSONObject(text)
+        val grade = Grade.fromJson(o, limit) ?: return null
+        val peak = o.optJSONObject("peak")?.let { Peak.fromJson(it, limits) } ?: standingPeak
+        val settings = DevelopSettings(
+            filter = GradeMath.enumOr(o.optString("filter"), Filter.NONE),
+            process = GradeMath.enumOr(o.optString("process"), Process.MONO),
+            plateFilters = GradeMath.enumOr(o.optString("plateFilters"), PlateFilters.CAMERA),
+        )
+        Print(grade, peak) to settings
+    }.getOrNull()
 }
 
 /**

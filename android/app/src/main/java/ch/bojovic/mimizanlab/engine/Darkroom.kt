@@ -13,12 +13,15 @@ import ch.bojovic.mimizanlab.store.MediaStoreWriter
 import ch.bojovic.mimizanlab.store.Prefs
 import ch.bojovic.mimizanlab.store.RawCache
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,11 +41,13 @@ import org.json.JSONObject
  */
 enum class Process { MONO, PLATE }
 
-/** How a frame is developed; chosen in the viewfinder, changeable in review. */
+/**
+ * How a frame is developed: the process and its filters, changeable in
+ * review. The separation is always the Mimizan one and the balance the
+ * camera's (the core's defaults); the phone offers no other.
+ */
 data class DevelopSettings(
-    val separation: SeparationMode = SeparationMode.DUBOIS,
     val filter: Filter = Filter.NONE,
-    val whiteBalance: WhiteBalanceMode = WhiteBalanceMode.AsShot,
     /** A JPEG shot writes the picture as soon as this development finishes. A frame opened from the roll leaves it for Export. */
     val autoJpeg: Boolean = false,
     val process: Process = Process.MONO,
@@ -129,24 +134,39 @@ class Darkroom private constructor(private val context: Context) {
             val standing = prefs.standingPrint
             val restored = cache.names().mapNotNull { name ->
                 cache.loadMeta(name)?.let {
-                    val print = cache.loadPrint(name, standing.peak) ?: standing
-                    Shot(name, it, DevelopSettings(), print, ShotStatus.Cached, thumbnail = cache.loadThumb(name))
+                    val recipe = cache.loadRecipe(name, standing.peak)
+                    Shot(
+                        name, it, recipe?.second ?: DevelopSettings(), recipe?.first ?: standing,
+                        ShotStatus.Cached, thumbnail = cache.loadThumb(name),
+                    )
                 }
             }
-            if (restored.isNotEmpty()) _shots.update { restored + it }
+            // A frame shot in the first moment of this run is already listed.
+            if (restored.isNotEmpty()) _shots.update { list -> restored.filter { r -> list.none { it.name == r.name } } + list }
             refreshCacheSize()
         }
     }
 
-    /** Called from the camera: persists the frame, then queues the development. The name is ready at once. */
+    /**
+     * Called from the camera: persists the frame, then queues the
+     * development. The name is ready at once; two frames within one second
+     * get `_2`, `_3`, so the roll never lists one name twice.
+     */
     fun submit(capture: RawCapture, settings: DevelopSettings, developNow: Boolean = true): String {
-        val name = nameFor(capture.capturedAtEpochMs)
         val meta = capture.meta()
         val print = prefs.standingPrint
-        _shots.update { listOf(Shot(name, meta, settings, print, ShotStatus.Saving)) + it }
+        var name = nameFor(capture.capturedAtEpochMs)
+        _shots.update { list ->
+            val taken = list.mapTo(HashSet()) { it.name }
+            var n = 2
+            val base = name
+            while (name in taken || cache.has(name)) name = "${base}_${n++}"
+            listOf(Shot(name, meta, settings, print, ShotStatus.Saving)) + list
+        }
         scope.launch(Dispatchers.IO) {
             try {
-                cache.put(name, capture.pixels, meta, print)
+                val busy = queueLock.withLock { queue.toSet() } + setOfNotNull(_current.value?.name)
+                cache.put(name, capture.pixels, meta, print, settings, protect = busy)
             } catch (t: Throwable) {
                 Log.e(TAG, "save $name", t)
                 updateShot(name) { it.copy(status = ShotStatus.Failed(t.message ?: "could not save the frame")) }
@@ -201,9 +221,6 @@ class Darkroom private constructor(private val context: Context) {
         _cacheBytes.value = cache.sizeBytes()
     }
 
-    /** Fresh settings in the standing process (what a frame from an earlier run is developed in). */
-    fun standingSettings(): DevelopSettings = withStandingProcess(DevelopSettings())
-
     /** `s` in the process the darkroom stands in now (a second development follows the switch made in review). */
     fun withStandingProcess(s: DevelopSettings): DevelopSettings = s.copy(
         process = prefs.process.value,
@@ -241,9 +258,8 @@ class Darkroom private constructor(private val context: Context) {
                 developed = d
                 if (shot.settings.isPlate) {
                     // The plate is a re-mix of the separation just made; the
-                    // lamps start from the settings, as the paper does.
+                    // lamps stay at zero on the phone.
                     val w = d.setPlate(shot.settings.plateFilters, shot.settings.plateSpace)
-                    d.setLamps(0.0, 0.0)
                     Log.i(TAG, "plate ${w.filters}: R ${w.red} G ${w.green} B ${w.blue}")
                 }
                 val info = d.info()
@@ -259,8 +275,8 @@ class Darkroom private constructor(private val context: Context) {
                     runCatching { cache.saveThumb(name, thumb) }.onFailure { Log.w(TAG, "thumbnail file $name", it) }
                 }
                 // Peak's radius and amount for this negative, as the
-                // desktop measures them on opening a picture. Measured even
-                // with the checkbox off: review can turn it on without a
+                // desktop measures them on opening a picture. Measured
+                // whatever the mode: review can switch to Auto without a
                 // second pass.
                 val peak = measurePeak(d, name, paper.soft, paper.hard)
                 // Replace the negative kept in memory.
@@ -301,17 +317,11 @@ class Darkroom private constructor(private val context: Context) {
     }
 
     /** The same, before any frame exists: camera file by device and sensor CFA. */
-    fun developParamsFor(make: String, model: String, cfa: Int, s: DevelopSettings): DevelopParams {
-        val base = defaultDevelopParams()
-        return base.copy(
-            separation = s.separation,
-            // Every development at full size; the core keeps binning for the desktop.
-            binning = 1u,
+    fun developParamsFor(make: String, model: String, cfa: Int, s: DevelopSettings): DevelopParams =
+        defaultDevelopParams().copy(
             filter = s.filter,
-            whiteBalance = s.whiteBalance,
             cameraFileJson = cameraFiles.forModel(make, model, RawMeta.patternOf(cfa)),
         )
-    }
 
     private fun paramsFor(meta: RawMeta, s: DevelopSettings): DevelopParams =
         developParamsFor(meta.make, meta.model, meta.cfa, s)
@@ -322,16 +332,39 @@ class Darkroom private constructor(private val context: Context) {
      */
     fun setPrint(name: String, print: Print) {
         updateShot(name) { it.copy(print = print) }
+        saveRecipe(name)
+    }
+
+    /**
+     * The developer re-mixed this frame in another process or filter: the
+     * roll's entry says so, and a development from the cache later starts
+     * from it.
+     */
+    fun setSettings(name: String, process: Process, filter: Filter, plateFilters: PlateFilters) {
+        updateShot(name) { it.copy(settings = it.settings.copy(process = process, filter = filter, plateFilters = plateFilters)) }
+        saveRecipe(name)
+    }
+
+    private fun saveRecipe(name: String) {
+        val shot = _shots.value.firstOrNull { it.name == name } ?: return
         scope.launch(Dispatchers.IO) {
-            runCatching { cache.savePrint(name, print) }.onFailure { Log.w(TAG, "print file $name", it) }
+            runCatching { cache.saveRecipe(name, shot.print, shot.settings) }.onFailure { Log.w(TAG, "recipe file $name", it) }
         }
     }
 
-    /** The roll's thumbnail of a frame whose grade moved in the developer, from the preview it shows. */
+    private var thumbJob: Job? = null
+
+    /**
+     * The roll's thumbnail of a frame whose grade moved in the developer,
+     * from the preview it shows. The roll sees every move; the file is
+     * written once the slider rests.
+     */
     fun setThumbnail(name: String, preview: Bitmap) {
         val thumb = thumbnailOf(preview)
         updateShot(name) { it.copy(thumbnail = thumb) }
-        scope.launch(Dispatchers.IO) {
+        thumbJob?.cancel()
+        thumbJob = scope.launch(Dispatchers.IO) {
+            delay(400)
             runCatching { cache.saveThumb(name, thumb) }.onFailure { Log.w(TAG, "thumbnail file $name", it) }
         }
     }
@@ -339,7 +372,7 @@ class Darkroom private constructor(private val context: Context) {
     /** 256 px box of the preview, grey or, in the plate process, colour. */
     private fun thumbnail(d: Developed, soft: Double, hard: Double): Bitmap {
         return if (d.info().plate != null) {
-            val g = d.previewRgb(soft, hard, 0u)
+            val g = d.previewRgb(soft, hard)
             subsampled(g.width.toInt(), g.height.toInt()) { i ->
                 val r = g.data[3 * i].toInt() and 0xFF
                 val gg = g.data[3 * i + 1].toInt() and 0xFF
@@ -347,7 +380,7 @@ class Darkroom private constructor(private val context: Context) {
                 (0xFF shl 24) or (r shl 16) or (gg shl 8) or b
             }
         } else {
-            val g = d.preview(soft, hard, 0u)
+            val g = d.preview(soft, hard)
             subsampled(g.width.toInt(), g.height.toInt()) { i ->
                 val v = g.data[i].toInt() and 0xFF
                 (0xFF shl 24) or (v shl 16) or (v shl 8) or v
@@ -404,13 +437,13 @@ class Darkroom private constructor(private val context: Context) {
         d: Developed,
         name: String,
         suffix: String,
-        soft: Double = 0.0,
-        hard: Double = 0.0,
-        peakRadius: Double = Prefs.PEAK.radiusDefault,
-        peakAmount: Double = 0.0,
+        soft: Double,
+        hard: Double,
+        peakRadius: Double,
+        peakAmount: Double,
         binned: Boolean,
     ): Uri = exportPrint(name, suffix, "jpg", MediaStoreWriter.MIME_JPEG) { path ->
-        d.exportJpeg(path, soft, hard, 0u, peakRadius, peakAmount, binned)
+        d.exportJpeg(path, soft, hard, peakRadius, peakAmount, binned)
     }
 
     /** The same picture as a 16-bit TIFF (RGB for a plate). */
@@ -418,12 +451,12 @@ class Darkroom private constructor(private val context: Context) {
         d: Developed,
         name: String,
         suffix: String,
-        soft: Double = 0.0,
-        hard: Double = 0.0,
-        peakRadius: Double = Prefs.PEAK.radiusDefault,
-        peakAmount: Double = 0.0,
+        soft: Double,
+        hard: Double,
+        peakRadius: Double,
+        peakAmount: Double,
     ): Uri = exportPrint(name, suffix, "tif", MediaStoreWriter.MIME_TIFF) { path ->
-        d.exportTiff16(path, soft, hard, 0u, peakRadius, peakAmount)
+        d.exportTiff16(path, soft, hard, peakRadius, peakAmount)
     }
 
     /** Rust writes to a path: a scratch file in the app cache, then the copy into the album. */
@@ -467,8 +500,8 @@ class Darkroom private constructor(private val context: Context) {
         fun get(context: Context): Darkroom =
             instance ?: synchronized(this) { instance ?: Darkroom(context.applicationContext).also { instance = it } }
 
-        private val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
-        fun nameFor(epochMs: Long) = "MLM_" + stamp.format(Date(epochMs))
+        private val stamp = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss", Locale.US).withZone(ZoneId.systemDefault())
+        fun nameFor(epochMs: Long) = "MLM_" + stamp.format(Instant.ofEpochMilli(epochMs))
 
         fun suffixFor(filter: Filter): String = when (filter) {
             Filter.NONE -> ""

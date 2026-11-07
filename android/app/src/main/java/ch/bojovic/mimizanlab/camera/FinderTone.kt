@@ -1,7 +1,6 @@
 package ch.bojovic.mimizanlab.camera
 
 import android.graphics.Bitmap
-import kotlin.math.pow
 
 /**
  * The ISP's colour step of one frame, from its capture result: the 3x3
@@ -30,24 +29,20 @@ class IspColor(val transform: FloatArray, val gains: FloatArray) {
  *                                       through the inverse ISP matrix and
  *                                       its green gain, so `gray` is the
  *                                       balanced mix the development computes
- *   value = lut[gray ^ invGamma]      — the paper's display value of that
- *                                      linear grey; invGamma is 1, because
- *                                      the paper already encodes the print
+ *   value = lut[gray]                 — the paper's display value of that
+ *                                      linear grey
  *
  * [zebra] marks display values at or above it; > 1 means off.
  *
  * In the plate process [plate] holds the three taking filters pulled back
- * the same way (rows R, G, B, nine values), and [lampGain] the lamps as
- * linear factors (`2^stops`); the shader shows the three positives in
- * colour while [v] stays the luminance for the histogram.
+ * the same way (rows R, G, B, nine values); the shader shows the three
+ * positives in colour while [v] stays the luminance for the histogram.
  */
 class FinderTone(
     val v: FloatArray,
     val lut: FloatArray,
-    val invGamma: Float,
     val zebra: Float,
     val plate: FloatArray? = null,
-    val lampGain: FloatArray = floatArrayOf(1f, 1f, 1f),
 ) {
     /** 256 x 1 grey ramp of [lut] for the shader (`lut.eval(x)`). */
     val lutBitmap: Bitmap by lazy {
@@ -63,8 +58,7 @@ class FinderTone(
     val grayTable: FloatArray by lazy { FloatArray(1024) { displayOfGray(it / 1023f) } }
 
     private fun displayOfGray(gray: Float): Float {
-        val e = if (invGamma == 1f) gray else gray.toDouble().pow(invGamma.toDouble()).toFloat()
-        val x = e * (lut.size - 1)
+        val x = gray * (lut.size - 1)
         val i = x.toInt().coerceIn(0, lut.size - 2)
         val f = x - i
         return lut[i] + (lut[i + 1] - lut[i]) * f

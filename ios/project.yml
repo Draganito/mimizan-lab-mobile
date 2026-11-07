@@ -57,12 +57,14 @@ targets:
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "Finished pictures are added to your Photos library."
         INFOPLIST_KEY_UIFileSharingEnabled: YES
         INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        # The phone stays upright (AppDelegate says so too); the iPad may turn.
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
         "INFOPLIST_KEY_UISupportedInterfaceOrientations~ipad": "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
         INFOPLIST_KEY_UIStatusBarStyle: UIStatusBarStyleLightContent
-        # The Rust static library needs these beyond what the package declares.
+        # The Rust static library needs these; the package declares them too,
+        # and the app target repeats them for a link that does not inherit.
         OTHER_LDFLAGS: "-liconv -lresolv"
         MTL_ENABLE_DEBUG_INFO: NO
         SWIFT_STRICT_CONCURRENCY: minimal

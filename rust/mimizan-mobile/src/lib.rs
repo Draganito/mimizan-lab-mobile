@@ -51,12 +51,6 @@ pub fn init_logging() {
     }
 }
 
-/// Whether this build reads RAW files (`develop_file`, `frame_info`).
-#[uniffi::export]
-pub fn reads_files() -> bool {
-    cfg!(feature = "decode-files")
-}
-
 /// Ingest, separate and mix the RAW file at `path` through the desktop's
 /// decoder: the Bayer DNG AVFoundation wrote, or a file the user imports.
 /// Same cost as `develop`.

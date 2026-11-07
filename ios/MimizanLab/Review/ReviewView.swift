@@ -115,7 +115,7 @@ struct ReviewView: View {
         .task(id: name) { vm.open(name) }
     }
 
-    /// Mono and Plate on the left, Export fixed on the right.
+    /// Mono and Color on the left, Export fixed on the right.
     private var panelHeader: some View {
         HStack(alignment: .center, spacing: 12) {
             ProcessChoice(plate: vm.plate != nil, onProcess: vm.setProcess)

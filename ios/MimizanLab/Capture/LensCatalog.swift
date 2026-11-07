@@ -14,21 +14,21 @@ struct LensInfo: Identifiable, Equatable {
     let equivalentMm: Int
 
     var id: String { device.uniqueID }
-    var key: String { device.uniqueID }
 
     var hasFlash: Bool { device.hasFlash }
     var hasManualExposure: Bool { device.isExposureModeSupported(.custom) }
-    var hasAutoFocus: Bool { device.isFocusModeSupported(.autoFocus) }
-    var isoRange: ClosedRange<Double> { Double(device.activeFormat.minISO)...Double(max(device.activeFormat.maxISO, device.activeFormat.minISO + 1)) }
-    var exposureRange: ClosedRange<Double> {
-        let lo = max(device.activeFormat.minExposureDuration.seconds, 1.0 / 100_000)
-        let hi = max(min(device.activeFormat.maxExposureDuration.seconds, 4.0), lo * 2)
-        return lo...hi
-    }
-    /// Sensor size of the still, as the photo output will deliver it.
-    var rawSize: CGSize {
-        let d = device.activeFormat.supportedMaxPhotoDimensions.first ?? device.activeFormat.formatDescription.dimensions
-        return CGSize(width: Int(d.width), height: Int(d.height))
+    /// The active format's ranges, before the session has said which
+    /// format the still is taken in (`CaptureState.isoRange`).
+    var isoRange: ClosedRange<Double> { LensInfo.ranges(of: device.activeFormat).iso }
+    var exposureRange: ClosedRange<Double> { LensInfo.ranges(of: device.activeFormat).exposure }
+
+    /// ISO and time a format takes by hand: the time capped at 4 s, and
+    /// each range at least two values wide so a slider has somewhere to go.
+    static func ranges(of f: AVCaptureDevice.Format) -> (iso: ClosedRange<Double>, exposure: ClosedRange<Double>) {
+        let iso = Double(f.minISO)...Double(max(f.maxISO, f.minISO + 1))
+        let lo = max(f.minExposureDuration.seconds, 1.0 / 100_000)
+        let hi = max(min(f.maxExposureDuration.seconds, 4.0), lo * 2)
+        return (iso, lo...hi)
     }
 
     static func == (a: LensInfo, b: LensInfo) -> Bool { a.device.uniqueID == b.device.uniqueID }

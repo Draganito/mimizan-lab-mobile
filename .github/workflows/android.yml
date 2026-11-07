@@ -28,10 +28,15 @@ env:
   CARGO_TERM_COLOR: always
   NDK_VERSION: "27.3.13750724"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   apk:
     name: Debug APK
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:

@@ -102,6 +102,10 @@ class PlayEntitlements(context: Context) : Entitlements, PurchasesUpdatedListene
         val owned = result.purchasesList.filter { Entitlements.PRODUCT_ID in it.products }
         var granted = false
         for (p in owned) granted = grant(p) || granted
+        // Play answered and lists no completed purchase: a refund, or the
+        // cache of another account. The cached grant goes with it. A
+        // pending or unacknowledged purchase is not a refusal and keeps it.
+        if (!granted && owned.none { it.purchaseState == Purchase.PurchaseState.PURCHASED } && _fullResolution.value) set(false)
         if (!quiet) message.value = if (granted || _fullResolution.value) "Full resolution restored" else "Nothing to restore"
     }
 

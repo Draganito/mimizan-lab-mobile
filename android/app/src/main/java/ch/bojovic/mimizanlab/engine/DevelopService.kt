@@ -37,11 +37,28 @@ class DevelopService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         lastStartId = startId
-        goForeground(notification(getString(R.string.developing), null))
+        // The system can refuse the foreground state (a start from the
+        // background that slipped through, a quota). The frame stays
+        // queued for the next start; the service must not die on it.
+        val foreground = runCatching { goForeground(notification(getString(R.string.developing), null)) }
+            .onFailure { Log.w(TAG, "foreground refused", it) }
+            .isSuccess
+        if (!foreground) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         if (worker?.isActive != true) {
             worker = scope.launch { drain() }
         }
         return START_NOT_STICKY
+    }
+
+    /** The foreground budget of this service type ran out: stop, as the system requires; the queue waits for the next start. */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Log.w(TAG, "foreground time is up; the queue waits for the next start")
+        worker?.cancel()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     /**

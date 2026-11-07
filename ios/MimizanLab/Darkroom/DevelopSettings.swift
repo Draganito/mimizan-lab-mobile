@@ -2,11 +2,11 @@ import CoreGraphics
 import Foundation
 import MimizanCore
 
-/// How a frame is developed; chosen in the viewfinder, changeable in review.
+/// How a frame is developed: the process and its filters, changeable in
+/// review. The separation is always the Mimizan one and the balance the
+/// camera's (the core's defaults); the phone offers no other.
 struct DevelopSettings: Equatable {
-    var separation: SeparationMode = .dubois
     var filter: Filter = .none
-    var whiteBalance: WhiteBalanceMode = .asShot
     /// Save a finished JPEG when this development was started by a JPEG shot.
     /// A frame opened from the roll develops for the screen and waits for Export.
     var autoJpeg: Bool = false

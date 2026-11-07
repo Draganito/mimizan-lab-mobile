@@ -28,7 +28,6 @@ class RawCapture(
     val result: TotalCaptureResult,
     val cameraId: String,
     val lensLabel: String,
-    val timestampNs: Long,
     /** Clockwise rotation that makes the frame upright. */
     val rotationDegrees: Int,
     val capturedAtEpochMs: Long,
@@ -255,6 +254,4 @@ object RawFrameBridge {
         if (x == 0 && y == 0 && w == bufW && h == bufH) return null
         return intArrayOf(x, y, w, h)
     }
-
-    fun toRawInput(c: RawCapture): RawInput = meta(c).toRawInput(c.pixels)
 }

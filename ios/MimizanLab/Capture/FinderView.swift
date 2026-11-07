@@ -16,7 +16,6 @@ private struct FinderUniforms {
     var vR: SIMD3<Float>
     var vG: SIMD3<Float>
     var vB: SIMD3<Float>
-    var lampGain: SIMD3<Float>
     var gain: Float
     var plate: Float
     var lutLast: Float
@@ -66,7 +65,9 @@ final class FinderRenderer: NSObject, MTKViewDelegate {
         // The table is too big for `setBytes`; it lives in a buffer of its own,
         // made here (the tone changes a few times a second at most).
         let lut: MTLBuffer? = tone?.paper.flatMap { p in
-            p.lut.withUnsafeBytes { device.makeBuffer(bytes: $0.baseAddress!, length: $0.count, options: .storageModeShared) }
+            p.lut.withUnsafeBytes { raw in
+                raw.baseAddress.flatMap { device.makeBuffer(bytes: $0, length: raw.count, options: .storageModeShared) }
+            }
         }
         lock.withLockUnchecked { $0.1 = tone; $0.2 = lut }
     }
@@ -86,7 +87,7 @@ final class FinderRenderer: NSObject, MTKViewDelegate {
         else { return }
         var u = FinderUniforms(
             ycc: matrix_identity_float3x3, v: SIMD3(0, 1, 0), vR: SIMD3(1, 0, 0), vG: SIMD3(0, 1, 0), vB: SIMD3(0, 0, 1),
-            lampGain: SIMD3(1, 1, 1), gain: 1, plate: 0, lutLast: 0, zebra: tone.zebra, rotation: Float(turns), mono: tone.mono ? 1 : 0
+            gain: 1, plate: 0, lutLast: 0, zebra: tone.zebra, rotation: Float(turns), mono: tone.mono ? 1 : 0
         )
         // The textures and the pixel buffer behind them must outlive the
         // GPU's read: the camera may hand the next frame in before this
@@ -95,12 +96,11 @@ final class FinderRenderer: NSObject, MTKViewDelegate {
         var held: [CVMetalTexture] = []
         let pipeline: MTLComputePipelineState
         if CaptureSession.isLog(frame), let paper = tone.paper, let lut {
-            guard let luma = texture(frame, plane: 0, .r16Unorm, cache), let chroma = texture(frame, plane: 1, .rg16Unorm, cache) else { enc.endEncoding(); return }
+            guard let luma = texture(frame, plane: 0, .r16Unorm, cache), let chroma = texture(frame, plane: 1, .rg16Unorm, cache) else { enc.endEncoding(); cmd.commit(); return }
             held = [luma.0, chroma.0]
             u.ycc = YccMatrix.of(frame)
             u.v = paper.v
             u.gain = paper.gain
-            u.lampGain = paper.lampGain
             u.lutLast = Float(paper.lut.count - 1)
             if let p = paper.plate { u.plate = 1; u.vR = p.0; u.vG = p.1; u.vB = p.2 }
             pipeline = log
@@ -110,7 +110,7 @@ final class FinderRenderer: NSObject, MTKViewDelegate {
             enc.setTexture(drawable.texture, index: 2)
             enc.setBuffer(lut, offset: 0, index: 1)
         } else {
-            guard let src = texture(frame, plane: 0, .bgra8Unorm, cache) else { enc.endEncoding(); return }
+            guard let src = texture(frame, plane: 0, .bgra8Unorm, cache) else { enc.endEncoding(); cmd.commit(); return }
             held = [src.0]
             pipeline = picture
             enc.setComputePipelineState(pipeline)

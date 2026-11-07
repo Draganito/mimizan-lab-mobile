@@ -1,6 +1,6 @@
 // One developed negative under the sliders: the mix, the filter, the
-// paper's two exposures, Peak's pair, the 1:1 window and the exports.
-// The plate's lamps stay at zero. Mirrors `ReviewViewModel.kt`.
+// grade (the paper's two exposures behind one slider and the strip),
+// Peak's pair, the 1:1 window and the exports. Mirrors `ReviewViewModel.kt`.
 import CoreGraphics
 import Foundation
 import MimizanCore
@@ -148,6 +148,14 @@ final class ReviewViewModel {
         if plate != nil { remixAndRender() }
     }
 
+    /// What the picture is mixed in now, to the roll and the frame's file.
+    private func recordSettings(_ info: DevelopInfo) {
+        darkroom.setSettings(
+            name, process: info.plate != nil ? .plate : .mono, filter: info.filter,
+            plateFilters: info.plate?.weights.filters ?? darkroom.prefs.plateFilters
+        )
+    }
+
     func setPlateSpace(_ s: PlateSpace) {
         darkroom.prefs.setPlateSpace(s)
         if plate != nil { remixAndRender() }
@@ -223,14 +231,13 @@ final class ReviewViewModel {
 
     /// Draw the picture as it stands. `remix` applies the sliders and the
     /// standing process first (the mix, or the plate's filters and
-    /// primaries). A plate is always shown with the lamps at zero. The
-    /// roll's thumbnail follows the picture, so it shows the frame as the
-    /// developer last left it.
+    /// primaries). The roll's thumbnail follows the picture, so it shows
+    /// the frame as the developer last left it.
     private func renderNow(remix: Bool = false) async {
         guard let d = developed else { return }
         busy = true
         defer { busy = false }
-        let s = (grade: print.grade, weights: weights, filter: filter, plate: plate)
+        let s = (grade: print.grade, weights: weights, filter: filter)
         let standing = (process: darkroom.prefs.process, filters: darkroom.prefs.plateFilters, space: darkroom.prefs.plateSpace)
         let result: Result<Rendered, Error> = await gate.run { () -> Result<Rendered, Error> in
             do {
@@ -238,12 +245,9 @@ final class ReviewViewModel {
                 if remix {
                     if standing.process == .plate {
                         _ = try d.setPlate(filters: standing.filters, space: standing.space)
-                        try d.setLamps(red: 0, blue: 0)
                     } else {
                         effective = try d.remix(weights: normaliseWeights(w: s.weights), space: .balanced, filter: s.filter)
                     }
-                } else if s.plate != nil {
-                    try d.setLamps(red: 0, blue: 0)
                 }
                 let info = d.info()
                 let hist = Images.normalised(try d.histogram(soft: s.grade.soft, hard: s.grade.hard))
@@ -251,12 +255,12 @@ final class ReviewViewModel {
                 let thumb: CGImage?
                 let rgb: [Float]
                 if info.plate != nil {
-                    let p = try d.previewRgb(soft: s.grade.soft, hard: s.grade.hard, extraQuarterTurns: 0)
+                    let p = try d.previewRgb(soft: s.grade.soft, hard: s.grade.hard)
                     image = Images.cgImage(p)
                     thumb = Images.thumbnail(p)
                     rgb = Images.normalised(try d.histogramRgb(soft: s.grade.soft, hard: s.grade.hard))
                 } else {
-                    let p = try d.preview(soft: s.grade.soft, hard: s.grade.hard, extraQuarterTurns: 0)
+                    let p = try d.preview(soft: s.grade.soft, hard: s.grade.hard)
                     image = Images.cgImage(p)
                     thumb = Images.thumbnail(p)
                     rgb = []
@@ -271,6 +275,7 @@ final class ReviewViewModel {
         case let .success(r):
             info = r.info
             plate = r.info.plate
+            if remix { recordSettings(r.info) }
             if let e = r.effective { effective = e }
             preview = r.preview
             if let t = r.thumbnail { darkroom.setThumbnail(name, t) }
@@ -299,9 +304,9 @@ final class ReviewViewModel {
             let image: CGImage? = await gate.run { () -> CGImage? in
                 do {
                     if isPlate {
-                        return Images.cgImage(try d.detailRgb(x: UInt32(x), y: UInt32(y), width: UInt32(w), height: UInt32(h), soft: soft, hard: hard, extraQuarterTurns: 0, peakRadius: radius, peakAmount: amount))
+                        return Images.cgImage(try d.detailRgb(x: UInt32(x), y: UInt32(y), width: UInt32(w), height: UInt32(h), soft: soft, hard: hard, peakRadius: radius, peakAmount: amount))
                     }
-                    return Images.cgImage(try d.detail(x: UInt32(x), y: UInt32(y), width: UInt32(w), height: UInt32(h), soft: soft, hard: hard, extraQuarterTurns: 0, peakRadius: radius, peakAmount: amount))
+                    return Images.cgImage(try d.detail(x: UInt32(x), y: UInt32(y), width: UInt32(w), height: UInt32(h), soft: soft, hard: hard, peakRadius: radius, peakAmount: amount))
                 } catch {
                     log.warning("detail: \(error.localizedDescription)")
                     return nil

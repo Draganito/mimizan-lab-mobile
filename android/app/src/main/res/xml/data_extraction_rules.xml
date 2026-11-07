@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The purchase cache is Play's answer for this device and account; a
+    copy carried to another phone is not one. Play is asked again there.
+    The raw frames live in the cache directory, which is never backed up.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="entitlements.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="entitlements.xml" />
+    </device-transfer>
+</data-extraction-rules>

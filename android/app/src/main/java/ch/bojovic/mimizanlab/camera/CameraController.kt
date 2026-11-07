@@ -50,7 +50,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 /** Still-capture flash. The viewfinder never lights it. */
 enum class FlashMode { Off, Auto, On }
 
-/** Exposure the user asked for. `null` = automatic. */
 /**
  * ISO and time set by hand, or both null for the automatics. There is
  * no exposure compensation: the HAL spreads it over time and ISO as it
@@ -70,13 +69,11 @@ class CaptureFailedException(reason: Int) : IllegalStateException("capture faile
 /** What the viewfinder shows about the running stream. */
 data class StreamState(
     val lens: LensInfo? = null,
-    val previewSize: Size? = null,
     val iso: Int? = null,
     val exposureNs: Long? = null,
     val afState: Int = CaptureResult.CONTROL_AF_STATE_INACTIVE,
     val aeState: Int = CaptureResult.CONTROL_AE_STATE_INACTIVE,
     val focusPoint: Pair<Float, Float>? = null,
-    val deviceRotation: Int = 0,
     val flash: FlashMode = FlashMode.Off,
     val capturing: Boolean = false,
     val error: String? = null,
@@ -138,7 +135,8 @@ class CameraController(context: Context) {
     private var afRegion: MeteringRectangle? = null
     /** Continuous until a tap pins the focus (then AUTO, locked by a trigger). */
     private var afMode = CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE
-    private var deviceRotation = 0
+    /** The phone's orientation, snapped to a quarter turn; read at the still for the frame's orientation tag. */
+    @Volatile private var deviceRotation = 0
     private val lock = Mutex()
     private var frameCounter = 0
     private var isp: IspControls? = null
@@ -146,10 +144,7 @@ class CameraController(context: Context) {
     private val orientationListener = object : OrientationEventListener(appContext) {
         override fun onOrientationChanged(orientation: Int) {
             val snapped = Orientation.snap(orientation)
-            if (snapped >= 0 && snapped != deviceRotation) {
-                deviceRotation = snapped
-                _state.update { it.copy(deviceRotation = snapped) }
-            }
+            if (snapped >= 0) deviceRotation = snapped
         }
     }
 
@@ -240,7 +235,7 @@ class CameraController(context: Context) {
             closeSessionLocked()
             throw t
         }
-        _state.update { it.copy(lens = lens, previewSize = previewSize, error = null, focusPoint = null, flash = flash) }
+        _state.update { it.copy(lens = lens, error = null, focusPoint = null, flash = flash) }
         afRegion = null
         afMode = CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE
         startRepeatingLocked()
@@ -251,7 +246,13 @@ class CameraController(context: Context) {
         closeSessionLocked()
     }
 
+    /**
+     * The owner is gone: close whatever is still open, then the threads.
+     * [stop] normally ran before this; a screen torn down mid-start may
+     * leave the device open, and an open device blocks the next start.
+     */
     fun release() {
+        handler.post { runCatching { closeSessionLocked() } }
         thread.quitSafely()
         analysisThread.quitSafely()
     }
@@ -339,7 +340,7 @@ class CameraController(context: Context) {
             b.set(CaptureRequest.CONTROL_AE_MODE, CameraMetadata.CONTROL_AE_MODE_OFF)
             b.set(CaptureRequest.SENSOR_SENSITIVITY, exposure.iso!!.coerceIn(lens.isoRange.lower, lens.isoRange.upper))
             b.set(CaptureRequest.SENSOR_EXPOSURE_TIME, exposure.exposureNs!!.coerceIn(lens.exposureRangeNs.lower, lens.exposureRangeNs.upper))
-            // Keep the preview watchable at long exposures: 1/15 s frame cap.
+            // The frame lasts at least the exposure; at short ones 1/30 s, so the preview stays watchable.
             if (!still && supports(CaptureRequest.SENSOR_FRAME_DURATION)) {
                 b.set(CaptureRequest.SENSOR_FRAME_DURATION, maxOf(exposure.exposureNs!!, 33_333_333L))
             }
@@ -458,6 +459,8 @@ class CameraController(context: Context) {
     ): Pair<TotalCaptureResult, Image> {
         val imageDeferred = CompletableDeferred<Image>()
         val resultDeferred = CompletableDeferred<TotalCaptureResult>()
+        // A frame that arrives after the wait gave up finds the deferred
+        // cancelled and goes straight back to the reader.
         reader.setOnImageAvailableListener({ r ->
             val img = r.acquireNextImage()
             if (img != null && !imageDeferred.complete(img)) img.close()
@@ -482,7 +485,8 @@ class CameraController(context: Context) {
             val image = withTimeoutOrNull(6000) { imageDeferred.await() } ?: error("no RAW frame")
             return logicalResult to image
         } catch (e: Throwable) {
-            if (imageDeferred.isCompleted) runCatching { imageDeferred.getCompleted().close() }
+            if (imageDeferred.isCompleted && !imageDeferred.isCancelled) runCatching { imageDeferred.getCompleted().close() }
+            imageDeferred.cancel()
             throw e
         }
     }
@@ -499,6 +503,13 @@ class CameraController(context: Context) {
         val c = characteristics ?: error("camera not running")
         _state.update { it.copy(capturing = true) }
         try {
+            // A frame left in the reader by a still that timed out would
+            // be handed to this one as its picture.
+            while (true) {
+                val stale = reader.acquireNextImage() ?: break
+                Log.w(TAG, "stale RAW frame discarded")
+                stale.close()
+            }
             val auto = !exposure.manual
             val flashArmed = auto && flash != FlashMode.Off && lens.hasFlash
             // A tap already pinned the focus in AUTO mode; only continuous AF needs a lock.
@@ -557,7 +568,6 @@ class CameraController(context: Context) {
                     result = result,
                     cameraId = lens.sensorId,
                     lensLabel = lensLabel,
-                    timestampNs = image.timestamp,
                     rotationDegrees = rotation,
                     capturedAtEpochMs = capturedAt,
                 )

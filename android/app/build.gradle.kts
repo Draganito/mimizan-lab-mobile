@@ -37,16 +37,20 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
     group = "rust"
     description = "cargo-ndk build of libmimizan_mobile.so ($rustAbi, $rustProfile)"
     workingDir = rustDir
+    val ndk = ndkHome()
     inputs.dir(rustDir.resolve("src"))
     inputs.file(rustDir.resolve("Cargo.toml"))
+    inputs.file(rustDir.resolve("Cargo.lock"))
     inputs.file(rustDir.resolve("build.rs"))
     inputs.file(rustDir.resolve("uniffi.toml"))
     inputs.dir(mimizanCoreDir.resolve("src"))
     inputs.file(mimizanCoreDir.resolve("Cargo.toml"))
     inputs.property("profile", rustProfile)
     inputs.property("platform", androidPlatform)
+    // Another NDK links and strips another library.
+    inputs.property("ndk", ndk)
     outputs.dir(rustJniLibs)
-    environment("ANDROID_NDK_HOME", ndkHome())
+    environment("ANDROID_NDK_HOME", ndk)
     val args = mutableListOf(
         "cargo", "ndk", "-t", rustAbi, "--platform", androidPlatform,
         "-o", rustJniLibs.get().asFile.absolutePath, "build", "--lib",
@@ -173,7 +177,6 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
-    implementation(libs.androidx.lifecycle.service)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.graphics)

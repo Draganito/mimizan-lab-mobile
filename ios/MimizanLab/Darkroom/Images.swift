@@ -35,7 +35,7 @@ enum Images {
     /// preview planes are 2048 px; the thumbnail is a 256 px box).
     static func thumbnail(_ g: GrayImage, box: Int = 256) -> CGImage? {
         let sw = Int(g.width), sh = Int(g.height)
-        guard sw > 0, sh > 0 else { return nil }
+        guard sw > 0, sh > 0, g.data.count >= sw * sh else { return nil }
         let scale = max(1, (max(sw, sh) + box - 1) / box)
         let w = sw / scale, h = sh / scale
         var px = [UInt8](repeating: 0, count: w * h)
@@ -50,7 +50,7 @@ enum Images {
 
     static func thumbnail(_ g: RgbImage, box: Int = 256) -> CGImage? {
         let sw = Int(g.width), sh = Int(g.height)
-        guard sw > 0, sh > 0 else { return nil }
+        guard sw > 0, sh > 0, g.data.count >= 3 * sw * sh else { return nil }
         let scale = max(1, (max(sw, sh) + box - 1) / box)
         let w = sw / scale, h = sh / scale
         var px = [UInt8](repeating: 0, count: 3 * w * h)

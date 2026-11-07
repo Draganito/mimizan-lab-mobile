@@ -1,6 +1,10 @@
 package ch.bojovic.mimizanlab.store
 
+import ch.bojovic.mimizanlab.engine.DevelopSettings
+import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.PeakLimits
+import ch.bojovic.mimizanlab.engine.PlateFilters
+import ch.bojovic.mimizanlab.engine.Process
 import ch.bojovic.mimizanlab.engine.PeakMeasured
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -113,24 +117,32 @@ class GradeMathTest {
     private val standingPeak = Peak.standing(PeakMode.OFF, peakLimits)
 
     @Test
-    fun printRoundTripsThroughItsFileAndRefusesOtherText() {
+    fun recipeRoundTripsThroughItsFileAndRefusesOtherText() {
         val p = Print(Grade(0.5, -1.25), Peak(PeakMode.CUSTOM, 1.1, 0.6))
-        assertEquals(p, Print.fromJson(p.toJson().toString(), limit, peakLimits, standingPeak))
+        val settings = DevelopSettings(filter = Filter.RED25, process = Process.PLATE, plateFilters = PlateFilters.WRATTEN)
+        val back = Recipe.fromJson(Recipe.toJson(p, settings).toString(), limit, peakLimits, standingPeak)
+        assertEquals(p, back?.first)
+        assertEquals(settings, back?.second)
         // Out of range on every field: each is clamped, none refused.
-        val wide = Print.fromJson("""{"soft": 9, "hard": -9, "peak": {"mode": "CUSTOM", "radius": 9, "amount": 9}}""", limit, peakLimits, standingPeak)
-        assertEquals(Print(Grade(3.0, -3.0), Peak(PeakMode.CUSTOM, 3.0, 2.0)), wide)
-        assertEquals(null, Print.fromJson("not a print", limit, peakLimits, standingPeak))
-        assertEquals(null, Print.fromJson("""{"soft": 1}""", limit, peakLimits, standingPeak))
+        val wide = Recipe.fromJson("""{"soft": 9, "hard": -9, "peak": {"mode": "CUSTOM", "radius": 9, "amount": 9}}""", limit, peakLimits, standingPeak)
+        assertEquals(Print(Grade(3.0, -3.0), Peak(PeakMode.CUSTOM, 3.0, 2.0)), wide?.first)
+        assertEquals(null, Recipe.fromJson("not a print", limit, peakLimits, standingPeak))
+        assertEquals(null, Recipe.fromJson("""{"soft": 1}""", limit, peakLimits, standingPeak))
     }
 
     @Test
-    fun printFromBeforePeakTakesTheStandingPeak() {
-        // 0.15.0 wrote the grade alone.
-        val p = Print.fromJson("""{"soft": 0.25, "hard": 0}""", limit, peakLimits, standingPeak)
-        assertEquals(Print(Grade(0.25, 0.0), standingPeak), p)
-        // A peak object with an unknown mode is Auto at the defaults.
-        val odd = Print.fromJson("""{"soft": 0, "hard": 0, "peak": {"mode": "SHARP"}}""", limit, peakLimits, standingPeak)
-        assertEquals(Peak(PeakMode.AUTO, 0.7, 0.0), odd?.peak)
+    fun recipeFromAnOlderFileTakesTheStandingPeakAndMono() {
+        // 0.15.0 wrote the grade alone; before 0.18 no process or filter.
+        val p = Recipe.fromJson("""{"soft": 0.25, "hard": 0}""", limit, peakLimits, standingPeak)
+        assertEquals(Print(Grade(0.25, 0.0), standingPeak), p?.first)
+        assertEquals(DevelopSettings(), p?.second)
+        // A peak object with an unknown mode is Auto at the defaults; unknown names read as the defaults too.
+        val odd = Recipe.fromJson(
+            """{"soft": 0, "hard": 0, "peak": {"mode": "SHARP"}, "process": "DUOTONE", "filter": "X1", "plateFilters": "?"}""",
+            limit, peakLimits, standingPeak,
+        )
+        assertEquals(Peak(PeakMode.AUTO, 0.7, 0.0), odd?.first?.peak)
+        assertEquals(DevelopSettings(), odd?.second)
     }
 
     @Test

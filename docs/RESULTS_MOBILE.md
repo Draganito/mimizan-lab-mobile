@@ -1,7 +1,10 @@
 # Results (mobile)
 
 Device: Google Pixel 9 (`tokay`), Android 17 (API 37), Tensor G4, 8 worker
-threads. Engine `mimizan-mobile 0.1.0` / `mimizan-core 0.4.0`.
+threads. The first measurements are from `mimizan-mobile 0.1.0` /
+`mimizan-core 0.4.0`; later blocks name the version they were taken
+with. Numbers are kept as taken, including for paths the app no longer
+has.
 
 ## Correctness
 
@@ -52,11 +55,13 @@ balance multipliers. The phone path uses the exact Camera2 floats.
 
 The Pixel 9 exposes its 50 MP quad-Bayer sensor to Camera2 as this
 12.5 MP regular mosaic: the hardware bins 2×2 before the frame leaves
-the ISP. The optional second, CFA-preserving 2× binning (Quick
-development, `binning = 2`) quarters the pixels again and finishes in
-about a quarter of the time. The deliverable is developed at full
-resolution unless Quick development was on for that frame. Other phones
-report their own RAW size; the pipeline does not assume 4080×3072.
+the ISP. Builds before 0.17.4 offered a second, CFA-preserving 2×
+binning ("Quick development"), a quarter of the pixels in about a
+quarter of the time; it is gone, every development is at full size and
+the small print is the same development on a smaller sheet. The "Quick
+mode" rows below are from those builds and stay as a record. Other
+phones report their own RAW size; the pipeline does not assume
+4080×3072.
 
 The ultrawide is not in `cameraIdList`; it is reached by routing all three
 output configurations to physical id "3" of logical camera "0"
@@ -72,7 +77,7 @@ and the `RawInput` use. The desktop CLI reads both DNGs (`mimizan info`).
 |---|---|---|---|---|---|
 | Dubois (default) | **3616 ms** | 441 / 2139 / 92 / 607 | 114 ms | 76 ms | 1004 MB |
 | mask off | 2181 ms | 369 / 719 / 94 / 757 | 59 ms | 54 ms | 1004 MB |
-| Quick mode (2x CFA binning, 2040x1536) | 1118 ms | 112 / 679 / 32 / 97 | 138 ms | 65 ms | 1004 MB |
+| Quick mode (2x CFA binning, 2040x1536; removed in 0.17.4) | 1118 ms | 112 / 679 / 32 / 97 | 138 ms | 65 ms | 1004 MB |
 
 Peak RSS is the same in all three rows because the process measured all
 modes in sequence (VmHWM is a high-water mark); Dubois sets it.
@@ -114,7 +119,7 @@ bit on the Nikon Z f NEF).
 | | grey | plate |
 |---|---|---|
 | switch + preview (2048 px planes) | remix+preview 71–75 ms | `set_plate` + `preview_rgb` 240–252 ms |
-| JPEG export, USM 0.5 | 650 ms, 1.5 MB | 1943 ms, 4.2 MB |
+| JPEG export, USM 0.5 (the exports sharpen with Peak since 0.15) | 650 ms, 1.5 MB | 1943 ms, 4.2 MB |
 | peak RSS over the development | 930 MB | 979 MB |
 
 Three mixes instead of one, so about three times the mix work; the

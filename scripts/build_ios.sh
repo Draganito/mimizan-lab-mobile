@@ -29,13 +29,18 @@ done
 
 targets=(aarch64-apple-ios)
 if [ "$simulator" = 1 ]; then targets+=(aarch64-apple-ios-sim); fi
+if [ "$xcframework" = 1 ] && ! command -v xcodebuild >/dev/null; then
+    echo "xcodebuild not found: the xcframework needs a Mac with Xcode; pass --no-xcframework for the Rust part alone" >&2
+    exit 1
+fi
 
 cargo_flags=(--lib --features decode-files --crate-type staticlib)
 if [ "$profile" = release ]; then cargo_flags+=(--release); fi
 
 echo "==> Rust ($profile): ${targets[*]}"
 for t in "${targets[@]}"; do
-    rustup target list --installed | grep -qx "$t" || rustup target add "$t"
+    # `grep -q` closes the pipe early and trips pipefail; let it read to the end.
+    rustup target list --installed | grep -Fx "$t" >/dev/null || rustup target add "$t"
     # IPHONEOS_DEPLOYMENT_TARGET is read by rustc for the Mach-O min version.
     (cd "$crate" && IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo rustc --target "$t" "${cargo_flags[@]}")
 done

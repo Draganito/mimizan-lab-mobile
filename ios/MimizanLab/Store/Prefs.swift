@@ -7,7 +7,7 @@ import Observation
 /// The darkroom's two processes: the monochrome negative, or the
 /// three-colour plate (Prokudin-Gorsky's principle: three mixes of the
 /// same separation, printed through the same paper into one RGB file).
-enum Process: String, CaseIterable, Codable {
+enum Process: String {
     case mono = "MONO"
     case plate = "PLATE"
 }
@@ -47,7 +47,7 @@ enum PeakMode: String, CaseIterable, Codable {
 
 /// The paper's two exposures, in stops from the base print. Same file
 /// shape as the Android `Grade`.
-struct Grade: Codable, Equatable, Sendable {
+struct Grade: Equatable, Sendable {
     var soft: Double
     var hard: Double
 
@@ -88,40 +88,13 @@ extension Peak: Codable {
     }
 }
 
-/// What one frame is printed with: the grade and Peak, the desktop's
-/// recipe beside the RAW. A new frame takes the standing pair of the
-/// moment; the developer moves this one alone. The file is the grade's
-/// two fields with `peak` beside them, so a 0.15.0 file (the grade
-/// alone) still reads; its Peak is then the standing one.
+/// What one frame is printed with: the grade and Peak, the recipe beside
+/// the RAW. A new frame takes the standing pair of the moment; the
+/// developer moves this one alone. Written to `<name>.grade` by
+/// `RawCache` together with the frame's process and filter.
 struct Print: Equatable, Sendable {
     var grade: Grade
     var peak: Peak
-}
-
-extension Print: Codable {
-    private enum CodingKeys: String, CodingKey {
-        case soft, hard, peak
-    }
-
-    /// `standingPeak` for a file without one: set by `RawCache.loadPrint` through the decoder's `userInfo`.
-    static let standingPeakKey = CodingUserInfoKey(rawValue: "standingPeak")!
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        grade = Prefs.snapGrade(soft: try c.decode(Double.self, forKey: .soft), hard: try c.decode(Double.self, forKey: .hard))
-        if let p = try? c.decode(Peak.self, forKey: .peak) {
-            peak = p
-        } else {
-            peak = decoder.userInfo[Print.standingPeakKey] as? Peak ?? .standing(.auto)
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(grade.soft, forKey: .soft)
-        try c.encode(grade.hard, forKey: .hard)
-        try c.encode(peak, forKey: .peak)
-    }
 }
 
 @MainActor
@@ -213,8 +186,14 @@ final class Prefs {
         store.array(forKey: Keys.xyzToCam + lens) as? [Double]
     }
 
+    /// Counts the matrices that changed, so the finder's tone can follow
+    /// a lens's first DNG without watching the roll.
+    private(set) var matrixVersion = 0
+
     func setXyzToCam(_ m: [Double], lens: String) {
+        guard xyzToCam(lens: lens) != m else { return }
         store.set(m, forKey: Keys.xyzToCam + lens)
+        matrixVersion += 1
     }
 
     /// The standing pair, each snapped and inside the limit.
@@ -234,7 +213,8 @@ final class Prefs {
 
     /// The standing Peak, Off or Auto.
     func setPeakMode(_ mode: PeakMode) {
-        precondition(PeakMode.standing.contains(mode), "a standing Peak is Off or Auto")
+        // A hand pair belongs to one negative: Custom is never standing.
+        guard PeakMode.standing.contains(mode) else { return }
         peakMode = mode
         store.set(mode.rawValue, forKey: Keys.peakMode)
     }
@@ -325,19 +305,12 @@ final class Prefs {
 
     /// How far either paper exposure may move, in stops: the core's `paper::STOP_LIMIT`.
     nonisolated static let stopLimit: Double = paperStopLimit()
-    /// How far either lamp may move, in stops: the core's `print::LAMP_LIMIT`.
-    nonisolated static let lampLimit: Double = MimizanCore.lampLimit()
     /// The range of the peak fields: the core's `recipe::PEAK_*`.
     nonisolated static let peakLimits: PeakLimits = MimizanCore.peakLimits()
 
     /// Twelfths of a stop, inside ±`stopLimit`; a non-finite value snaps to zero.
     nonisolated static func snapStops(_ v: Double) -> Double {
         min(max((finiteOrZero(v) * 12).rounded() / 12, -stopLimit), stopLimit)
-    }
-
-    /// Twelfths of a stop, inside ±`lampLimit`.
-    nonisolated static func snapLamp(_ v: Double) -> Double {
-        min(max((finiteOrZero(v) * 12).rounded() / 12, -lampLimit), lampLimit)
     }
 
     /// A peak radius inside the core's range; a non-finite value is the default.
@@ -429,22 +402,6 @@ extension Filter {
     }
 
     static func fromName(_ s: String?) -> Filter? {
-        all.first { $0.name == s }
-    }
-}
-
-extension SeparationMode {
-    static let all: [SeparationMode] = [.dubois, .adaptive, .off]
-
-    var name: String {
-        switch self {
-        case .dubois: return "DUBOIS"
-        case .adaptive: return "ADAPTIVE"
-        case .off: return "OFF"
-        }
-    }
-
-    static func fromName(_ s: String?) -> SeparationMode? {
         all.first { $0.name == s }
     }
 }

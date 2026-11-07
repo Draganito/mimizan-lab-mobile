@@ -1,5 +1,5 @@
 // The roll: every frame in the cache, newest first, with its state; swipe
-// or the bin to delete. Import from Files and Photos stays off: a full-size
+// or a long press to delete. Import from Files and Photos stays off: a full-size
 // NEF develops past the iPad's memory and the system kills the app.
 // Mirrors `RollScreen.kt`.
 import MimizanCore
@@ -16,7 +16,7 @@ struct RollView: View {
         let shots = darkroom.shots
         List {
             if shots.isEmpty {
-                Text("No frames. Pictures you exported are in Files › On My iPhone › Mimizan Lab.")
+                Text("No frames. Pictures you exported are in Files › Mimizan Lab.")
                     .foregroundStyle(.gray)
                     .listRowBackground(Color.black)
             }

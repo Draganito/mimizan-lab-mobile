@@ -59,14 +59,6 @@ enum Format {
         }
     }
 
-    static func separation(_ m: SeparationMode) -> String {
-        switch m {
-        case .dubois: return "Dubois"
-        case .adaptive: return "Adaptive"
-        case .off: return "Mask off"
-        }
-    }
-
     /// A weight triple as the Enlarger shows it, signed (the camera set goes negative).
     static func weights(_ w: Weights) -> String { String(format: "%+.2f %+.2f %+.2f", w.r, w.g, w.b) }
 

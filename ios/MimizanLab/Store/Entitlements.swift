@@ -37,9 +37,14 @@ final class Entitlements {
             // Purchases made elsewhere (the Mac, Family Sharing, a refund) arrive here.
             for await result in Transaction.updates {
                 guard let self else { return }
-                if case let .verified(t) = result {
+                switch result {
+                case let .verified(t):
                     await t.finish()
                     await self.refresh()
+                case let .unverified(t, error):
+                    // Never granted, but finished, or the store delivers it again on every launch.
+                    log.warning("unverified transaction \(t.id): \(error.localizedDescription)")
+                    await t.finish()
                 }
             }
         }
@@ -88,11 +93,14 @@ final class Entitlements {
         do {
             switch try await product.purchase() {
             case let .success(verification):
-                if case let .verified(t) = verification {
+                switch verification {
+                case let .verified(t):
                     await t.finish()
                     await refresh()
                     message = "Full resolution unlocked. Thank you."
-                } else {
+                case let .unverified(t, error):
+                    log.warning("unverified purchase \(t.id): \(error.localizedDescription)")
+                    await t.finish()
                     message = "The purchase could not be verified."
                 }
             case .userCancelled:

@@ -1,5 +1,4 @@
-//! `RawInput` (Camera2 buffer + metadata) -> `mimizan_core::decode::RawFrame`,
-//! plus the optional CFA-preserving 2x binning.
+//! `RawInput` (Camera2 buffer + metadata) -> `mimizan_core::decode::RawFrame`.
 
 use crate::types::{MimizanError, RawInput, Result};
 use mimizan_core::decode::{Exposure, RawData, RawFrame, Rect, SensorKind};
@@ -39,9 +38,10 @@ pub fn to_raw_frame(input: &RawInput) -> Result<RawFrame> {
     if w < 4 || h < 4 {
         return Err(MimizanError::Invalid { msg: format!("frame {w}x{h} is too small") });
     }
-    if input.data.len() != w * h * 2 {
+    let expected = w.checked_mul(h).and_then(|n| n.checked_mul(2));
+    if expected != Some(input.data.len()) {
         return Err(MimizanError::Invalid {
-            msg: format!("data has {} bytes, expected {}x{}x2 = {}", input.data.len(), w, h, w * h * 2),
+            msg: format!("data has {} bytes, expected {}x{}x2", input.data.len(), w, h),
         });
     }
     if input.black_tile.len() != 4 && input.black_tile.len() != 1 {
@@ -145,73 +145,6 @@ fn exposure_rational(ns: u64) -> (u32, u32) {
     (1, d.min(u32::MAX as f64) as u32)
 }
 
-/// CFA-preserving 2x binning: each 4x4 block of the crop becomes one 2x2
-/// cell, every new site the mean of the four same-colour sites it covers.
-/// The crop origin is made even first so the phase of the full frame stays
-/// the phase of the result (the result has no further crop). Levels are
-/// unchanged (means of equal black levels), the noise sigma halves.
-pub fn bin_cfa_2x(f: &RawFrame) -> Result<RawFrame> {
-    let SensorKind::Bayer(_) = f.kind else {
-        return Err(MimizanError::Unsupported { msg: "binning needs a Bayer frame".into() });
-    };
-    let mut c = f.crop;
-    if c.x & 1 == 1 {
-        c.x += 1;
-        c.w = c.w.saturating_sub(1);
-    }
-    if c.y & 1 == 1 {
-        c.y += 1;
-        c.h = c.h.saturating_sub(1);
-    }
-    let bw = c.w / 4;
-    let bh = c.h / 4;
-    if bw < 2 || bh < 2 {
-        return Err(MimizanError::Invalid { msg: format!("crop {}x{} too small to bin", c.w, c.h) });
-    }
-    let (nw, nh) = (bw * 2, bh * 2);
-    let src_w = f.width;
-    let data = &f.data;
-    let mut out = vec![0f32; nw * nh];
-    out.par_chunks_mut(nw).enumerate().for_each(|(ny, row)| {
-        let j = ny / 2;
-        let dy = ny & 1;
-        let y0 = c.y + 4 * j + dy;
-        let y1 = y0 + 2;
-        for (nx, o) in row.iter_mut().enumerate() {
-            let i = nx / 2;
-            let dx = nx & 1;
-            let x0 = c.x + 4 * i + dx;
-            let x1 = x0 + 2;
-            let s = data.get(y0 * src_w + x0)
-                + data.get(y0 * src_w + x1)
-                + data.get(y1 * src_w + x0)
-                + data.get(y1 * src_w + x1);
-            *o = (0.25 * s) as f32;
-        }
-    });
-    // Black tile: the result's (0,0) is the even crop origin, whose tile
-    // position matches the full frame's (0,0) parity, so the tile is reused.
-    Ok(RawFrame {
-        make: f.make.clone(),
-        model: f.model.clone(),
-        clean_make: f.clean_make.clone(),
-        clean_model: f.clean_model.clone(),
-        width: nw,
-        height: nh,
-        bits: f.bits,
-        kind: f.kind,
-        black_tile: f.black_tile,
-        white_rgb: f.white_rgb,
-        crop: Rect { x: 0, y: 0, w: nw, h: nh },
-        orientation: f.orientation,
-        xyz_to_cam: f.xyz_to_cam,
-        illuminant: f.illuminant,
-        wb_as_shot: f.wb_as_shot,
-        exposure: f.exposure.clone(),
-        data: RawData::Float(out),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,34 +193,6 @@ mod tests {
         let mut inp = input(8, 6, |_, _| 100);
         inp.crop = Some(RawRect { x: 2, y: 0, width: 8, height: 4 });
         assert!(to_raw_frame(&inp).is_err());
-    }
-
-    #[test]
-    fn binning_keeps_phase_and_averages_same_colour_sites() {
-        // Value encodes the colour position: R=100, G=200, B=300 (+ small ramp).
-        let inp = input(16, 12, |x, y| {
-            let base = match (x & 1, y & 1) {
-                (0, 0) => 100,
-                (1, 1) => 300,
-                _ => 200,
-            };
-            base + (x / 4) as u16
-        });
-        let f = to_raw_frame(&inp).unwrap();
-        let b = bin_cfa_2x(&f).unwrap();
-        assert_eq!((b.width, b.height), (8, 6));
-        // New (0,0) is R: mean of four R sites of block 0 = 100 + 0.
-        assert_eq!(b.data.get(0), 100.0);
-        // New (1,1) is B of block 0.
-        assert_eq!(b.data.get(1 + 8), 300.0);
-        // New (2,0) is R of block 1: ramp +1.
-        assert_eq!(b.data.get(2), 101.0);
-        // Odd crop origin is shifted to even: phase preserved.
-        let mut inp2 = input(17, 13, |x, y| if (x & 1, y & 1) == (0, 0) { 100 } else { 200 });
-        inp2.crop = Some(RawRect { x: 1, y: 1, width: 16, height: 12 });
-        let f2 = to_raw_frame(&inp2).unwrap();
-        let b2 = bin_cfa_2x(&f2).unwrap();
-        assert_eq!(b2.data.get(0), 100.0);
     }
 
     #[test]

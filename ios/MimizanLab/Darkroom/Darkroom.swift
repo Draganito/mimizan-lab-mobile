@@ -29,15 +29,6 @@ final class Negative: @unchecked Sendable {
     }
 }
 
-/// The frame's print and the plate's two lamps: read on the main actor,
-/// carried into the worker. A Custom Peak keeps its own radius and
-/// amount; Auto uses the measurement made below.
-struct PaperSettings: Sendable {
-    var print: Print
-    var lampRed: Double
-    var lampBlue: Double
-}
-
 @MainActor
 @Observable
 final class Darkroom {
@@ -77,9 +68,10 @@ final class Darkroom {
             let (restored, bytes) = await intake.run { () -> ([Shot], Int64) in
                 let restored: [Shot] = cache.names().compactMap { name in
                     cache.loadMeta(name).map {
-                        Shot(
-                            name: name, meta: $0, settings: DevelopSettings(),
-                            print: cache.loadPrint(name, standingPeak: standing.peak) ?? standing,
+                        let recipe = cache.loadRecipe(name, standingPeak: standing.peak)
+                        return Shot(
+                            name: name, meta: $0, settings: recipe?.settings ?? DevelopSettings(),
+                            print: recipe?.print ?? standing,
                             status: .cached, thumbnail: cache.loadThumb(name)
                         )
                     }
@@ -111,7 +103,7 @@ final class Darkroom {
                     try cache.putRaw(name, dng: dng)
                     let info = try frameInfo(path: cache.rawFile(name).path)
                     let meta = ShotMeta(info: info, lens: lens, capturedAt: capturedAt, imported: false)
-                    try cache.commit(name, meta: meta, print: print)
+                    try cache.commit(name, meta: meta, print: print, settings: settings)
                     return meta
                 }
             }
@@ -163,9 +155,6 @@ final class Darkroom {
         cacheBytes = cache.sizeBytes()
     }
 
-    /// Fresh settings in the standing process (what a frame from an earlier run is developed in).
-    func standingSettings() -> DevelopSettings { withStandingProcess(DevelopSettings()) }
-
     /// `s` in the process the darkroom stands in now (a second development follows the switch made in review).
     func withStandingProcess(_ s: DevelopSettings) -> DevelopSettings {
         var out = s
@@ -184,10 +173,27 @@ final class Darkroom {
     /// file beside the frame follow. The standing grade and Peak are not touched.
     func setPrint(_ name: String, _ print: Print) {
         updateShot(name) { $0.print = print }
+        saveRecipe(name)
+    }
+
+    /// The developer re-mixed this frame in another process or filter:
+    /// the roll's entry says so, and a development from the cache later
+    /// starts from it.
+    func setSettings(_ name: String, process: Process, filter: Filter, plateFilters: PlateFilters) {
+        updateShot(name) {
+            $0.settings.process = process
+            $0.settings.filter = filter
+            $0.settings.plateFilters = plateFilters
+        }
+        saveRecipe(name)
+    }
+
+    private func saveRecipe(_ name: String) {
+        guard let shot = shots.first(where: { $0.name == name }) else { return }
         do {
-            try cache.savePrint(name, print)
+            try cache.saveRecipe(name, print: shot.print, settings: shot.settings)
         } catch {
-            log.warning("print file \(name): \(error.localizedDescription)")
+            log.warning("recipe file \(name): \(error.localizedDescription)")
         }
     }
 
@@ -220,7 +226,7 @@ final class Darkroom {
         updateShot(name) { $0.status = .developing }
         let bg = BackgroundTask(name: "develop \(name)")
         let params = developParams(for: shot.meta, shot.settings)
-        let paper = PaperSettings(print: shot.print, lampRed: 0, lampBlue: 0)
+        let print = shot.print
         let path = cache.rawFile(name).path
         let settings = shot.settings
         let hadJpeg = shot.jpegURL != nil
@@ -230,7 +236,7 @@ final class Darkroom {
         Task {
             let outcome = await worker.run {
                 Darkroom.develop(
-                    name: name, path: path, params: params, settings: settings, paper: paper, exporter: exporter,
+                    name: name, path: path, params: params, settings: settings, print: print, exporter: exporter,
                     wantJpeg: settings.autoJpeg && !hadJpeg, binned: binned, matchFinder: finder != nil
                 )
             }
@@ -292,9 +298,10 @@ final class Darkroom {
     /// Off the main actor: the development, the plate if asked, Peak's
     /// measurement, the thumbnail and the automatic JPEG (`binned` without
     /// the full-resolution purchase); the negative's median when the
-    /// finder's is waiting for it.
+    /// finder's is waiting for it. `print` is the frame's grade and Peak;
+    /// a Custom Peak keeps its own pair, Auto takes the measurement made here.
     nonisolated private static func develop(
-        name: String, path: String, params: DevelopParams, settings: DevelopSettings, paper: PaperSettings,
+        name: String, path: String, params: DevelopParams, settings: DevelopSettings, print: Print,
         exporter: Exporter, wantJpeg: Bool, binned: Bool, matchFinder: Bool
     ) -> Result<DevelopResult, Error> {
         do {
@@ -310,19 +317,18 @@ final class Darkroom {
             }
             if settings.isPlate {
                 // The plate is a re-mix of the separation just made; the
-                // lamps start from the settings, as the paper does.
+                // lamps stay at zero on the phone.
                 let w = try developed.setPlate(filters: settings.plateFilters, space: settings.plateSpace)
-                try developed.setLamps(red: paper.lampRed, blue: paper.lampBlue)
                 log.info("plate \(Format.plateFilters(w.filters)): R \(Format.weights(w.red)) G \(Format.weights(w.green)) B \(Format.weights(w.blue))")
             }
             let info = developed.info()
             log.info("developed \(name) in \(Int(Date().timeIntervalSince(t0) * 1000)) ms: total \(info.timing.totalMs) ms")
-            let grade = paper.print.grade
+            let grade = print.grade
             let thumb: CGImage?
             if info.plate != nil {
-                thumb = Images.thumbnail(try developed.previewRgb(soft: grade.soft, hard: grade.hard, extraQuarterTurns: 0))
+                thumb = Images.thumbnail(try developed.previewRgb(soft: grade.soft, hard: grade.hard))
             } else {
-                thumb = Images.thumbnail(try developed.preview(soft: grade.soft, hard: grade.hard, extraQuarterTurns: 0))
+                thumb = Images.thumbnail(try developed.preview(soft: grade.soft, hard: grade.hard))
             }
             // Peak's radius and amount for this negative, as the desktop
             // measures them on opening a picture. Measured even with the
@@ -339,14 +345,11 @@ final class Darkroom {
             let negative = Negative(name: name, developed: developed, info: info, settings: settings, peak: peak)
             var jpeg: URL?
             if wantJpeg {
-                let suffix = suffix(for: settings, info: info)
-                jpeg = try exporter.place(fileName: "\(name)\(suffix).jpg") { p in
-                    let peakPair = paper.print.peak.applied(peak)
-                    _ = try developed.exportJpeg(
-                        path: p, soft: grade.soft, hard: grade.hard, extraQuarterTurns: 0,
-                        peakRadius: peakPair.radius, peakAmount: peakPair.amount, binned: binned
-                    )
-                }
+                let peakPair = print.peak.applied(peak)
+                jpeg = try exportJpeg(
+                    developed, name: name, suffix: suffix(for: settings, info: info), soft: grade.soft, hard: grade.hard,
+                    peakRadius: peakPair.radius, peakAmount: peakPair.amount, binned: binned, exporter: exporter
+                )
             }
             return .success(DevelopResult(negative: negative, thumbnail: thumb, jpeg: jpeg, negativeMedian: negativeMedian))
         } catch {
@@ -365,11 +368,7 @@ final class Darkroom {
     /// The same, before any frame exists.
     func developParams(make: String, model: String, pattern: BayerPattern, _ s: DevelopSettings) -> DevelopParams {
         var p = defaultDevelopParams()
-        p.separation = s.separation
-        // Every development at full size; the core keeps binning for the desktop.
-        p.binning = 1
         p.filter = s.filter
-        p.whiteBalance = s.whiteBalance
         p.cameraFileJson = cameraFiles.forModel(make: make, model: model, pattern: pattern)
         return p
     }
@@ -385,7 +384,7 @@ final class Darkroom {
         binned: Bool, exporter: Exporter
     ) throws -> URL {
         try exporter.place(fileName: "\(name)\(suffix).jpg") { p in
-            _ = try d.exportJpeg(path: p, soft: soft, hard: hard, extraQuarterTurns: 0, peakRadius: peakRadius, peakAmount: peakAmount, binned: binned)
+            _ = try d.exportJpeg(path: p, soft: soft, hard: hard, peakRadius: peakRadius, peakAmount: peakAmount, binned: binned)
         }
     }
 
@@ -395,7 +394,7 @@ final class Darkroom {
         exporter: Exporter
     ) throws -> URL {
         try exporter.place(fileName: "\(name)\(suffix).tif") { p in
-            _ = try d.exportTiff16(path: p, soft: soft, hard: hard, extraQuarterTurns: 0, peakRadius: peakRadius, peakAmount: peakAmount)
+            _ = try d.exportTiff16(path: p, soft: soft, hard: hard, peakRadius: peakRadius, peakAmount: peakAmount)
         }
     }
 

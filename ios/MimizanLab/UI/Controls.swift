@@ -1,5 +1,6 @@
 // Small pieces the viewfinder and the review share: chips, labelled
-// sliders, the process and filter rows, the paper sliders, the histogram.
+// sliders, the process and filter rows, the grade slider and the zone
+// strip, the histogram.
 import MimizanCore
 import SwiftUI
 
@@ -27,19 +28,13 @@ struct LabeledSlider: View {
     let label: String
     @Binding var value: Double
     var range: ClosedRange<Double> = 0...1
-    var step: Double? = nil
-    var onEditingChanged: (Bool) -> Void = { _ in }
 
     var body: some View {
         HStack(spacing: 8) {
             Text(label)
                 .font(.caption.monospaced())
                 .frame(width: 96, alignment: .leading)
-            if let step {
-                Slider(value: $value, in: range, step: step, onEditingChanged: onEditingChanged)
-            } else {
-                Slider(value: $value, in: range, onEditingChanged: onEditingChanged)
-            }
+            Slider(value: $value, in: range)
         }
     }
 }

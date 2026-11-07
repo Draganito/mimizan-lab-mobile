@@ -77,6 +77,11 @@ final class CaptureState {
     /// The ISP's white balance gains (R, G, B) on an Apple Log stream, for
     /// the mix weights; nil on the camera's picture.
     var wbGains: [Double]?
+    /// ISO and time the still can take: the photo format's range where
+    /// the still swaps to it, else the stream's. The hand's sliders run
+    /// over these, so what they offer is what the still gets.
+    var isoRange: ClosedRange<Double>?
+    var exposureRange: ClosedRange<Double>?
 }
 
 struct CaptureError: LocalizedError {
@@ -125,6 +130,13 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     /// A swap is under way: frames of the photo format are dropped, the
     /// shutter waits.
     private var swapping = false
+    /// Counts every teardown. A still under way compares it, so a camera
+    /// configured anew in the middle of a swap (a media-services reset,
+    /// a stop and resume) is not shot in the wrong format.
+    private var generation = 0
+    /// Where a tap pinned focus and metering, in the sensor buffer; set
+    /// again after a format swap, which resets the device's points.
+    private var pinned: CGPoint?
     /// Clockwise quarter-turns that bring the sensor buffer upright on the
     /// screen: the interface orientation, which is fixed to portrait on the
     /// phone and follows the iPad. The shader applies them; the video
@@ -343,10 +355,13 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         log.info("\(lens.label): finder \(formatLabel), RAW \(FormatDump.fourcc(fmt)); \(note)")
         let paper = logFormat != nil
         paperStream = paper
+        let stillRanges = LensInfo.ranges(of: swapStill ?? device.activeFormat)
         Task { @MainActor in
             self.state.paperFinder = paper
             self.state.finderFormat = formatLabel
             self.state.finderNote = note
+            self.state.isoRange = stillRanges.iso
+            self.state.exposureRange = stillRanges.exposure
             if !paper { self.state.wbGains = nil }
         }
         medianLock.withLock { $0 = nil }
@@ -354,7 +369,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         // types follow the commit), on this queue, then written off it.
         let label = lens.label
         queue.async { [weak self] in
-            guard let self, let device = self.device, self.lens?.key == lens.key else { return }
+            guard let self, let device = self.device, self.lens?.id == lens.id else { return }
             let a = device.activeFormat.formatDescription.dimensions
             let dump = LensFormats(
                 at: ISO8601DateFormatter().string(from: Date()), device: FinderMatchLog.deviceModel, ios: FinderMatchLog.osVersion,
@@ -513,6 +528,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     }
 
     private func teardown() {
+        generation &+= 1
         observers = []
         session.beginConfiguration()
         for i in session.inputs { session.removeInput(i) }
@@ -524,6 +540,7 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         finderFormat = nil
         stillFormat = nil
         swapping = false
+        pinned = nil
     }
 
     /// Clockwise quarter-turns that stand the back camera's sensor buffer
@@ -608,21 +625,42 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         }
     }
 
+    /// The hand's ISO and time, or the automatics: continuous, or pinned
+    /// where a tap left them. Also after a format swap, which resets both.
     private func applyExposure() {
         guard let d = device else { return }
+        if exposure.manual, let iso = exposure.iso, let s = exposure.seconds, d.isExposureModeSupported(.custom) {
+            _ = CaptureSession.setCustomExposure(d, iso: iso, seconds: s, completion: nil)
+        } else if let p = pinned {
+            pin(d, at: p)
+        } else {
+            do {
+                try d.lockForConfiguration()
+                defer { d.unlockForConfiguration() }
+                if d.isExposureModeSupported(.continuousAutoExposure) { d.exposureMode = .continuousAutoExposure }
+            } catch {
+                log.warning("exposure: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// `iso` and `seconds` by hand, each clamped to the active format's
+    /// range. Returns whether the pair went in as asked (nil when the
+    /// device refused the lock). `completion` fires once the device has
+    /// applied it.
+    @discardableResult
+    private static func setCustomExposure(_ d: AVCaptureDevice, iso: Double, seconds: Double, completion: ((CMTime) -> Void)?) -> Bool? {
         do {
             try d.lockForConfiguration()
             defer { d.unlockForConfiguration() }
-            if exposure.manual, let iso = exposure.iso, let s = exposure.seconds, d.isExposureModeSupported(.custom) {
-                let f = d.activeFormat
-                let isoC = Float(min(max(iso, Double(f.minISO)), Double(f.maxISO)))
-                let secC = min(max(s, f.minExposureDuration.seconds), f.maxExposureDuration.seconds)
-                d.setExposureModeCustom(duration: CMTime(seconds: secC, preferredTimescale: 1_000_000_000), iso: isoC, completionHandler: nil)
-            } else if d.isExposureModeSupported(.continuousAutoExposure) {
-                d.exposureMode = .continuousAutoExposure
-            }
+            let f = d.activeFormat
+            let isoC = Float(min(max(iso, Double(f.minISO)), Double(f.maxISO)))
+            let secC = min(max(seconds, f.minExposureDuration.seconds), f.maxExposureDuration.seconds)
+            d.setExposureModeCustom(duration: CMTime(seconds: secC, preferredTimescale: 1_000_000_000), iso: isoC, completionHandler: completion)
+            return abs(Double(isoC) - iso) < 0.5 && abs(secC - seconds) < 1e-6
         } catch {
             log.warning("exposure: \(error.localizedDescription)")
+            return nil
         }
     }
 
@@ -636,23 +674,31 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
         queue.async {
             guard let d = self.device else { return }
             let dp = CaptureSession.devicePoint(p, shaderQuarters: self.shownQuarters)
-            do {
-                try d.lockForConfiguration()
-                defer { d.unlockForConfiguration() }
-                if d.isFocusPointOfInterestSupported { d.focusPointOfInterest = dp }
-                if d.isFocusModeSupported(.autoFocus) { d.focusMode = .autoFocus }
-                if d.isExposurePointOfInterestSupported { d.exposurePointOfInterest = dp }
-                if !self.exposure.manual, d.isExposureModeSupported(.autoExpose) { d.exposureMode = .autoExpose }
-            } catch {
-                log.warning("focus: \(error.localizedDescription)")
-            }
+            self.pinned = dp
+            self.pin(d, at: dp)
             Task { @MainActor in self.state.focusPoint = p }
+        }
+    }
+
+    /// Focus and metering at `dp` (a sensor point), the exposure locked
+    /// there once converged unless it is set by hand. On the camera queue.
+    private func pin(_ d: AVCaptureDevice, at dp: CGPoint) {
+        do {
+            try d.lockForConfiguration()
+            defer { d.unlockForConfiguration() }
+            if d.isFocusPointOfInterestSupported { d.focusPointOfInterest = dp }
+            if d.isFocusModeSupported(.autoFocus) { d.focusMode = .autoFocus }
+            if d.isExposurePointOfInterestSupported { d.exposurePointOfInterest = dp }
+            if !exposure.manual, d.isExposureModeSupported(.autoExpose) { d.exposureMode = .autoExpose }
+        } catch {
+            log.warning("focus: \(error.localizedDescription)")
         }
     }
 
     func clearFocus() {
         queue.async {
             guard let d = self.device else { return }
+            self.pinned = nil
             do {
                 try d.lockForConfiguration()
                 defer { d.unlockForConfiguration() }
@@ -699,11 +745,14 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                     cont.resume(throwing: CaptureError(message: "camera not running"))
                     return
                 }
-                guard !self.swapping else {
-                    cont.resume(throwing: CaptureError(message: "the camera is still changing formats"))
+                guard !self.swapping, self.processor == nil else {
+                    cont.resume(throwing: CaptureError(message: "a still is already being taken"))
                     return
                 }
-                let finderMedian = self.medianLock.withLock { $0 }
+                // The finder's measurement is matched against the negative
+                // only when the still gets the finder's exposure: not with
+                // the flash, which lights the still and not the finder.
+                let finderMedian: Double? = self.flash == .off ? self.medianLock.withLock({ $0 }) : nil
                 guard let still = self.stillFormat, let finder = self.finderFormat else {
                     self.shoot(finderMedian: finderMedian) { cont.resume(with: $0) }
                     return
@@ -713,20 +762,29 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                 // the photo format, so they are left to settle there.
                 let frozen: (iso: Float, seconds: Double)? =
                     (!self.exposure.manual && self.flash == .off) ? (d.iso, d.exposureDuration.seconds) : nil
+                let gen = self.generation
                 self.swapping = true
-                self.swap(d, to: still, appleLog: false)
-                self.settleExposure(d, frozen: frozen) { [weak self] in
-                    guard let self, self.device === d else {
-                        cont.resume(throwing: CaptureError(message: "camera stopped"))
+                guard self.swap(d, to: still, appleLog: false) else {
+                    self.swapping = false
+                    cont.resume(throwing: CaptureError(message: "the camera refused the photo format"))
+                    return
+                }
+                self.settleExposure(d, frozen: frozen) { [weak self] asAsked in
+                    guard let self, self.generation == gen else {
+                        // Torn down meanwhile: `configure` or `teardown` has
+                        // already put the camera where it belongs.
+                        cont.resume(throwing: CaptureError(message: "the camera was restarted during the still"))
                         return
                     }
-                    self.shoot(finderMedian: finderMedian) { result in
+                    // An exposure the photo format could not take as asked
+                    // is not the finder's; the match would be off by the clamp.
+                    self.shoot(finderMedian: asAsked ? finderMedian : nil) { result in
                         self.queue.async {
-                            if self.device === d {
+                            if self.generation == gen {
                                 self.swap(d, to: finder, appleLog: true)
                                 self.applyExposure()
+                                self.swapping = false
                             }
-                            self.swapping = false
                             cont.resume(with: result)
                         }
                     }
@@ -736,52 +794,66 @@ final class CaptureSession: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
     }
 
     /// The device to `f` with the matching still size and stream, in one
-    /// configuration. On the camera queue.
-    private func swap(_ d: AVCaptureDevice, to f: AVCaptureDevice.Format, appleLog: Bool) {
+    /// configuration. False when the device refused the lock; nothing is
+    /// changed then. On the camera queue.
+    @discardableResult
+    private func swap(_ d: AVCaptureDevice, to f: AVCaptureDevice.Format, appleLog: Bool) -> Bool {
         session.beginConfiguration()
-        CaptureSession.setFormat(d, f, appleLog: appleLog)
+        defer { session.commitConfiguration() }
+        guard CaptureSession.setFormat(d, f, appleLog: appleLog) else { return false }
         photoOutput.maxPhotoDimensions = CaptureSession.stillDimensions(of: f, appleLog: appleLog)
         videoOutput.videoSettings = CaptureSession.streamSettings(appleLog: appleLog ? f : nil)
-        session.commitConfiguration()
+        return true
     }
 
     /// After a format change: an exposure set by hand on the new format —
     /// the hand's own ISO and time, or the automatics' as `frozen` in the
     /// finder — and the device says when it is in; only when neither is
     /// there are the automatics watched until `isAdjustingExposure`
-    /// drops, at most 0.8 s.
-    private func settleExposure(_ d: AVCaptureDevice, frozen: (iso: Float, seconds: Double)?, then: @escaping () -> Void) {
+    /// drops. Either way `then` fires once, after 0.8 s at the latest:
+    /// a completion the device never delivers must not hold the shutter.
+    /// `then`'s argument says whether the exposure went in as asked.
+    private func settleExposure(_ d: AVCaptureDevice, frozen: (iso: Float, seconds: Double)?, then: @escaping (Bool) -> Void) {
+        let settle = Settling()
+        let once = { [weak self] in
+            self?.queue.async {
+                guard !settle.fired else { return }
+                settle.fired = true
+                then(settle.asAsked)
+            }
+        }
         var pair: (iso: Double, seconds: Double)?
         if exposure.manual, let iso = exposure.iso, let s = exposure.seconds {
             pair = (iso, s)
         } else if let frozen, frozen.iso.isFinite, frozen.seconds.isFinite, frozen.seconds > 0 {
             pair = (Double(frozen.iso), frozen.seconds)
         }
-        if let pair, d.isExposureModeSupported(.custom) {
-            do {
-                try d.lockForConfiguration()
-                defer { d.unlockForConfiguration() }
-                let f = d.activeFormat
-                let isoC = Float(min(max(pair.iso, Double(f.minISO)), Double(f.maxISO)))
-                let secC = min(max(pair.seconds, f.minExposureDuration.seconds), f.maxExposureDuration.seconds)
-                d.setExposureModeCustom(duration: CMTime(seconds: secC, preferredTimescale: 1_000_000_000), iso: isoC) { [weak self] _ in
-                    self?.queue.async(execute: then)
-                }
-                return
-            } catch {
-                log.warning("exposure after the swap: \(error.localizedDescription)")
-            }
+        if let pair, d.isExposureModeSupported(.custom),
+           let exact = CaptureSession.setCustomExposure(d, iso: pair.iso, seconds: pair.seconds, completion: { _ in once() }) {
+            settle.asAsked = exact
+            queue.asyncAfter(deadline: .now() + 0.8) { once() }
+            return
         }
+        // No pair, or the lock was refused: the automatics decide, and the
+        // still is theirs, not the finder's.
+        settle.asAsked = false
         let deadline = Date().addingTimeInterval(0.8)
         func check() {
             if !d.isAdjustingExposure || Date() >= deadline {
-                then()
+                once()
             } else {
-                queue.asyncAfter(deadline: .now() + 0.02, execute: check)
+                queue.asyncAfter(deadline: .now() + 0.02) { check() }
             }
         }
         // The first frames after a format change are not to be trusted.
-        queue.asyncAfter(deadline: .now() + 0.1, execute: check)
+        queue.asyncAfter(deadline: .now() + 0.1) { check() }
+    }
+
+    /// One settle's state, on the camera queue: whether `then` has fired,
+    /// and whether the exposure went in as asked.
+    private final class Settling {
+        var fired = false
+        var asAsked = true
     }
 
     /// The exposure itself, in whatever format is active.

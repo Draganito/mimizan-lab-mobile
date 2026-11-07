@@ -9,7 +9,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import ch.bojovic.mimizanlab.engine.Darkroom
 import ch.bojovic.mimizanlab.engine.DevelopInfo
-import ch.bojovic.mimizanlab.engine.DevelopSettings
 import ch.bojovic.mimizanlab.engine.Developed
 import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.GrayImage
@@ -45,10 +44,8 @@ data class Detail(val x: Int, val y: Int, val bitmap: Bitmap)
 data class ReviewState(
     val name: String = "",
     val info: DevelopInfo? = null,
-    /** Balanced-space weights the sliders show (before the filter). */
+    /** The camera's balanced weights, what a re-mix starts from before the filter. */
     val weights: Weights = Weights(0.25, 0.5, 0.25),
-    /** What the mix actually uses: [weights] with the filter applied. */
-    val effective: Weights = Weights(0.25, 0.5, 0.25),
     val filter: Filter = Filter.NONE,
     /** This print, grade and Peak: the frame's own, moved here and kept with the frame. The standing pair is not touched. */
     val print: Print = Print(Grade.BASE, Peak(PeakMode.AUTO, Prefs.PEAK.radiusDefault, 0.0)),
@@ -100,15 +97,12 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
             darkroom.current.collect { neg ->
                 if (neg != null && neg.name == name) {
                     developed = neg.developed
-                    // info.weights already include the filter of the first
-                    // mix; the sliders start from the camera's base weights.
                     // The plate is the process the frame was developed in.
-                    // Lamps stay at zero. The print is this frame's own.
+                    // The print is this frame's own.
                     _state.update {
                         it.copy(
                             info = neg.info,
                             weights = neg.info.defaultWeights,
-                            effective = neg.info.weights,
                             filter = neg.info.filter,
                             plate = neg.info.plate,
                             peakMeasured = neg.peak,
@@ -130,13 +124,11 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     private fun shotPrint(name: String): Print =
         darkroom.shots.value.firstOrNull { it.name == name }?.print ?: darkroom.prefs.standingPrint
 
-    /** Develop (again) from the cache, in the process the darkroom stands in now. */
-    fun develop(settings: DevelopSettings = shotSettings() ?: DevelopSettings()) {
+    /** Develop (again) from the cache: the frame's own filter, in the process the darkroom stands in now. */
+    fun develop() {
         val shot = darkroom.shots.value.firstOrNull { it.name == _state.value.name } ?: return
-        darkroom.redevelop(shot.name, darkroom.withStandingProcess(settings).copy(autoJpeg = false))
+        darkroom.redevelop(shot.name, darkroom.withStandingProcess(shot.settings).copy(autoJpeg = false))
     }
-
-    fun shotSettings(): DevelopSettings? = darkroom.shots.value.firstOrNull { it.name == _state.value.name }?.settings
 
     fun setFilter(f: Filter) {
         _state.update { it.copy(filter = f) }
@@ -224,11 +216,11 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Draw the picture as it stands. `remix` applies the sliders and the
+     * Draw the picture as it stands. `remix` applies the filter and the
      * standing process first (the mix, or the plate's filters and
-     * primaries). A plate is always shown with the lamps at zero. The
-     * roll's thumbnail follows the picture, so it shows the grade the
-     * frame was left at.
+     * primaries) and writes the choice to the frame's recipe. The roll's
+     * thumbnail follows the picture, so it shows the grade the frame was
+     * left at.
      */
     private fun render(remix: Boolean = false) {
         renderJob?.cancel()
@@ -239,15 +231,14 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                     _state.update { it.copy(busy = true) }
                     val s = _state.value
                     if (remix) {
-                        if (darkroom.prefs.process.value == Process.PLATE) {
-                            d.setPlate(darkroom.prefs.plateFilters.value, darkroom.prefs.plateSpace.value)
-                            d.setLamps(0.0, 0.0)
+                        val process = darkroom.prefs.process.value
+                        val plateFilters = darkroom.prefs.plateFilters.value
+                        if (process == Process.PLATE) {
+                            d.setPlate(plateFilters, darkroom.prefs.plateSpace.value)
                         } else {
-                            val w = d.remix(normaliseWeights(s.weights), WeightSpace.BALANCED, s.filter)
-                            _state.update { it.copy(effective = w) }
+                            d.remix(normaliseWeights(s.weights), WeightSpace.BALANCED, s.filter)
                         }
-                    } else if (s.plate != null) {
-                        d.setLamps(0.0, 0.0)
+                        darkroom.setSettings(s.name, process, s.filter, plateFilters)
                     }
                     val soft = s.print.grade.soft
                     val hard = s.print.grade.hard
@@ -258,10 +249,10 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                     val bitmap: Bitmap
                     val histRgb: FloatArray
                     if (plate != null) {
-                        bitmap = toBitmap(d.previewRgb(soft, hard, 0u))
+                        bitmap = toBitmap(d.previewRgb(soft, hard))
                         histRgb = normalised(d.histogramRgb(soft, hard))
                     } else {
-                        bitmap = toBitmap(d.preview(soft, hard, 0u))
+                        bitmap = toBitmap(d.preview(soft, hard))
                         histRgb = FloatArray(0)
                     }
                     _state.update {
@@ -301,9 +292,9 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                     val s = _state.value
                     val applied = peakApplied(s)
                     val bitmap = if (s.plate != null) {
-                        toBitmap(d.detailRgb(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.print.grade.soft, s.print.grade.hard, 0u, applied.first, applied.second))
+                        toBitmap(d.detailRgb(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.print.grade.soft, s.print.grade.hard, applied.first, applied.second))
                     } else {
-                        toBitmap(d.detail(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.print.grade.soft, s.print.grade.hard, 0u, applied.first, applied.second))
+                        toBitmap(d.detail(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.print.grade.soft, s.print.grade.hard, applied.first, applied.second))
                     }
                     _state.update { it.copy(detail = Detail(x, y, bitmap)) }
                 } catch (t: Throwable) {
@@ -342,7 +333,7 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
 
     fun exportNegative() {
         if (!fullResolution.value) { _state.update { it.copy(unlockRequested = true) }; return }
-        export(if (_state.value.plate != null) "plate" else "negative") { d, name, _ ->
+        export(if (_state.value.plate != null) "colour negative" else "negative") { d, name, _ ->
             darkroom.exportNegative(d, name).first()
         }
     }

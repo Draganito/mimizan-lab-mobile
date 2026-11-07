@@ -27,6 +27,7 @@ jobs:
   testflight:
     name: Sign and upload
     runs-on: macos-15
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
@@ -121,7 +122,6 @@ jobs:
             | tee export.log | grep -E "error:|EXPORT" || true
           grep -q "\*\* EXPORT SUCCEEDED \*\*" export.log
           ls -la out
-          codesign -dv --entitlements - out/MimizanLab.ipa 2>/dev/null || true
 
       - name: Upload to TestFlight
         working-directory: mimizan-lab-mobile/ios

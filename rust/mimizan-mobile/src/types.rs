@@ -1,6 +1,6 @@
-//! The FFI surface: plain records and enums the Kotlin side builds and reads.
-//! Every number keeps the unit and meaning of its `mimizan-core` counterpart
-//! (`docs/SPEC.md` in the mimizan repository).
+//! The FFI surface: plain records and enums the Kotlin and Swift sides
+//! build and read. Every number keeps the unit and meaning of its
+//! `mimizan-core` counterpart.
 
 use mimizan_core::cfa::BayerPhase;
 use mimizan_core::ingest::WhiteBalance;
@@ -31,12 +31,6 @@ impl From<mimizan_core::Error> for MimizanError {
             E::Io(m) => Self::Io { msg: m.to_string() },
             other => Self::Internal { msg: other.to_string() },
         }
-    }
-}
-
-impl From<std::io::Error> for MimizanError {
-    fn from(e: std::io::Error) -> Self {
-        Self::Io { msg: e.to_string() }
     }
 }
 
@@ -283,7 +277,8 @@ impl Weights {
 /// Weights with the sum normalised to 1 (sliders need not be exact).
 #[uniffi::export]
 pub fn normalise_weights(w: Weights) -> Result<Weights> {
-    if !(w.r >= 0.0 && w.g >= 0.0 && w.b >= 0.0) {
+    let finite = [w.r, w.g, w.b].iter().all(|v| v.is_finite() && *v >= 0.0);
+    if !finite {
         return Err(MimizanError::Invalid { msg: "weights must be finite and non-negative".into() });
     }
     let s = w.r + w.g + w.b;
@@ -405,13 +400,6 @@ pub struct RgbImage {
 pub struct DevelopParams {
     pub separation: SeparationMode,
     pub white_balance: WhiteBalanceMode,
-    /// 1 = full resolution; 2 = CFA-preserving 2x binning before ingest
-    /// (each 4x4 block becomes one 2x2 RGGB cell: quarter of the pixels,
-    /// quarter of the memory, about a quarter of the time). Kept for the
-    /// interface; the apps develop at 1 and print small through the
-    /// recipe's sheet size instead, the whole development on fewer pixels.
-    #[uniffi(default = 1)]
-    pub binning: u32,
     /// Noise model `sigma(s) = a*sqrt(s) + b` in normalised units; `None` =
     /// core defaults (0.005, 0.0002) or the camera file.
     #[uniffi(default = None)]
@@ -439,7 +427,6 @@ impl Default for DevelopParams {
         Self {
             separation: SeparationMode::Dubois,
             white_balance: WhiteBalanceMode::AsShot,
-            binning: 1,
             noise_a: None,
             noise_b: None,
             weights: None,
@@ -482,23 +469,6 @@ pub fn paper_lut(soft: f64, hard: f64, n: u32) -> Result<Vec<f32>> {
     Ok((0..=n).map(|i| map.eval(i as f64 / n as f64) as f32).collect())
 }
 
-/// The single-filter grade this pair of exposures equals, and the scene
-/// stops between the paper's first tone and its near-black.
-#[derive(Clone, Debug, PartialEq, uniffi::Record)]
-pub struct PaperGrade {
-    pub label: String,
-    pub scene_stops: f64,
-}
-
-#[uniffi::export]
-pub fn paper_grade(soft: f64, hard: f64) -> Result<PaperGrade> {
-    let curve = split_grade(soft, hard)?.curve();
-    Ok(PaperGrade {
-        label: mimizan_core::paper::grade_label(curve.grade()),
-        scene_stops: curve.scene_range_stops(),
-    })
-}
-
 /// 8-bit grey image, row-major, upright.
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
 pub struct GrayImage {
@@ -520,7 +490,7 @@ pub struct Timing {
 /// in `json`, verbatim as the desktop CLI writes it).
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
 pub struct DevelopInfo {
-    /// Negative size in the sensor frame (after crop and binning).
+    /// Negative size in the sensor frame (after the crop).
     pub width: u32,
     pub height: u32,
     /// Size after the file orientation is applied.
@@ -528,7 +498,6 @@ pub struct DevelopInfo {
     pub upright_height: u32,
     pub orientation: u32,
     pub pattern: BayerPattern,
-    pub binning: u32,
     pub separation: SeparationMode,
     /// Balance multipliers R,G,B applied before the separation (G = 1).
     pub wb: Vec<f64>,

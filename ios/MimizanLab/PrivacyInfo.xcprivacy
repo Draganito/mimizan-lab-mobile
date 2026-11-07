@@ -11,7 +11,7 @@
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
 		<dict>
-			<!-- UserDefaults: the paper's exposures, the process, the lamps. -->
+			<!-- UserDefaults: the standing grade and Peak, the process, the finder's aids and match, the purchase. -->
 			<key>NSPrivacyAccessedAPIType</key>
 			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
 			<key>NSPrivacyAccessedAPITypeReasons</key>

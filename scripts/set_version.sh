@@ -30,6 +30,8 @@ if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 gradle="$here/android/app/build.gradle.kts"
+# GNU and BSD sed differ on `-i`; a backup suffix works on both.
+sedi() { sed -i.bak "$@" && rm -f "${@: -1}.bak"; }
 project="$here/ios/project.yml"
 cargo="$here/rust/mimizan-mobile/Cargo.toml"
 ref="$here/mimizan-core.ref"
@@ -53,9 +55,9 @@ old_code=$(sed -n 's/^ *versionCode = \([0-9]*\)/\1/p' "$gradle")
 [[ -n "$old_name" && -n "$old_code" ]] || { echo "ERROR: versionName/versionCode not found in $gradle" >&2; exit 1; }
 new_code=$((old_code + 1))
 
-sed -i "s/^\( *\)versionCode = $old_code\$/\1versionCode = $new_code/" "$gradle"
-sed -i "s/^\( *\)versionName = \"$old_name\"\$/\1versionName = \"$version\"/" "$gradle"
-sed -i "s/^\( *\)MARKETING_VERSION: \"[^\"]*\"/\1MARKETING_VERSION: \"$version\"/" "$project"
+sedi "s/^\( *\)versionCode = $old_code\$/\1versionCode = $new_code/" "$gradle"
+sedi "s/^\( *\)versionName = \"$old_name\"\$/\1versionName = \"$version\"/" "$gradle"
+sedi "s/^\( *\)MARKETING_VERSION: \"[^\"]*\"/\1MARKETING_VERSION: \"$version\"/" "$project"
 # Only the package's own version line: the first `version = "..."` after [package].
 awk -v v="$version" '
     /^\[/ { in_pkg = ($0 == "[package]") }
@@ -70,7 +72,13 @@ grep -q "versionName = \"$version\"" "$gradle"
 grep -q "versionCode = $new_code" "$gradle"
 grep -q "MARKETING_VERSION: \"$version\"" "$project"
 grep -q "^version = \"$version\"" "$cargo"
-grep -q "^version = \"$version\"" "$here/rust/mimizan-mobile/Cargo.lock"
+# This package's entry in the lock file, not any dependency at the same number.
+awk -v v="$version" '
+    /^name = "mimizan-mobile"$/ { here = 1; next }
+    here && /^version = / { found = ($0 == "version = \"" v "\""); exit }
+    { if ($0 ~ /^\[\[package\]\]/) here = 0 }
+    END { exit !found }
+' "$here/rust/mimizan-mobile/Cargo.lock"
 
 echo "==> $old_name ($old_code) -> $version ($new_code)"
 echo "==> core $core_sha ($(git -C "$core" log -1 --format='%s'))"

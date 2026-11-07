@@ -64,7 +64,7 @@ enum FormatDump {
     /// off the camera queue.
     static func write(_ entry: LensFormats) -> String {
         do {
-            var all = (try? JSONDecoder().decode([String: LensFormats].self, from: Data(contentsOf: url))) ?? [:]
+            var all = readOrSetAside([String: LensFormats].self, at: url) ?? [:]
             all[entry.lens] = entry
             let enc = JSONEncoder()
             enc.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -78,6 +78,20 @@ enum FormatDump {
     }
 
     static var exists: Bool { FileManager.default.fileExists(atPath: url.path) }
+
+    /// The file decoded, nil when there is none. A file that is there but
+    /// does not decode (a schema change, a cut-off write) is moved beside
+    /// itself as `<name>.bad-<time>.json` rather than overwritten: these
+    /// are the files the testers send, and what they hold is not to be lost.
+    static func readOrSetAside<T: Decodable>(_ type: T.Type, at url: URL) -> T? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        if let v = try? JSONDecoder().decode(type, from: data) { return v }
+        let stamp = Int(Date().timeIntervalSince1970)
+        let aside = url.deletingPathExtension().appendingPathExtension("bad-\(stamp).json")
+        try? FileManager.default.moveItem(at: url, to: aside)
+        log.warning("\(url.lastPathComponent) did not decode; set aside as \(aside.lastPathComponent)")
+        return nil
+    }
 
     static func fourcc(_ t: OSType) -> String {
         let bytes = [UInt8(t >> 24 & 0xFF), UInt8(t >> 16 & 0xFF), UInt8(t >> 8 & 0xFF), UInt8(t & 0xFF)]

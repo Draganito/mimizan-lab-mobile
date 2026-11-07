@@ -19,7 +19,6 @@ struct FinderUniforms {
     float3 vR;
     float3 vG;
     float3 vB;
-    float3 lampGain;
     float gain;
     float plate;
     float lutLast;
@@ -93,9 +92,9 @@ kernel void finderLog(texture2d<float, access::sample> luma [[texture(0)]],
     float3 l = float3(logLinear(enc.r), logLinear(enc.g), logLinear(enc.b)) * u.gain;
     float3 o;
     if (u.plate > 0.5f) {
-        // Three positives: each taking filter on the linear picture, its
-        // lamp, the same paper. A clipped site clamps at 1 in every channel.
-        float3 g = clamp(float3(dot(l, u.vR), dot(l, u.vG), dot(l, u.vB)), 0.0f, 1.0f) * u.lampGain;
+        // Three positives: each taking filter on the linear picture, the
+        // same paper. A clipped site clamps at 1 in every channel.
+        float3 g = clamp(float3(dot(l, u.vR), dot(l, u.vG), dot(l, u.vB)), 0.0f, 1.0f);
         o = float3(paper(g.r, lut, u.lutLast), paper(g.g, lut, u.lutLast), paper(g.b, lut, u.lutLast));
     } else {
         o = float3(paper(dot(l, u.v), lut, u.lutLast));

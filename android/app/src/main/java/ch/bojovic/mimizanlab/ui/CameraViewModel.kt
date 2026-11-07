@@ -15,11 +15,8 @@ import ch.bojovic.mimizanlab.camera.IspColor
 import ch.bojovic.mimizanlab.camera.LensInfo
 import ch.bojovic.mimizanlab.engine.Darkroom
 import ch.bojovic.mimizanlab.engine.DevelopSettings
-import ch.bojovic.mimizanlab.engine.Filter
-import ch.bojovic.mimizanlab.engine.PlateFilters
 import ch.bojovic.mimizanlab.engine.PlateSpace
 import ch.bojovic.mimizanlab.engine.Process
-import ch.bojovic.mimizanlab.engine.SeparationMode
 import ch.bojovic.mimizanlab.engine.mixWeights
 import ch.bojovic.mimizanlab.engine.paperLut
 import ch.bojovic.mimizanlab.engine.plateWeights
@@ -37,6 +34,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 
 /** Viewfinder settings that are not camera state. */
@@ -59,8 +57,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     private val _exposure = MutableStateFlow(ExposureSettings())
     val exposure: StateFlow<ExposureSettings> = _exposure.asStateFlow()
 
-    /** The process and the plate's choices come from the roll's standing settings; the rest is this session's. */
-    private val _develop = MutableStateFlow(darkroom.standingSettings())
+    /** What the next frame is developed with: the standing process and the plate's filters; the mono filter is chosen in the developer. */
+    private val _develop = MutableStateFlow(darkroom.withStandingProcess(DevelopSettings()))
     val develop: StateFlow<DevelopSettings> = _develop.asStateFlow()
 
     private val _viewfinder = MutableStateFlow(
@@ -83,7 +81,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
      * mix weights for the current filter and this frame's balance, pulled
      * back through the ISP's colour matrix, and the paper the automatic
      * JPEG uses; in the plate process the three taking filters the same
-     * way (the lamps stay at zero for a new frame). Recomputed when the
+     * way. Recomputed when the
      * ISP colour moves (white balance), a develop setting changes, or the
      * grade changes; the grade is one value, so the zone strip is one
      * emission.
@@ -157,10 +155,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         return FinderTone(
             v = FinderTone.pullBack(weights, color),
             lut = paperLut(pl.soft, pl.hard, 4096u).toFloatArray(),
-            invGamma = 1f,
             zebra = if (zebra) 0.985f else 2f,
             plate = plate,
-            lampGain = floatArrayOf(1f, 1f, 1f),
         )
     }
 
@@ -270,34 +266,37 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { controller.setFlash(next) }
     }
 
-    fun setFilter(f: Filter) = _develop.update { it.copy(filter = f) }
     fun setProcess(p: Process) = darkroom.prefs.setProcess(p)
-    fun setPlateFilters(f: PlateFilters) = darkroom.prefs.setPlateFilters(f)
     fun setPlateSpace(s: PlateSpace) = darkroom.prefs.setPlateSpace(s)
-    fun setSeparation(m: SeparationMode) = _develop.update { it.copy(separation = m) }
     fun setContrast(stops: Double) = darkroom.prefs.setContrast(stops)
     fun setGrade(soft: Double, hard: Double) = darkroom.prefs.setGrade(soft, hard)
     fun setPeakMode(mode: PeakMode) = darkroom.prefs.setPeakMode(mode)
     fun setShotMode(mode: ShotMode) = darkroom.prefs.setShotMode(mode)
-    fun toggleZebra() = _viewfinder.update {
-        val on = !it.zebra
+    fun toggleZebra() {
+        val on = _viewfinder.updateAndGet { it.copy(zebra = !it.zebra) }.zebra
         darkroom.prefs.setZebra(on)
-        it.copy(zebra = on)
     }
-    fun toggleGrid() = _viewfinder.update {
-        val on = !it.grid
+    fun toggleGrid() {
+        val on = _viewfinder.updateAndGet { it.copy(grid = !it.grid) }.grid
         darkroom.prefs.setGrid(on)
-        it.copy(grid = on)
     }
-    fun toggleHistogram() = _viewfinder.update {
-        val on = !it.showHistogram
+    fun toggleHistogram() {
+        val on = _viewfinder.updateAndGet { it.copy(showHistogram = !it.showHistogram) }.showHistogram
         darkroom.prefs.setHistogram(on)
-        it.copy(showHistogram = on)
     }
+
+    /**
+     * A still is under way, from the tap to the frame's hand-over. Set
+     * here, on the main thread, before anything suspends: the stream's
+     * `capturing` flips only once the controller holds its lock, and two
+     * taps before that would both get through.
+     */
+    private var shooting = false
 
     fun capture() {
         val l = _lens.value ?: return
-        if (stream.value.capturing) return
+        if (shooting || stream.value.capturing) return
+        shooting = true
         val mode = darkroom.prefs.shotMode.value
         val settings = _develop.value.copy(autoJpeg = mode == ShotMode.JPEG)
         viewModelScope.launch {
@@ -314,6 +313,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             } catch (t: Throwable) {
                 Log.e(TAG, "capture", t)
                 _message.value = t.message ?: "Capture failed"
+            } finally {
+                shooting = false
             }
         }
     }

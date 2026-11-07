@@ -13,16 +13,18 @@
 └───────────────────────────────────────┬─────────────────────────────────────────────────┘
                                         │ JNA / UniFFI (libmimizan_mobile.so)
 ┌───────────────────────────────────────▼─────────────────────────────────────────────────┐
-│ rust/mimizan-mobile   types.rs (FFI records/enums) · frame.rs (RawInput -> RawFrame,      │
-│                       2x CFA binning) · session.rs (Developed: remix/preview/detail/export) │
+│ rust/mimizan-mobile   types.rs (FFI records/enums) · frame.rs (RawInput -> RawFrame)      │
+│                       session.rs (Developed: remix/plate/preview/detail/peak/export)       │
 │ mimizan-core          ingest -> separation (Dubois/adaptive/off) -> mix -> print path       │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-`mimizan-core` is used as a path dependency with `default-features = false`:
-the `decode-rawler` feature (file decoding) stays off on the phone, the
-pipeline entry is `negative_from_frame(&RawFrame, &NegativeParams)`. Nothing
-in the algorithm is duplicated in the mobile crate.
+`mimizan-core` is used as a path dependency with `default-features = false`.
+On Android the frame arrives as a buffer and the pipeline entry is
+`negative_from_frame(&RawFrame, &NegativeParams, 0)`; the iOS build turns
+on `decode-files` (`mimizan-core/decode-rawler`) and reads the DNG with
+`pipeline::decode` first, then takes the same entry. Nothing in the
+algorithm is duplicated in the mobile crate.
 
 ## Capture path
 
@@ -71,11 +73,15 @@ in the algorithm is duplicated in the mobile crate.
 6. `Darkroom.submit` writes the frame into the `RawCache` (`<name>.raw` +
    `<name>.json`, app-private; the metadata lands through a rename, so a
    frame exists only once both files are complete and an interrupted write
-   leaves an orphan `.raw` that the next trim removes)    together with
-   `<name>.grade`, the frame's print (`Print`: grade and Peak), which
-   starts as the standing pair of that moment (`Prefs.standingPrint`),
-   and, unless the shot mode is Raw, queues the
-   development. A finished development adds
+   leaves an orphan `.raw` that the next trim removes) together with
+   `<name>.grade`, the frame's recipe (`Recipe` / `RecipeFile`): the
+   print (`Print`: grade and Peak), which starts as the standing pair
+   of that moment (`Prefs.standingPrint`), and the process, filter and
+   plate filters the frame was developed or last re-mixed in (enum
+   names; every key past `soft` and `hard` is optional, so an older
+   file still reads). Unless the shot mode is Raw, it queues the
+   development. Two shots within one second get `_2`, `_3` after the
+   time stamp, so the roll never lists one name twice. A finished development adds
    `<name>.jpg`, the roll's 256 px thumbnail, written to `.jpg.tmp` and
    renamed the same way; the roll shows it after a restart without
    developing again. The trim budget (1.5 GB) counts all three files per
@@ -106,16 +112,18 @@ frame stays queued and `Darkroom.resumeQueue`, called from the camera's
 frame:
 
 * `RawMeta.toRawInput(pixels)` -> `develop(input, params)`; `params` are
-  `default_develop_params()` with the shot's separation, filter, white
-  balance, and the camera file text; `binning` is always 1 (the apps
-  print small through the recipe's sheet size, never through a binned
-  negative; the field stays for the desktop).
+  `default_develop_params()` with the shot's filter and the camera file
+  text (the separation is Dubois and the balance the camera's: the
+  core's defaults, the phone offers no other). Every development is at
+  full size; a small print is the same development on a smaller sheet.
 * Rust (`session.rs::develop_impl`): `to_raw_frame` validates and converts
-  LE bytes to `u16` (rayon), optional `bin_cfa_2x`, then `negative_from_frame`
-  with `keep_separation = true`. The three separation planes (L̂, Ĉ1', Ĉ2')
+  LE bytes to `u16` (rayon), then `negative_from_frame` with
+  `keep_separation = true`. The three separation planes (L̂, Ĉ1', Ĉ2')
   of the full negative stay in the `Developed` object (3 x 100 MB at
   12.5 MP) plus downscaled upright preview planes (2048 px long edge); the
-  saturation mask of the full frame is dropped after the first mix.
+  saturation mask of the full frame and the first mix plane are dropped
+  before the preview planes are made (every picture is mixed from the
+  separation).
 * The `Developed` handle replaces the previous one in `Darkroom.current`
   (the old one is closed -> native memory freed); the thumbnail and, for
   a JPEG shot, a full-size JPEG (the paper at the frame's print,
@@ -127,8 +135,7 @@ frame:
 Memory budget per development at 12.5 MP (f64 planes): ingest ~200 MB,
 Dubois separation ~1 GB peak (measured 1016 MB on the host for the same
 frame size), steady state afterwards ~375 MB (3 planes + previews). "Mask
-off" needs about 60 % of that (`binning = 2` a quarter, which the apps
-no longer use).
+off" needs about 60 % of that.
 
 ## Review
 
@@ -137,9 +144,12 @@ longer in memory it offers "Develop again" (queue from the cache). All
 interactions go through the `Developed` object without touching the
 separation:
 
-* filter / sliders -> `remix(weights, BALANCED, filter)` (returns the weights
-  the mix now uses, including the filter) -> `preview(soft, hard)` +
-  `histogram(soft, hard)`
+* filter -> `remix(default_weights, BALANCED, filter)` (the camera's
+  balanced weights, then the filter; returns the weights the mix now
+  uses) -> `preview(soft, hard)` + `histogram(soft, hard)`. There are no
+  weight sliders on the phone. The re-mix also writes the process and
+  filter to the frame's recipe (`Darkroom.setSettings`), so the roll's
+  line and a later "Develop again" start from the choice.
 * soft / hard -> stops of time from the paper's base exposure, ±3, in
   twelfths. Zero is the base print (about grade 2). The screen shows
   them as one slider, the grade (`hard - soft`, ±6 in sixths), with the
@@ -185,11 +195,11 @@ separation:
   and every export follow the mode; the preview is never sharpened.
 * after a development on iOS with the Apple Log finder ->
   `mix_median()`: the median of the current monochrome mix on the linear
-  axis from the preview planes, near-black and clip left out (the same
-  selection `zone_shift` is built on). The app sets it against the
-  median the finder measured at the shutter; see *iOS* below.
+  axis from the preview planes, near-black and clip left out (the
+  core's own cut). The app sets it against the median the finder
+  measured at the shutter; see *iOS* below.
 * pinch zoom beyond the preview resolution -> `detail(x, y, w, h, soft,
-  hard, turns, peak_radius, peak_amount)` for the visible window, drawn
+  hard, peak_radius, peak_amount)` for the visible window, drawn
   1:1 on top of the scaled preview. With an amount above zero the window
   is mixed with a margin of `kernel_radius(σ) + 1` px, the paper is
   applied, `usm::unsharp` runs with the radius as given (the window is
@@ -223,11 +233,10 @@ is, as on the desktop, a re-mix and not a re-development:
   `remix(...)` is the way back. The choice is a standing setting
   (`Prefs`), so the next shot opens in the same process and a
   development done in review carries over.
-* lamps R / B -> `set_lamps(red, blue)`, stops within ±2, green the
-  reference. Preview, histogram, 1:1 window and every export apply them as
-  `v · 2^lamp` before the paper, the print's placing. The phone leaves
-  both lamps at zero (no slider; the core keeps the call for the desktop
-  and the `.plate.tif` interchange).
+* the lamps (`set_lamps(red, blue)`, stops within ±2, green the
+  reference, applied as `v · 2^lamp` before the paper) stay in the
+  crate for the `.plate.tif` interchange with the desktop; neither
+  phone calls them, both print the plate with the lamps at zero.
 * `preview_rgb`, `detail_rgb`, `histogram_rgb` are the colour versions of
   the three grey calls (interleaved RGB8; `histogram` stays the
   luminance's and is drawn as bars under the three channel outlines).
@@ -241,7 +250,8 @@ is, as on the desktop, a re-mix and not a re-development:
   negative and the plate of one frame sit side by side in the gallery.
 
 `PlateSpace` defaults to sRGB on the phone (the gallery and sharing take
-the file as it is); Adobe RGB is a chip away. The preview bitmap carries
+the file as it is); Adobe RGB is under *Color space* in Settings, a
+standing choice, not a per-frame one. The preview bitmap carries
 the paper's gamma 2.2 values in the plate's primaries and is displayed as
 sRGB, the same small difference the grey preview has had all along.
 
@@ -257,8 +267,8 @@ development's weights pulled back through the frame's ISP matrix, and
 indexes `paper_lut` (the print curve over linear grey, no second gamma).
 In the plate process it mixes three times with the taking filters
 (`plate_weights`, the numbers `set_plate` will use for the still, each
-pulled back the same way), multiplies by the lamps and indexes the same
-table per channel, so the viewfinder shows the plate in colour. Zebra
+pulled back the same way) and indexes the same table per channel, so
+the viewfinder shows the plate in colour. Zebra
 stripes mark display values above 0.985 (of the brightest channel). It is an approximation of
 the mix on balanced raw channels (the camera's preview is already white
 balanced and tone mapped), good enough to see what a filter and the paper
@@ -303,12 +313,12 @@ Android ones file for file:
 | `CameraController.kt` + `Lenses.kt` | `Capture/CaptureSession.swift`, `Capture/LensCatalog.swift` | one physical back camera at a time (the virtual fusion cameras give no Bayer RAW); `AVCapturePhotoOutput` with the first `isBayerRAWPixelFormat` type; the still arrives as a DNG. The stream: where a format offers `.appleLog` in 10-bit 4:2:0 (`x420`) or 4:2:2 (`x422`; the iPhone 16 Pro's log formats are all 4:2:2) at 30 fps, the largest 4:3 one up to about 2 MP is made the `activeFormat` (`.inputPriority`, `maxPhotoDimensions` the format's largest), and the video output asks for that format's own subtype (the Metal pass samples the chroma plane normalised, the CPU analysis scales the chroma row and column by the plane's size, so both pitches read alike); each step is checked (the 10-bit stream, the Bayer RAW still). When the Log format offers no RAW type (the iPhone 16 Pro: `availableRawPhotoPixelFormatTypes` is empty there) but the camera's photo format does (`photoFormat(of:)`: 8-bit 4:2:0, `isHighestPhotoQualitySupported`, the largest 4:3), the finder stays in the Log and `capture()` swaps: one `beginConfiguration`/`commitConfiguration` to the photo format in sRGB with the format's own still size and a BGRA stream (`swap(_:to:appleLog:)`), `settleExposure` (the finder's exposure set by hand in the photo format with `setExposureModeCustom`'s completion — the hand's own ISO and time, or the automatics' as they stood at the shutter, frozen before the swap, so nothing is measured twice; only with the flash on Auto or On are the automatics left to decide there, polled until `isAdjustingExposure` drops, 0.1–0.8 s), the RAW, and the same swap back with `applyExposure`; `swapping` drops the photo format's frames so the finder holds its last Log frame, and refuses a second shutter meanwhile. Without either RAW the path falls back to the `.photo` preset with sRGB BGRA, which is also the path on cameras without Apple Log. `CaptureState.paperFinder` says which. The finder's rotation follows the interface orientation (fixed to portrait on the phone, turning with the iPad); the still's `videoRotationAngle`, and so the DNG's orientation tag, follows the device. Interruptions and runtime errors are observed: a message while interrupted, the lens opened again after a media-services reset |
 | `RawFrameBridge.kt` (RAW_SENSOR → `RawInput`) | — | not needed: the DNG goes to `develop_file`, the core's `pipeline::decode` reads it with `rawler` as the desktop does |
 | `MonoViewfinder.kt` (AGSL) | `Capture/Finder.metal`, `Capture/FinderView.swift` | two Metal compute kernels. `finderLog` on an Apple Log frame (luma `r16Unorm` + chroma `rg16Unorm` from the two planes): video-range Y'CbCr → R'G'B' by the buffer's matrix tag, Apple's published log inverse, the mix with the pulled-back weights times the match gain, the paper's 4097-entry table in an `MTLBuffer`, the plate's three positives when on; `finder` on BGRA: Rec. 709 luma for mono, the frame itself in colour. Zebra above 0.985 on either; `CVMetalTextureCache` (the textures are held until the command buffer completes, the cache flushed every 120 draws), `MTKView` on the renderer's device |
-| `FinderTone.kt` + `IspControls.kt` | `Capture/FinderTone.swift` | `FinderTone` is mono/colour and the zebra threshold, plus a `PaperTone` on the Log stream: the weights on linear BT.2020 (`Rec2020ToCamera` — the DNG's XYZ → camera matrix times the BT.2020 primaries, rows scaled white to white, as the Android pull-back through the ISP matrix), the lamps, the paper table and the gain `2^FinderMatch.stops`. `AppleLog.linear` and `YccMatrix` are the kernel's constants on the CPU, for the histogram and the median |
+| `FinderTone.kt` + `IspControls.kt` | `Capture/FinderTone.swift` | `FinderTone` is mono/colour and the zebra threshold, plus a `PaperTone` on the Log stream: the weights on linear BT.2020 (`Rec2020ToCamera` — the DNG's XYZ → camera matrix times the BT.2020 primaries, rows scaled white to white, as the Android pull-back through the ISP matrix), the paper table and the gain `2^FinderMatch.stops`. `AppleLog.linear` and `YccMatrix` are the kernel's constants on the CPU, for the histogram and the median |
 | — | `Store/FinderMatch.swift` | the stops between the Log axis (grey card at 0.18 of the ISP's exposure) and the negative's (1 at the sensor's clip) are not published, so they are measured: at the shutter the session keeps the median of the finder's linear mix (1/32-stop histogram over the sampled grid, the same near-black/clip cut as the core); after the first development `Developed.mixMedian` gives the negative's; `log2(negative / finder)` goes to `Prefs.finderMatch` (last eight, the median applied from the next tone), to `Documents/finder-match.json` (one record per frame: device, iOS, lens, ISO, time, format, both medians, stops, what was applied) and to the log. Before the first frame the prior is Apple Log's code 1 taken as the clip (−log2 12 ≈ −3.59 stops). Settings shows the match and resets it |
 | — | `Store/FormatDump.swift` | for the devices nobody here holds: each time a lens opens, every `AVCaptureDevice.Format` (size, subtype fourcc, frame rates, colour spaces, binned, HDR, photo-quality flags, `supportedMaxPhotoDimensions`, ISO range), the format settled on, the RAW and stream types after the commit, the RAW types seen while the Apple Log format was active, and the outcome sentence go to `Documents/formats.json` by lens label. `CaptureState.finderNote` is that sentence for Settings: which step of the Apple Log path passed or failed, with the counts; `formatsFile` says whether the file was written (time, count, size) or why not. Settings shares both files with `ShareLink`, so a tester never has to find them in Files |
-| `CameraViewModel.kt` | `Capture/CaptureViewModel.swift` | `withObservationTracking` instead of `combine` for the tone (the standing grade, the process and filter, the balance gains, the lens matrix remembered per lens in `Prefs`, the match); a start under way is not started a second time; the capture carries the finder's `FinderSample` into `Darkroom.submit` |
+| `CameraViewModel.kt` | `Capture/CaptureViewModel.swift` | `withObservationTracking` instead of `combine` for the tone (the standing grade, the process and plate filters, the lens matrix remembered per lens in `Prefs`, the match); a start under way is not started a second time; the capture carries the finder's `FinderSample` into `Darkroom.submit` |
 | `Darkroom.kt` + `DevelopService.kt` | `Darkroom/Darkroom.swift` | two serial `DispatchQueue`s behind `Gate` (intake: write and read the frame; worker: the development), so the core never runs on Swift's cooperative pool; `beginBackgroundTask` instead of a foreground service, ended by the expiry handler too; a frame deleted while it develops is dropped on completion |
-| `RawCache.kt` | `Store/RawCache.swift` | `Caches/raw/<name>.dng` + `.json` + `.grade`, excluded from backup, 1.5 GB budget; an orphan `.dng` is swept only once it is a minute old |
+| `RawCache.kt` | `Store/RawCache.swift` | `Caches/raw/<name>.dng` + `.json` + `.grade`, excluded from backup, 1.5 GB budget; an orphan `.dng`, or a sidecar without its `.dng`, is swept only once it is a minute old; a `.json` the decoder refuses is set aside as `<name>.bad-<stamp>.json` (`readOrSetAside`), as are `finder-match.json` and `formats.json` |
 | `MediaStoreWriter.kt` | `Store/Exporter.swift` | `Documents/Mimizan Lab` (visible in Files, `UIFileSharingEnabled`) plus `PHPhotoLibrary` add-only for JPEGs; the mask sidecar takes the final file's name, so `(2)` pairs stay paired |
 | `Prefs.kt` | `Store/Prefs.swift` | same keys and defaults in `UserDefaults` (no lamp keys: the lamps are not a setting on either phone) |
 | `store/Entitlements.kt` (`play` flavor) | `Store/Entitlements.swift` | StoreKit 2: `Transaction.currentEntitlements` on every start, `Transaction.updates` for purchases made on the Mac, by the family or refunded, `AppStore.sync()` behind Restore; the answer cached under `entitlement_fullres`. No flavor on iOS, the App Store is the only channel; `UI/UnlockView.swift` is the Settings section and the sheet a locked export opens |
@@ -333,8 +343,7 @@ privacy manifest is `PrivacyInfo.xcprivacy`, the entitlements
   negative sample for sample on a NEF;
 * `frame_info(path) -> FrameInfo` — make, model, size, CFA, orientation,
   WB gains, XYZ → camera, exposure, capture time — what the roll stores in
-  the `.json` sidecar without decoding again;
-* `reads_files() -> bool`.
+  the `.json` sidecar without decoding again.
 
 On iOS `init_logging` writes `tracing` to stderr (Xcode's console);
 `tracing-oslog` would need the Apple SDK at build time and could not be

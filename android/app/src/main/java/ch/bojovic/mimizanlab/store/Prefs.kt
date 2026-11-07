@@ -53,18 +53,9 @@ class Prefs(context: Context) {
      * prints, and where a new frame starts. A frame's own grade, moved in
      * the developer, lives with the frame ([RawCache]), not here. One
      * value, so a move of the zone strip is one emission for the
-     * viewfinder; [soft] and [hard] are the same numbers one by one for
-     * the sliders.
+     * viewfinder and the sliders alike.
      */
     val grade: StateFlow<Grade> = _grade.asStateFlow()
-
-    private val _soft = MutableStateFlow(_grade.value.soft)
-    /** Soft-pass time in stops from the base exposure. */
-    val soft: StateFlow<Double> = _soft.asStateFlow()
-
-    private val _hard = MutableStateFlow(_grade.value.hard)
-    /** Hard-pass time in stops from the base exposure. */
-    val hard: StateFlow<Double> = _hard.asStateFlow()
 
     /** The standing grade as one number: [GradeMath.withContrast] on the standing pair. */
     fun setContrast(stops: Double) {
@@ -76,8 +67,6 @@ class Prefs(context: Context) {
     fun setGrade(soft: Double, hard: Double) {
         val g = snapGrade(soft, hard)
         _grade.value = g
-        _soft.value = g.soft
-        _hard.value = g.hard
         sp.edit {
             putFloat(KEY_SOFT, g.soft.toFloat())
             putFloat(KEY_HARD, g.hard.toFloat())

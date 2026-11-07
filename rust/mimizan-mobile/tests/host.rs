@@ -54,30 +54,28 @@ fn synthetic_develop_preview_remix_export() {
     assert_eq!(info.wb, vec![1.0, 1.0, 1.0]);
     assert!(info.json.contains("\"stage\":\"negative\""));
 
-    // Preview: upright, long edge 160, then one more quarter turn.
-    let pv = dev.preview(0.0, 0.0, 0).unwrap();
+    // Preview: upright, long edge 160.
+    let pv = dev.preview(0.0, 0.0).unwrap();
     assert_eq!((pv.width, pv.height), (120, 160));
     assert_eq!(pv.data.len(), 120 * 160);
-    let pv_turned = dev.preview(0.0, 0.0, 1).unwrap();
-    assert_eq!((pv_turned.width, pv_turned.height), (160, 120));
 
     // Histogram covers every preview pixel.
     let hist = dev.histogram(0.0, 0.0).unwrap();
     assert_eq!(hist.iter().sum::<u64>(), 120 * 160);
 
     // Detail is 1:1 in display coordinates.
-    let d = dev.detail(10, 20, 64, 48, 0.0, 0.0, 0, 0.7, 0.0).unwrap();
+    let d = dev.detail(10, 20, 64, 48, 0.0, 0.0, 0.7, 0.0).unwrap();
     assert_eq!((d.width, d.height), (64, 48));
-    let d_edge = dev.detail(230, 300, 100, 100, 0.0, 0.0, 0, 0.7, 0.0).unwrap();
+    let d_edge = dev.detail(230, 300, 100, 100, 0.0, 0.0, 0.7, 0.0).unwrap();
     assert_eq!((d_edge.width, d_edge.height), (10, 20), "clamped to the upright 240x320 picture");
     // The peak keeps the window size and changes the pixels.
-    let d_peak = dev.detail(10, 20, 64, 48, 0.0, 0.0, 0, 0.7, 1.0).unwrap();
+    let d_peak = dev.detail(10, 20, 64, 48, 0.0, 0.0, 0.7, 1.0).unwrap();
     assert_eq!((d_peak.width, d_peak.height), (64, 48));
     assert_ne!(d_peak.data, d.data, "a peak amount of 1 sharpens the window");
-    let d_corner = dev.detail(0, 0, 32, 32, 0.0, 0.0, 0, 2.8, 1.0).unwrap();
+    let d_corner = dev.detail(0, 0, 32, 32, 0.0, 0.0, 2.8, 1.0).unwrap();
     assert_eq!((d_corner.width, d_corner.height), (32, 32), "margin clamps at the picture edge");
     // Out-of-range values are pulled into the core's range, not refused.
-    let d_wild = dev.detail(10, 20, 64, 48, 0.0, 0.0, 0, f64::NAN, 99.0).unwrap();
+    let d_wild = dev.detail(10, 20, 64, 48, 0.0, 0.0, f64::NAN, 99.0).unwrap();
     assert_eq!((d_wild.width, d_wild.height), (64, 48));
 
     // The measurement answers in range; a synthetic chart has clean edges.
@@ -88,9 +86,9 @@ fn synthetic_develop_preview_remix_export() {
     assert_eq!(lim.radius_default, 0.7);
 
     // A stop of soft light is a different print from the base exposure.
-    let pv_soft = dev.preview(1.0, 0.0, 0).unwrap();
+    let pv_soft = dev.preview(1.0, 0.0).unwrap();
     assert_ne!(pv_soft.data, pv.data);
-    assert!(dev.preview(4.0, 0.0, 0).is_err(), "exposures stay inside the slider");
+    assert!(dev.preview(4.0, 0.0).is_err(), "exposures stay inside the slider");
 
     // Remix: a red filter changes the picture on the colour patches.
     let before = dev.negative_u16_le();
@@ -107,29 +105,20 @@ fn synthetic_develop_preview_remix_export() {
 
     // Exports.
     let dir = tmp_dir("synth");
-    let jpg = dev.export_jpeg(dir.join("p.jpg").display().to_string(), 0.0, 0.0, 0, 0.7, 0.0, false).unwrap();
+    let jpg = dev.export_jpeg(dir.join("p.jpg").display().to_string(), 0.0, 0.0, 0.7, 0.0, false).unwrap();
     assert_eq!((jpg.width, jpg.height), (240, 320), "full size, upright");
     let jpg_peak =
-        dev.export_jpeg(dir.join("u.jpg").display().to_string(), 0.0, 0.0, 0, m.radius, 0.8, false).unwrap();
+        dev.export_jpeg(dir.join("u.jpg").display().to_string(), 0.0, 0.0, m.radius, 0.8, false).unwrap();
     assert_eq!((jpg_peak.width, jpg_peak.height), (240, 320));
-    let binned = dev.export_jpeg(dir.join("b.jpg").display().to_string(), 0.0, 0.0, 0, 0.7, 0.0, true).unwrap();
+    let binned = dev.export_jpeg(dir.join("b.jpg").display().to_string(), 0.0, 0.0, 0.7, 0.0, true).unwrap();
     assert_eq!((binned.width, binned.height), (120, 160), "binned: half the edge, upright");
-    let binned_turned = dev.export_jpeg(dir.join("bt.jpg").display().to_string(), 0.0, 0.0, 1, 0.7, 0.0, true).unwrap();
-    assert_eq!((binned_turned.width, binned_turned.height), (160, 120), "binned, one turn: the sheet turns with the picture");
-    let tif = dev.export_tiff16(dir.join("p.tif").display().to_string(), 0.0, 0.0, 1, 0.7, 0.0).unwrap();
-    assert_eq!(
-        (tif.width, tif.height),
-        (320, 240),
-        "orientation 6 plus one turn is upside down, same size as the sensor frame"
-    );
+    let tif = dev.export_tiff16(dir.join("p.tif").display().to_string(), 0.0, 0.0, 0.7, 0.0).unwrap();
+    assert_eq!((tif.width, tif.height), (240, 320), "orientation 6: upright, the sensor frame turned");
     let neg = dev.export_negative(dir.join("neg.tif").display().to_string()).unwrap();
     assert_eq!((neg.width, neg.height), (w as u32, h as u32));
     assert!(dir.join("neg.mask.tif").exists());
-    assert!(dev.export_jpeg(dir.join("x.tif").display().to_string(), 0.0, 0.0, 0, 0.7, 0.0, false).is_err());
+    assert!(dev.export_jpeg(dir.join("x.tif").display().to_string(), 0.0, 0.0, 0.7, 0.0, false).is_err());
     std::fs::remove_dir_all(&dir).unwrap();
-
-    dev.release_preview();
-    assert!(dev.preview(0.0, 0.0, 0).is_err());
 }
 
 #[test]
@@ -164,87 +153,8 @@ fn paper_lut_is_the_print_curve() {
     let f = x - i as f64;
     let v = lut[i] as f64 + (lut[i + 1] as f64 - lut[i] as f64) * f;
     assert!((v - curve.eval(0.18)).abs() < 1e-4, "viewfinder grey {v}");
-    let g = paper_grade(0.0, 0.0).unwrap();
-    assert_eq!(g.label, "2");
-    assert!((5.0..5.4).contains(&g.scene_stops), "{}", g.scene_stops);
     assert!(paper_lut(3.5, 0.0, 16).is_err());
     assert!((paper_stop_limit() - 3.0).abs() < 1e-12);
-}
-
-/// The sign and the size of the placement (`flat_input` below). The paper's exposure axis is
-/// `t − γ·log2(l)` (`paper::log_exposure`), so a middle one stop under the
-/// grey card wants `−γ` stops of paper time (less: it prints lighter), one
-/// stop over wants `+γ`, and the grey card itself wants nothing. At the
-/// limit the shift stops where the sliders stop.
-#[test]
-fn zone_shift_sign_size_and_clamp() {
-    use mimizan_core::paper::NEGATIVE_GAMMA as G;
-    use mimizan_core::zone::GRAY_CARD;
-    let params = DevelopParams { preview_long_edge: 96, ..DevelopParams::default() };
-    let shift_of = |v: f64, soft: f64, hard: f64| {
-        develop(flat_input(160, 120, v), params.clone()).unwrap().zone_shift(soft, hard).unwrap()
-    };
-    let grey = shift_of(GRAY_CARD, 0.0, 0.0);
-    assert!(grey.abs() < 0.05, "the grey card is already placed: {grey}");
-    let dark = shift_of(GRAY_CARD / 2.0, 0.0, 0.0);
-    assert!((dark + G).abs() < 0.05, "one stop under wants -γ = {} stops of paper, got {dark}", -G);
-    let light = shift_of(GRAY_CARD * 2.0, 0.0, 0.0);
-    assert!((light - G).abs() < 0.05, "one stop over wants +γ = {G} stops of paper, got {light}");
-    // The room both sliders still have: 0.1 up at (2.9, 2.9), 0.1 down at (-2.9, -2.9).
-    let pinned_high = shift_of(GRAY_CARD * 2.0, 2.9, 2.9);
-    assert!((pinned_high - 0.1).abs() < 1e-9, "clamped to the room above: {pinned_high}");
-    let pinned_low = shift_of(GRAY_CARD / 2.0, -2.9, -2.9);
-    assert!((pinned_low + 0.1).abs() < 1e-9, "clamped to the room below: {pinned_low}");
-    // The gap sets the room: the higher slider stops first.
-    let gap = shift_of(GRAY_CARD * 2.0, 1.0, 2.95);
-    assert!((gap - 0.05).abs() < 1e-9, "the hard slider has 0.05 left: {gap}");
-}
-
-#[test]
-fn zone_shift_places_the_middle_without_a_preview_it_refuses() {
-    let dev = develop(
-        synthetic_input(160, 120, 1),
-        DevelopParams { preview_long_edge: 96, ..DevelopParams::default() },
-    )
-    .unwrap();
-    let shift = dev.zone_shift(0.0, 0.0).unwrap();
-    assert!(shift.is_finite() && shift.abs() <= 3.0, "{shift}");
-    let again = dev.zone_shift(0.0, 0.0).unwrap();
-    assert!((shift - again).abs() < 1e-9, "the same negative places once");
-    // The shift belongs to the negative. It does not depend on where the grade
-    // sits, so a placed pair still wants the same stops: storing the placed
-    // pair and placing again would add them twice.
-    let elsewhere = dev.zone_shift(0.5, -0.25).unwrap();
-    assert!((shift - elsewhere).abs() < 1e-6, "grade must not change the shift: {shift} vs {elsewhere}");
-    if shift.abs() < 2.5 {
-        let parked = dev.zone_shift(shift, shift).unwrap();
-        assert!(
-            (parked - shift).abs() < 1e-6,
-            "an already placed pair still wants the full shift, got {parked}"
-        );
-    }
-    let bare = develop(
-        synthetic_input(80, 60, 1),
-        DevelopParams { preview_long_edge: 0, separation: SeparationMode::Off, ..DevelopParams::default() },
-    )
-    .unwrap();
-    assert!(bare.zone_shift(0.0, 0.0).is_err());
-}
-
-#[test]
-fn binning_halves_the_frame() {
-    let input = synthetic_input(320, 240, 1);
-    let params = DevelopParams {
-        binning: 2,
-        separation: SeparationMode::Off,
-        preview_long_edge: 0,
-        ..DevelopParams::default()
-    };
-    let dev = develop(input, params).unwrap();
-    let info = dev.info();
-    assert_eq!((info.width, info.height), (160, 120));
-    assert_eq!(info.binning, 2);
-    assert!((info.noise_a - 0.0025).abs() < 1e-12, "sigma halves");
 }
 
 #[test]
@@ -297,7 +207,7 @@ fn plate_is_a_remix_grey_stays_grey_and_the_lamps_move_one_channel() {
     let dev = develop(input, params.clone()).unwrap();
     assert!(dev.info().has_colour_matrix);
     assert!(dev.info().plate.is_none());
-    assert!(dev.preview_rgb(0.0, 0.0, 0).is_err(), "colour needs the plate process");
+    assert!(dev.preview_rgb(0.0, 0.0).is_err(), "colour needs the plate process");
 
     // The viewfinder's numbers are the still's.
     let pw = dev.set_plate(PlateFilters::Camera, PlateSpace::Srgb).unwrap();
@@ -323,26 +233,26 @@ fn plate_is_a_remix_grey_stays_grey_and_the_lamps_move_one_channel() {
     // Grey in, grey out on all three positives, whatever the set.
     for f in [PlateFilters::Camera, PlateFilters::Wratten, PlateFilters::Channels] {
         dev.set_plate(f, PlateSpace::Srgb).unwrap();
-        let rgb = dev.preview_rgb(0.0, 0.0, 0).unwrap();
+        let rgb = dev.preview_rgb(0.0, 0.0).unwrap();
         assert_eq!((rgb.width, rgb.height), (80, 60));
         assert_eq!(rgb.data.len(), 80 * 60 * 3);
         let c = rgb.data.len() / 2 - rgb.data.len() / 2 % 3;
         let (r, g, b) = (rgb.data[c], rgb.data[c + 1], rgb.data[c + 2]);
         assert!(r.abs_diff(g) <= 1 && g.abs_diff(b) <= 1, "{f:?}: {r} {g} {b}");
         assert!(r > 20 && r < 235, "{f:?}: a mid grey, not clipped: {r}");
-        let d = dev.detail_rgb(10, 10, 32, 24, 0.0, 0.0, 0, 0.7, 0.0).unwrap();
+        let d = dev.detail_rgb(10, 10, 32, 24, 0.0, 0.0, 0.7, 0.0).unwrap();
         assert_eq!((d.width, d.height), (32, 24));
         let i = 3 * (12 * 32 + 16);
         assert!(d.data[i].abs_diff(d.data[i + 1]) <= 1 && d.data[i + 1].abs_diff(d.data[i + 2]) <= 1);
         // The grey preview is the same picture as the plate's luminance.
-        let grey = dev.preview(0.0, 0.0, 0).unwrap();
+        let grey = dev.preview(0.0, 0.0).unwrap();
         assert!(grey.data[c / 3].abs_diff(g) <= 1, "{f:?}: luminance {} vs green {g}", grey.data[c / 3]);
     }
 
     // Lamps: half a stop on red lifts red, green and blue stay.
-    let before = dev.preview_rgb(0.0, 0.0, 0).unwrap();
+    let before = dev.preview_rgb(0.0, 0.0).unwrap();
     dev.set_lamps(0.5, 0.0).unwrap();
-    let after = dev.preview_rgb(0.0, 0.0, 0).unwrap();
+    let after = dev.preview_rgb(0.0, 0.0).unwrap();
     assert!(after.data[0] > before.data[0], "red {} -> {}", before.data[0], after.data[0]);
     assert_eq!(after.data[1], before.data[1]);
     assert_eq!(after.data[2], before.data[2]);
@@ -354,20 +264,15 @@ fn plate_is_a_remix_grey_stays_grey_and_the_lamps_move_one_channel() {
     for c in 0..3 {
         assert_eq!(hist[c * 256..(c + 1) * 256].iter().sum::<u64>(), 80 * 60, "channel {c}");
     }
-    // The turned preview keeps the pixel's three channels together.
-    let turned = dev.preview_rgb(0.0, 0.0, 1).unwrap();
-    assert_eq!((turned.width, turned.height), (60, 80));
-    assert_eq!(&turned.data[0..3], &after.data[3 * (80 * 59)..3 * (80 * 59) + 3]);
-
     // Exports: RGB files, and the stacked plate the desktop prints.
     let dir = tmp_dir("plate");
-    let tif = dev.export_tiff16(dir.join("p.tif").display().to_string(), 0.0, 0.0, 0, 0.7, 0.5).unwrap();
+    let tif = dev.export_tiff16(dir.join("p.tif").display().to_string(), 0.0, 0.0, 0.7, 0.5).unwrap();
     assert_eq!((tif.width, tif.height), (w as u32, h as u32));
     let planes = mimizan_core::tiffin::read_rgb16(&dir.join("p.tif")).expect("an RGB TIFF");
     assert_eq!((planes[0].width, planes[0].height), (w, h));
     assert!(planes[0].at(80, 60) > planes[1].at(80, 60), "the red lamp is in the file");
     assert!((planes[1].at(80, 60) - planes[2].at(80, 60)).abs() < 1.0 / 65535.0);
-    let jpg = dev.export_jpeg(dir.join("p.jpg").display().to_string(), 0.0, 0.0, 0, 0.7, 0.0, false).unwrap();
+    let jpg = dev.export_jpeg(dir.join("p.jpg").display().to_string(), 0.0, 0.0, 0.7, 0.0, false).unwrap();
     assert_eq!((jpg.width, jpg.height), (w as u32, h as u32));
     assert!(std::fs::metadata(dir.join("p.jpg")).unwrap().len() > 0);
 
@@ -395,7 +300,7 @@ fn plate_is_a_remix_grey_stays_grey_and_the_lamps_move_one_channel() {
     assert_eq!(used, Weights::NATIVE);
     assert!(dev.info().plate.is_none());
     assert!(!dev.info().json.contains("\"plate\""));
-    assert!(dev.preview_rgb(0.0, 0.0, 0).is_err());
+    assert!(dev.preview_rgb(0.0, 0.0).is_err());
     let grey = dev.export_negative(dir.join("neg.tif").display().to_string());
     assert!(grey.is_err(), "the directory is gone");
 }
@@ -417,7 +322,7 @@ fn camera_filters_without_a_matrix_are_the_channels() {
         plate_weights(DevelopParams::default(), None, None, PlateFilters::Wratten, PlateSpace::Srgb).unwrap();
     assert_eq!(wr.filters, PlateFilters::Wratten);
     assert!(wr.red.r > 0.8 && wr.red.b == 0.0, "{:?}", wr.red);
-    assert!(dev.preview_rgb(0.0, 0.0, 0).is_err(), "no preview planes");
+    assert!(dev.preview_rgb(0.0, 0.0).is_err(), "no preview planes");
 }
 
 #[test]
@@ -508,7 +413,6 @@ fn develop_file_matches_develop_bit_for_bit() {
         eprintln!("skipping: {} not present", path.display());
         return;
     }
-    assert!(reads_files());
     let frame = mimizan_core::pipeline::decode(&path).expect("rawler decode");
     let SensorKind::Bayer(phase) = frame.kind else { panic!("Bayer file expected") };
     let RawData::Integer(samples) = &frame.data else { panic!("integer samples expected") };

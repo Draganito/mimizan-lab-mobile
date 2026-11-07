@@ -28,8 +28,6 @@ final class CaptureViewModel {
 
     private(set) var lens: LensInfo?
     private(set) var exposure = ExposureSettings()
-    /// This session's choices; the process and the plate's come from the roll's standing settings.
-    private var local = DevelopSettings()
     var viewfinder = ViewfinderSettings()
     var message: String?
     private(set) var permissionDenied = false
@@ -40,13 +38,18 @@ final class CaptureViewModel {
     private var startTask: Task<Void, Never>?
     /// A start is under way and has not been cancelled.
     private var starting = false
-    private var observing = false
 
     var state: CaptureState { session.state }
     var prefs: Prefs { darkroom.prefs }
 
-    /// What the next frame is developed with.
-    var develop: DevelopSettings { darkroom.withStandingProcess(local) }
+    /// What the next frame is developed with: the standing process and
+    /// the plate's filters; the mono filter is chosen in the developer.
+    var develop: DevelopSettings { darkroom.withStandingProcess(DevelopSettings()) }
+
+    /// ISO and time the hand's sliders run over: the range of the format
+    /// the still is taken in, once the session knows it.
+    var isoRange: ClosedRange<Double>? { state.isoRange ?? lens?.isoRange }
+    var exposureRange: ClosedRange<Double>? { state.exposureRange ?? lens?.exposureRange }
 
     init() {
         lenses = LensCatalog.enumerate()
@@ -67,12 +70,12 @@ final class CaptureViewModel {
             _ = prefs.soft; _ = prefs.hard
             _ = prefs.process; _ = prefs.plateFilters; _ = prefs.plateSpace
             _ = prefs.finderMatch
-            _ = local; _ = viewfinder.zebra; _ = lens
+            _ = viewfinder.zebra; _ = lens
             _ = session.state.paperFinder
             _ = session.state.wbGains
             _ = session.state.rotationQuarters
             // A new DNG may have brought this lens its matrix.
-            _ = darkroom.shots.first?.meta.xyzToCam
+            _ = prefs.matrixVersion
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -132,7 +135,7 @@ final class CaptureViewModel {
             lut = (0...4096).map { Float($0) / 4096 }
         }
         return PaperTone(
-            v: back.pullBack(w.simd), plate: plate, lampGain: SIMD3(1, 1, 1),
+            v: back.pullBack(w.simd), plate: plate,
             gain: Float(exp2(prefs.finderMatch.stops)), lut: lut
         )
     }
@@ -180,7 +183,7 @@ final class CaptureViewModel {
         guard let l = lens else { message = "No RAW-capable camera"; return }
         // The lens may advertise RAW and refuse the session: try the rest
         // before giving up, and keep the one that opened.
-        let order = [l] + lenses.filter { $0.key != l.key }
+        let order = [l] + lenses.filter { $0.id != l.id }
         var last: Error?
         for candidate in order {
             if Task.isCancelled { return }
@@ -189,7 +192,7 @@ final class CaptureViewModel {
                 // Replaced while the session was opening: the newer start owns the state.
                 if Task.isCancelled { return }
                 session.setExposure(exposure)
-                if candidate.key != l.key {
+                if candidate.id != l.id {
                     lens = candidate
                     message = "\(l.label) has no RAW session, opened \(candidate.label)"
                 }
@@ -203,16 +206,18 @@ final class CaptureViewModel {
     }
 
     func selectLens(_ l: LensInfo) {
-        guard lens?.key != l.key else { return }
+        guard lens?.id != l.id else { return }
         lens = l
-        // Another lens, another range: back to the automatics.
+        // Another lens, another range: back to the automatics, told to the
+        // session before it opens the lens so the old pair never reaches it.
         exposure = ExposureSettings()
+        session.setExposure(exposure)
         restart()
     }
 
     func nextLens() {
         guard lenses.count > 1 else { return }
-        let i = lenses.firstIndex { $0.key == lens?.key } ?? 0
+        let i = lenses.firstIndex { $0.id == lens?.id } ?? 0
         selectLens(lenses[(i + 1) % lenses.count])
     }
 
@@ -234,10 +239,10 @@ final class CaptureViewModel {
 
     /// Switch to manual seeded with the exposure the automatics chose.
     func enterManual() {
-        guard let l = lens else { return }
-        let iso = min(max(Double(state.iso ?? 100), l.isoRange.lowerBound), l.isoRange.upperBound)
+        guard let isoRange, let exposureRange else { return }
+        let iso = min(max(Double(state.iso ?? 100), isoRange.lowerBound), isoRange.upperBound)
         let measured = state.exposureSeconds ?? 1.0 / 125
-        let t = min(max(measured.isFinite && measured > 0 ? measured : 1.0 / 125, l.exposureRange.lowerBound), l.exposureRange.upperBound)
+        let t = min(max(measured.isFinite && measured > 0 ? measured : 1.0 / 125, exposureRange.lowerBound), exposureRange.upperBound)
         setManual(iso: iso, seconds: t)
     }
 
@@ -247,8 +252,6 @@ final class CaptureViewModel {
 
     // MARK: development settings
 
-    func setFilter(_ f: Filter) { local.filter = f }
-    func setSeparation(_ m: SeparationMode) { local.separation = m }
     /// The standing grade: the automatic JPEG, and where a new frame starts.
     func setContrast(_ stops: Double) { prefs.setContrast(stops) }
     func setGrade(soft: Double, hard: Double) { prefs.setGrade(soft: soft, hard: hard) }
@@ -257,9 +260,11 @@ final class CaptureViewModel {
     func toggleHistogram() { viewfinder.showHistogram.toggle(); prefs.setHistogram(viewfinder.showHistogram) }
     func setPeakMode(_ mode: PeakMode) { prefs.setPeakMode(mode) }
     func setProcess(_ p: Process) { prefs.setProcess(p) }
-    func setPlateFilters(_ f: PlateFilters) { prefs.setPlateFilters(f) }
     func setPlateSpace(_ s: PlateSpace) { prefs.setPlateSpace(s) }
     func setShotMode(_ mode: ShotMode) { prefs.setShotMode(mode) }
+
+    /// The shutter may fire: a lens is open and no still is under way.
+    var canShoot: Bool { !state.capturing && lens != nil && state.lens != nil }
 
     /// The shot modes this device offers. The automatic JPEG is the print
     /// the finder showed, so it is only offered where the finder is the
