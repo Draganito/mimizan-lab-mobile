@@ -139,6 +139,8 @@ struct ReviewView: View {
             let negative = plate != nil ? "Negative (linear TIFF, three frames + mask)" : "Negative (linear TIFF + mask)"
             Button { vm.exportTiff() } label: { if full { Text(tiff) } else { Label(tiff, systemImage: "lock") } }
             Button { vm.exportNegative() } label: { if full { Text(negative) } else { Label(negative, systemImage: "lock") } }
+            let dng = "DNG (the raw frame)"
+            Button { vm.exportDng() } label: { if full { Text(dng) } else { Label(dng, systemImage: "lock") } }
         } label: {
             Text(vm.exporting.map { "Saving \($0)…" } ?? "Export")
                 .font(.subheadline.weight(.semibold))

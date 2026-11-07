@@ -1,8 +1,8 @@
 // Where finished pictures go. Every export lands in `Documents/Mimizan Lab`,
 // which the Files app shows (the Android app's `Pictures/Mimizan Lab`);
 // JPEGs are added to Photos as well when the user allows it. TIFFs,
-// linear negatives and plates stay in Files only: Photos would show the
-// linear files dark and would gain nothing.
+// linear negatives, plates and the DNG itself stay in Files only: Photos
+// would show the linear files dark and would gain nothing.
 import Foundation
 import Photos
 

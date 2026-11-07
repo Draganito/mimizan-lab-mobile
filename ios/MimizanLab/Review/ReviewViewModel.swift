@@ -355,6 +355,26 @@ final class ReviewViewModel {
         }
     }
 
+    /// The raw frame itself, the DNG as the camera handed it over, copied
+    /// out of the cache into Files: for the desktop, or for sending a
+    /// frame to someone who wants to look at the sensor's own numbers.
+    /// Part of the full-resolution purchase, as the two TIFFs are.
+    func exportDng() {
+        guard fullResolution else { unlockRequested = true; return }
+        let src = darkroom.cache.rawFile(name)
+        let fileName = "\(name).dng"
+        let exporter = darkroom.exporter
+        exporting = "DNG"
+        Task {
+            let result: Result<[URL], Error> = await gate.run {
+                Result<[URL], Error> {
+                    [try exporter.place(fileName: fileName) { try FileManager.default.copyItem(atPath: src.path, toPath: $0) }]
+                }
+            }
+            finishExport("DNG", result)
+        }
+    }
+
     private func export(_ label: String, _ f: @escaping @Sendable (Developed, String, String, Exporter) throws -> [URL]) {
         guard let d = developed else { return }
         let suffix = plate.map { Darkroom.suffix(for: $0) } ?? Darkroom.suffix(for: filter)
@@ -363,19 +383,24 @@ final class ReviewViewModel {
         exporting = label
         Task {
             let result: Result<[URL], Error> = await gate.run { Result<[URL], Error> { try f(d, name, suffix, exporter) } }
-            switch result {
-            case let .success(urls):
-                lastExport = urls.first
-                exporting = nil
-                message = "Saved \(label) to Files › Mimizan Lab"
-                if label.hasPrefix("JPEG"), let u = urls.first {
-                    Task { _ = await exporter.addToPhotos(u) }
-                }
-            case let .failure(error):
-                log.error("export: \(error.localizedDescription)")
-                exporting = nil
-                message = error.localizedDescription
+            finishExport(label, result)
+        }
+    }
+
+    private func finishExport(_ label: String, _ result: Result<[URL], Error>) {
+        switch result {
+        case let .success(urls):
+            lastExport = urls.first
+            exporting = nil
+            message = "Saved \(label) to Files › Mimizan Lab"
+            if label.hasPrefix("JPEG"), let u = urls.first {
+                let exporter = darkroom.exporter
+                Task { _ = await exporter.addToPhotos(u) }
             }
+        case let .failure(error):
+            log.error("export: \(error.localizedDescription)")
+            exporting = nil
+            message = error.localizedDescription
         }
     }
 

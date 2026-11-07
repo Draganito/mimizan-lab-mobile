@@ -208,10 +208,11 @@ the camera's own preview, desaturated in mono, untouched in colour.
    the histogram and every export, through the same paper. Export
    writes the JPEG, a 16-bit TIFF, or the linear negative plus
    saturation mask for the desktop (in Color the three-frame
-   `.plate.tif`, which `mimizan print` prints in colour). In a store
+   `.plate.tif`, which `mimizan print` prints in colour); on iOS also
+   the DNG itself, the frame as the camera handed it over. In a store
    build without the purchase the JPEG is printed at half the edge,
-   the same development on a smaller sheet, and the two TIFFs open the
-   purchase instead. Share sends the last export, or the automatic
+   the same development on a smaller sheet, and the TIFFs and the DNG
+   open the purchase instead. Share sends the last export, or the automatic
    JPEG of the frame.
 8. **The roll** lists every frame in the cache (1.5 GB, newest first).
    The bin on Android, a swipe on iOS, or a long press on either
@@ -375,7 +376,7 @@ iOS side. The iOS build number is the workflow's run number, not the
 
 ## Status
 
-0.17.20 on Android and iOS: RAW capture, the finder as the paper
+0.17.21 on Android and iOS: RAW capture, the finder as the paper
 (Android, and iPhones with Apple Log), Mono and Color, the split-grade
 paper, the zone strip and Peak with a print per frame, review with
 remix and 1:1 detail, the exports, the roll. Checked on a Pixel 9 (main
