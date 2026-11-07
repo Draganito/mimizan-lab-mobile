@@ -136,7 +136,7 @@ final class CaptureViewModel {
         }
         return PaperTone(
             v: back.pullBack(w.simd), plate: plate,
-            gain: Float(exp2(prefs.finderMatch.stops)), lut: lut
+            gain: Float(exp2(prefs.finderMatch.stops(lens: lens?.label))), lut: lut
         )
     }
 

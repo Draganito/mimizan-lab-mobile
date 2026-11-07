@@ -89,8 +89,8 @@ android {
         applicationId = "ch.bojovic.mimizanlab"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 77
-        versionName = "0.17.18"
+        versionCode = 78
+        versionName = "0.17.19"
         ndk { abiFilters += rustAbi }
     }
 

@@ -157,3 +157,25 @@ widest. Phone numbers not yet measured.
   `logRawTypes` of the iPhone 16 Pro file was the preset talking, not
   the Log format. The ISO range of the photo format is 54–12096, of
   every video format 54–5184 (54–3456 at 120 fps, 54–2160 at 240).
+* iPhone 17 Pro, 0.17.18, all three cameras: the finder in Apple Log
+  1920×1440 `x422` on each, the still `bgg4` (BGGR) from the main
+  camera and `rgg4` (RGGB) from the tele and the ultra-wide (8 Apple
+  Log formats, 65 in all, on those two). `finder-match.json`, twenty
+  frames over two sittings with lens changes between: from the prior
+  of −3.58 the match reached −0.72 on the first frame and stayed in
+  −0.69 … −1.07 stops; per lens the main camera measured −0.46 … −1.03,
+  the ultra-wide −1.22 … −1.48 (half a stop below the main, every
+  time), the tele −0.69 … −1.19 with one −2.42 on a dark subject at
+  ISO 320 and 1/48 s. Hence the match per lens (0.17.19).
+* Three things a Log finder leaves behind in the process, each of
+  which made the next `addInput`/`addOutput` under the photo preset
+  raise `-[AVCaptureDevice _setActiveFormat:…] Unsupported format
+  ((null))` on the 17 Pro (an abort until `MimizanTry`, a message in
+  the finder since 0.17.16): the `AVCaptureDevice` — one object per
+  camera for the process — keeps the Log colour space and the 30 fps
+  lock; an empty session committed on `.inputPriority`; a video output
+  whose `videoSettings` still ask for `x422`, which no photo-preset
+  format delivers. A photo output that has been through the Log keeps
+  an empty RAW list under `.photo` too, so the still takes a fresh one.
+  Fresh install, first run: all three are at their defaults, which is
+  why that run worked and the next did not.

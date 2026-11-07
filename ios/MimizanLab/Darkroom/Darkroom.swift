@@ -284,13 +284,15 @@ final class Darkroom {
     private func recordMatch(_ name: String, finder: FinderSample, negativeMedian: Double) {
         guard finder.median > 0, negativeMedian > 0 else { return }
         let stops = log2(negativeMedian / finder.median)
-        prefs.addFinderMatch(stops)
         let meta = shots.first { $0.name == name }?.meta
+        // A frame without a lens in its metadata counts for the main camera.
+        let lens = (meta?.lens).flatMap { $0.isEmpty ? nil : $0 } ?? Prefs.legacyMatchLens
+        prefs.addFinderMatch(stops, lens: lens)
         let record = FinderMatchRecord(
             at: ISO8601DateFormatter().string(from: Date()), frame: name, device: FinderMatchLog.deviceModel,
-            ios: FinderMatchLog.osVersion, lens: meta?.lens ?? "", iso: meta?.iso,
+            ios: FinderMatchLog.osVersion, lens: lens, iso: meta?.iso,
             exposureNs: meta?.exposureNs, format: finder.format, finderMedian: finder.median,
-            negativeMedian: negativeMedian, stops: stops, applied: finder.applied, match: prefs.finderMatch.stops
+            negativeMedian: negativeMedian, stops: stops, applied: finder.applied, match: prefs.finderMatch.stops(lens: lens)
         )
         Task { await intake.run { FinderMatchLog.append(record) } }
     }

@@ -135,8 +135,8 @@ final class Prefs {
     /// The finder's histogram. Off for a fresh install.
     private(set) var histogram: Bool
     /// The paper finder's axis against the negative's, as measured on the
-    /// frames taken so far (Apple Log cameras only).
-    private(set) var finderMatch: FinderMatch
+    /// frames taken so far, lens by lens (Apple Log cameras only).
+    private(set) var finderMatch: FinderMatches
 
     init() {
         soft = Prefs.snapStops(store.double(forKey: Keys.soft))
@@ -164,20 +164,40 @@ final class Prefs {
         zebra = store.object(forKey: Keys.zebra) == nil ? true : store.bool(forKey: Keys.zebra)
         grid = store.bool(forKey: Keys.grid)
         histogram = store.bool(forKey: Keys.histogram)
-        finderMatch = FinderMatch(samples: (store.array(forKey: Keys.finderMatch) as? [Double]) ?? [])
+        var byLens: [String: FinderMatch] = [:]
+        if let table = store.dictionary(forKey: Keys.finderMatchByLens) {
+            for (lens, v) in table {
+                if let samples = v as? [Double] { byLens[lens] = FinderMatch(samples: samples) }
+            }
+        } else if let legacy = store.array(forKey: Keys.finderMatch) as? [Double], !legacy.isEmpty {
+            // One table for every lens before 0.17.19: those frames were
+            // the main camera's for the most part; it keeps them.
+            byLens[Prefs.legacyMatchLens] = FinderMatch(samples: legacy)
+        }
+        finderMatch = FinderMatches(byLens: byLens)
     }
 
-    /// One more frame measured: the finder follows from the next tone on.
-    func addFinderMatch(_ stops: Double) {
+    /// The lens the one table of before 0.17.19 is handed to.
+    static let legacyMatchLens = "Main"
+
+    /// One more frame measured on `lens`: the finder follows from the next tone on.
+    func addFinderMatch(_ stops: Double, lens: String) {
         guard stops.isFinite else { return }
-        finderMatch.add(stops)
-        store.set(finderMatch.samples, forKey: Keys.finderMatch)
+        finderMatch.add(stops, lens: lens)
+        storeFinderMatch()
     }
 
     /// Back to the published curve's own white, as on a fresh install.
     func resetFinderMatch() {
-        finderMatch = FinderMatch(samples: [])
+        finderMatch = FinderMatches()
+        storeFinderMatch()
         store.removeObject(forKey: Keys.finderMatch)
+    }
+
+    private func storeFinderMatch() {
+        var table: [String: [Double]] = [:]
+        for lens in finderMatch.lenses { table[lens] = finderMatch.byLens[lens]?.samples ?? [] }
+        store.set(table, forKey: Keys.finderMatchByLens)
     }
 
     /// The sensor's XYZ → camera matrix as the last DNG of this lens
@@ -341,6 +361,7 @@ final class Prefs {
         static let histogram = "finder_histogram"
         static let rollHint = "hint_roll_shown"
         static let finderMatch = "finder_match_stops"
+        static let finderMatchByLens = "finder_match_stops_by_lens"
         static let xyzToCam = "xyz_to_cam_"
     }
 }

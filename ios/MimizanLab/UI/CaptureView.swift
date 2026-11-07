@@ -286,6 +286,25 @@ struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var confirmDeleteAll = false
 
+    /// The match as the Settings tell it: the current lens's stops and
+    /// where they come from (its own frames, the other lenses' pool, the
+    /// curve's own white), then every measured lens in one line.
+    static func matchLine(_ match: FinderMatches, lens: String?) -> String {
+        let stops = Format.stops(match.stops(lens: lens))
+        let own = match.count(lens: lens)
+        let head: String
+        if match.count == 0 {
+            head = "Exposure match: \(stops) stops, the curve's own white; the first frames measure it."
+        } else if own == 0 {
+            head = "Exposure match: \(stops) stops from the other lenses' \(match.count) frame\(match.count == 1 ? "" : "s"); this lens's first frames measure its own."
+        } else {
+            head = "Exposure match: \(stops) stops from \(own) frame\(own == 1 ? "" : "s") on this lens."
+        }
+        let perLens = match.lenses.map { "\($0) \(Format.stops(match.stops(lens: $0))) (\(match.count(lens: $0)))" }
+        let tail = perLens.count > 1 ? " Lenses: \(perLens.joined(separator: ", ")). " : (perLens.isEmpty ? "" : " ")
+        return head + tail + (match.count > 0 ? "Each frame is a line in finder-match.json, below." : "")
+    }
+
     var body: some View {
         let shots = vm.darkroom.shots
         let paperFinder = vm.state.paperFinder
@@ -320,12 +339,11 @@ struct SettingsSheet: View {
                     Text("Viewfinder").font(.headline).padding(.top, 16)
                     if paperFinder {
                         let match = vm.prefs.finderMatch
+                        let here = vm.lens?.label
                         HStack {
                             VStack(alignment: .leading) {
                                 Text("The paper, from the \(vm.state.finderFormat) stream.")
-                                Text(match.count == 0
-                                    ? "Exposure match: \(Format.stops(match.stops)) stops, the curve's own white; the first frames measure it."
-                                    : "Exposure match: \(Format.stops(match.stops)) stops from \(match.count) frame\(match.count == 1 ? "" : "s"). Each frame is a line in finder-match.json, below.")
+                                Text(SettingsSheet.matchLine(match, lens: here))
                                     .font(.caption).foregroundStyle(.gray)
                             }
                             Spacer()

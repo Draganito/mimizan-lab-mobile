@@ -7,6 +7,12 @@
 // `mixMedian`, the same cut of near-black and clip). Each measurement
 // goes to `Documents/finder-match.json` and to the log; the median of
 // the last eight is what the finder applies from the next tone on.
+//
+// The stops differ by lens (the 17 Pro's ultra-wide sat half a stop
+// below its main camera over twenty frames, the tele was all over the
+// place indoors), so each lens keeps its own eight. A lens not yet
+// measured starts from the median of every lens's frames on this
+// phone, the prior only before the first frame of all.
 import Foundation
 import os
 
@@ -38,6 +44,41 @@ struct FinderMatch: Equatable {
     mutating func add(_ stops: Double) {
         samples.append(stops)
         if samples.count > FinderMatch.window { samples.removeFirst(samples.count - FinderMatch.window) }
+    }
+}
+
+/// The finder match of every lens measured so far, by the lens's label.
+struct FinderMatches: Equatable {
+    private(set) var byLens: [String: FinderMatch]
+
+    init(byLens: [String: FinderMatch] = [:]) {
+        self.byLens = byLens.filter { $0.value.count > 0 }
+    }
+
+    /// Lenses with at least one frame, in label order.
+    var lenses: [String] { byLens.keys.sorted() }
+
+    /// Frames measured on every lens together.
+    var count: Int { byLens.values.reduce(0) { $0 + $1.count } }
+
+    /// Every lens's last frames as one pool: what a lens not measured
+    /// yet starts from (the lenses of one phone sit within a stop).
+    var pooled: FinderMatch { FinderMatch(samples: byLens.values.flatMap(\.samples)) }
+
+    /// The stops for `lens`: its own median once it has a frame, the
+    /// pool's before, the prior before any frame at all.
+    func stops(lens: String?) -> Double {
+        if let lens, let m = byLens[lens], m.count > 0 { return m.stops }
+        return pooled.stops
+    }
+
+    /// Frames measured on `lens` itself.
+    func count(lens: String?) -> Int { lens.flatMap { byLens[$0]?.count } ?? 0 }
+
+    mutating func add(_ stops: Double, lens: String) {
+        var m = byLens[lens] ?? FinderMatch(samples: [])
+        m.add(stops)
+        byLens[lens] = m
     }
 }
 
