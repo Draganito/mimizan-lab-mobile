@@ -416,7 +416,7 @@ needed per release — F-Droid's update check reads the tag and
 
 ## Status
 
-0.17.24 on Android and iOS: RAW capture, the finder as the paper
+0.17.25 on Android and iOS: RAW capture, the finder as the paper
 (Android, and iPhones with Apple Log), Mono and Color, the split-grade
 paper, the zone strip and Peak with a print per frame, review with
 remix and 1:1 detail, the exports, the roll. Checked on a Pixel 9 (main
