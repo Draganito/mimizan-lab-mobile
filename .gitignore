@@ -21,3 +21,7 @@ ios/DerivedData/
 
 # Live link of the core to ../mimizan (see rust/mimizan-mobile/Cargo.toml)
 rust/mimizan-mobile/.cargo/
+
+# never
+gitlab-token.txt
+*-token.txt
