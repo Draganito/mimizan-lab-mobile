@@ -24,7 +24,7 @@ Builds:
       - rustup toolchain install 1.98.1 --profile minimal --target aarch64-linux-android
       - rustup default 1.98.1
       - cargo install --locked cargo-ndk
-    ndk: r27c
+    ndk: 27.3.13750724
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v[\d.]+$
