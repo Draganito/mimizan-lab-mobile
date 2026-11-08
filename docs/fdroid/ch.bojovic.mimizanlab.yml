@@ -13,7 +13,7 @@ Repo: https://github.com/Draganito/mimizan-lab-mobile.git
 Builds:
   - versionName: 0.17.25
     versionCode: 84
-    commit: v0.17.25
+    commit: 07b47e3a744b53c77aece64ee3173ea7aac8a832
     subdir: android/app
     sudo:
       - apt-get update
