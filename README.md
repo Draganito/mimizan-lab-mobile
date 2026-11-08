@@ -270,17 +270,29 @@ the same frame to 0.015 % RMS.
 
 ### Build for Android
 
-The Rust crate depends on `mimizan-core` by path. The two repositories
-sit next to each other; from `rust/mimizan-mobile` the core is
-`../../../mimizan/crates/mimizan-core`. A local build takes whatever
-that checkout is at. The workflows check `Draganito/mimizan` out at the
-commit in `mimizan-core.ref`, so a TestFlight build and the APK of the
-same version carry the same core (see [Release](#release)).
+The Rust crate depends on `mimizan-core` as a git dependency pinned to
+one commit of `Draganito/mimizan` (`rev` in `rust/mimizan-mobile/Cargo.toml`;
+`mimizan-core.ref` carries the same hash for the workflows). So this
+repository builds on its own — a TestFlight build, the GitHub APK and an
+F-Droid build of the same version carry the same core (see
+[Release](#release)).
 
 ```bash
-git clone https://github.com/Draganito/mimizan.git
 git clone https://github.com/Draganito/mimizan-lab-mobile.git
 ```
+
+To work on the core and the app at the same time, clone
+`Draganito/mimizan` next to this repository and patch the dependency to
+it in `rust/mimizan-mobile/.cargo/config.toml` (ignored by git):
+
+```toml
+[patch."https://github.com/Draganito/mimizan"]
+mimizan-core = { path = "../../../mimizan/crates/mimizan-core" }
+```
+
+then `cargo update -p mimizan-core` once. Every cargo call — Gradle's
+included — now builds against that checkout. Remove the file before a
+release; `scripts/set_version.sh` refuses while it is there.
 
 Prerequisites (user-local, no sudo):
 
@@ -369,10 +381,11 @@ in `android/app/build.gradle.kts`, `MARKETING_VERSION` in
 `ios/project.yml`, and `version` in `rust/mimizan-mobile/Cargo.toml`
 (what `version()` reports in the app). `scripts/set_version.sh <version>`
 writes all three, raises `versionCode` by one, and pins the core: it puts
-the `HEAD` of `../mimizan` into `mimizan-core.ref`, and refuses when that
+the `HEAD` of `../mimizan` into the `rev` of the Cargo dependency (and
+`Cargo.lock`) and into `mimizan-core.ref`, and refuses when that
 checkout has uncommitted core changes or a `HEAD` that is not on
-`origin/main`, because the workflows check that commit out. It commits
-nothing.
+`origin/main`, because cargo and the workflows fetch that commit. It
+commits nothing.
 
 ```bash
 scripts/set_version.sh 0.14.23
@@ -385,6 +398,21 @@ The `v*` tag starts `TestFlight` and `Android Release`. A tag
 `android-<version>` publishes the APK alone and starts nothing on the
 iOS side. The iOS build number is the workflow's run number, not the
 `27` in `project.yml`; that one is for a local Xcode build.
+
+**F-Droid.** F-Droid builds the `github` flavor from the same `v*`
+tags on its own buildserver and signs it with its own key, so an
+F-Droid install and a GitHub APK do not update each other. The recipe
+is `metadata/ch.bojovic.mimizanlab.yml` in
+[fdroiddata](https://gitlab.com/fdroid/fdroiddata); the copy kept here
+is `docs/fdroid/ch.bojovic.mimizanlab.yml`. The buildserver (Debian
+trixie) takes OpenJDK 21 and `rustup` from apt, the NDK the workflows
+use from F-Droid's sdkmanager and Gradle from its transparency log;
+Gradle drives cargo-ndk and the UniFFI generator as everywhere else.
+The store text, icon, screenshots and the changelog per `versionCode`
+are read from `fastlane/metadata/android/en-US` in this repository:
+a release gets a `changelogs/<versionCode>.txt` there. Nothing else is
+needed per release — F-Droid's update check reads the tag and
+`build.gradle.kts`.
 
 ## Status
 

@@ -32,7 +32,14 @@ decode-files = ["mimizan-core/decode-rawler"]
 host-raw = ["decode-files"]
 
 [dependencies]
-mimizan-core = { path = "../../../mimizan/crates/mimizan-core", default-features = false }
+# The core is pinned to one commit of Draganito/mimizan; scripts/set_version.sh
+# moves `rev` (and mimizan-core.ref, the same hash for the CI checkouts). So the
+# crate builds from this repository alone, which is what F-Droid needs. To
+# build against the live sibling checkout instead, put
+#   [patch."https://github.com/Draganito/mimizan"]
+#   mimizan-core = { path = "../../../mimizan/crates/mimizan-core" }
+# into rust/mimizan-mobile/.cargo/config.toml (ignored by git).
+mimizan-core = { git = "https://github.com/Draganito/mimizan", rev = "df0ce902ef139c5c4dab8d4322dd0b9138a0be1e", default-features = false }
 uniffi = { version = "0.32" }
 rayon = "1.12"
 serde_json = "1"

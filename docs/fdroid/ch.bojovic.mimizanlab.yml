@@ -1,0 +1,32 @@
+Categories:
+  - Graphics
+  - Multimedia
+License: GPL-3.0-or-later
+AuthorName: Dragan Bojovic
+SourceCode: https://github.com/Draganito/mimizan-lab-mobile
+IssueTracker: https://github.com/Draganito/mimizan-lab-mobile/issues
+Changelog: https://github.com/Draganito/mimizan-lab-mobile/releases
+
+RepoType: git
+Repo: https://github.com/Draganito/mimizan-lab-mobile.git
+
+Builds:
+  - versionName: 0.17.25
+    versionCode: 84
+    commit: v0.17.25
+    subdir: android/app
+    sudo:
+      - apt-get update
+      - apt-get install -y gcc libc6-dev rustup
+    gradle:
+      - github
+    build:
+      - rustup toolchain install 1.98.1 --profile minimal --target aarch64-linux-android
+      - rustup default 1.98.1
+      - cargo install --locked cargo-ndk
+    ndk: r27c
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags ^v[\d.]+$
+CurrentVersion: 0.17.25
+CurrentVersionCode: 84

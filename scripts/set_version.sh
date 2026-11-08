@@ -6,11 +6,14 @@
 # Writes
 #   android/app/build.gradle.kts        versionName = "<version>", versionCode + 1
 #   ios/project.yml                     MARKETING_VERSION: "<version>"
-#   rust/mimizan-mobile/Cargo.toml      version = "<version>"  (and Cargo.lock)
-#   mimizan-core.ref                    HEAD of ../mimizan, the core the CI builds against
+#   rust/mimizan-mobile/Cargo.toml      version = "<version>", mimizan-core rev = HEAD of ../mimizan
+#                                       (and Cargo.lock)
+#   mimizan-core.ref                    the same HEAD, for the CI checkouts of ../mimizan
 #
-# It refuses when ../mimizan has uncommitted changes under crates/mimizan-core
-# or when its HEAD is not on origin: the workflows check that commit out.
+# It refuses when ../mimizan has uncommitted changes under crates/mimizan-core,
+# when its HEAD is not on origin (cargo and the workflows fetch that commit),
+# or while rust/mimizan-mobile/.cargo/config.toml patches the core to the
+# sibling checkout (Cargo.lock would record the path instead of the commit).
 # Nothing is committed; the diff is yours to read and commit ("<version>: ...").
 #
 # Then commit, push, and
@@ -38,6 +41,10 @@ ref="$here/mimizan-core.ref"
 
 # --- the core -----------------------------------------------------------------
 [[ -d "$core/.git" ]] || { echo "ERROR: $core is not a git checkout of Draganito/mimizan" >&2; exit 1; }
+if [[ -e "$here/rust/mimizan-mobile/.cargo/config.toml" ]]; then
+    echo "ERROR: rust/mimizan-mobile/.cargo/config.toml patches the core to ../mimizan; remove it first" >&2
+    exit 1
+fi
 if [[ -n "$(git -C "$core" status --porcelain -- crates/mimizan-core Cargo.toml Cargo.lock)" ]]; then
     echo "ERROR: ../mimizan has uncommitted changes in the core; commit or stash them first" >&2
     exit 1
@@ -64,7 +71,11 @@ awk -v v="$version" '
     in_pkg && !done && /^version = "/ { $0 = "version = \"" v "\""; done = 1 }
     { print }
 ' "$cargo" > "$cargo.tmp" && mv "$cargo.tmp" "$cargo"
-(cd "$here/rust/mimizan-mobile" && cargo update --quiet --offline -p mimizan-mobile)
+old_core_sha=$(sed -n 's/^mimizan-core = .*rev = "\([0-9a-f]*\)".*/\1/p' "$cargo")
+[[ -n "$old_core_sha" ]] || { echo "ERROR: mimizan-core git dependency with rev not found in $cargo" >&2; exit 1; }
+sedi "s/^\(mimizan-core = .*rev = \"\)$old_core_sha\"/\1$core_sha\"/" "$cargo"
+# Not --offline: the new core commit has to be fetched into cargo's git cache.
+(cd "$here/rust/mimizan-mobile" && cargo update --quiet -p mimizan-mobile -p mimizan-core)
 printf '%s\n' "$core_sha" > "$ref"
 
 # --- check --------------------------------------------------------------------
@@ -72,6 +83,8 @@ grep -q "versionName = \"$version\"" "$gradle"
 grep -q "versionCode = $new_code" "$gradle"
 grep -q "MARKETING_VERSION: \"$version\"" "$project"
 grep -q "^version = \"$version\"" "$cargo"
+grep -q "^mimizan-core = .*rev = \"$core_sha\"" "$cargo"
+grep -q "^source = \"git+https://github.com/Draganito/mimizan?rev=$core_sha#" "$here/rust/mimizan-mobile/Cargo.lock"
 # This package's entry in the lock file, not any dependency at the same number.
 awk -v v="$version" '
     /^name = "mimizan-mobile"$/ { here = 1; next }
@@ -82,5 +95,7 @@ awk -v v="$version" '
 
 echo "==> $old_name ($old_code) -> $version ($new_code)"
 echo "==> core $core_sha ($(git -C "$core" log -1 --format='%s'))"
+changelog="$here/fastlane/metadata/android/en-US/changelogs/$new_code.txt"
+[[ -f "$changelog" ]] || echo "NOTE: F-Droid shows no changelog for this version until fastlane/metadata/android/en-US/changelogs/$new_code.txt exists"
 echo
 git -C "$here" status --short -- android/app/build.gradle.kts ios/project.yml rust/mimizan-mobile/Cargo.toml rust/mimizan-mobile/Cargo.lock mimizan-core.ref

@@ -7,11 +7,16 @@ plugins {
 
 // ---------------------------------------------------------------- Rust core
 // The Mimizan Lab core is a Rust cdylib (../rust/mimizan-mobile, depending on
-// the unchanged mimizan-core). Gradle drives cargo-ndk and the UniFFI Kotlin
-// generator so that a plain `./gradlew assembleDebug` builds everything.
+// the unchanged mimizan-core, pinned to one commit in its Cargo.toml). Gradle
+// drives cargo-ndk and the UniFFI Kotlin generator so that a plain
+// `./gradlew assembleDebug` builds everything.
+//
+// A rust/mimizan-mobile/.cargo/config.toml (see the Cargo.toml there) patches
+// the core to the live sibling checkout; cargo then decides itself what is
+// stale, so the task runs every time instead of trusting Gradle's inputs.
 
 val rustDir = rootProject.file("../rust/mimizan-mobile")
-val mimizanCoreDir = rootProject.file("../../mimizan/crates/mimizan-core")
+val liveCore = rustDir.resolve(".cargo/config.toml").exists()
 val rustProfile = (project.findProperty("mimizan.rustProfile") as String?) ?: "release"
 val rustAbi = "arm64-v8a"
 val rustJniLibs = layout.buildDirectory.dir("rust/jniLibs")
@@ -43,8 +48,7 @@ val cargoBuild = tasks.register<Exec>("cargoBuild") {
     inputs.file(rustDir.resolve("Cargo.lock"))
     inputs.file(rustDir.resolve("build.rs"))
     inputs.file(rustDir.resolve("uniffi.toml"))
-    inputs.dir(mimizanCoreDir.resolve("src"))
-    inputs.file(mimizanCoreDir.resolve("Cargo.toml"))
+    if (liveCore) outputs.upToDateWhen { false }
     inputs.property("profile", rustProfile)
     inputs.property("platform", androidPlatform)
     // Another NDK links and strips another library.

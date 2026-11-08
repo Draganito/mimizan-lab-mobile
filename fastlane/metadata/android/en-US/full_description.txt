@@ -1,0 +1,25 @@
+Mimizan Lab on the phone: a monochrome RAW camera and a darkroom. The app calls the same Rust core as the Mimizan Lab desktop darkroom. A frame is developed on the device into a monochrome negative, or into a three-colour plate (Prokudin-Gorsky's principle): three mixes through three taking filters, the same paper, one RGB file.
+
+The first photographic application that takes the black-and-white negative directly from the luma-chroma separation of the sensor signal (Alleysson 2005, Dubois 2005) without ever reconstructing an RGB image.
+
+<b>Not a filter that looks like film. A darkroom.</b> Other apps paint scratches and light leaks over a phone photo. Mimizan Lab develops a real negative on real paper. Nothing is pretended, because nothing has to be.
+
+<b>Never invents a pixel.</b> Every other camera guesses two of three colours per pixel. Mimizan Lab reads the sensor the way analogue television read its signal: luminance and colour separated, nothing interpolated, nothing made up.
+
+<b>You develop it. You don't edit it.</b> Two moves, grade and exposure, and the picture answers. No curves, no masks, no sliders with numbers.
+
+<b>Black and white like film.</b> Measured variable-contrast paper, soft and hard light mixed like an enlarger. Highlights roll off the way silver does.
+
+<b>Colour the way it was first photographed.</b> Three separate colour plates printed together. No colour science borrowed from a phone.
+
+<b>See the print before you take it.</b> The viewfinder shows the paper, not the camera's picture. What you see is what develops.
+
+<b>Sharp without the halo.</b> Peak measures the negative and stops before the edge becomes a line.
+
+<b>Your pictures are yours.</b> No cloud. No AI. No account. No network permission. Nothing leaves the phone unless you send it.
+
+<b>Everything included.</b> This build has no in-app purchase: the full-size print, the 16-bit TIFF and the negative for the desktop darkroom are all in it.
+
+<b>Which phones.</b> Android 13 or later, arm64, and a back camera that offers RAW_SENSOR to other apps. The phones that sell the most keep RAW inside the maker's own camera: the Galaxy A series, the Moto G and the cheap Redmi phones give this app no frame to develop. Checked on Google Tensor (Pixel 9), Qualcomm Snapdragon (Pixel 4a) and Samsung Exynos (Galaxy S25 FE).
+
+The handbook for the phone and the desktop darkroom: https://github.com/Draganito/mimizan/blob/main/docs/HANDBOOK.md

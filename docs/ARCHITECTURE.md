@@ -19,7 +19,9 @@
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-`mimizan-core` is used as a path dependency with `default-features = false`.
+`mimizan-core` is a git dependency on `Draganito/mimizan`, pinned to one
+commit (`rev` in `Cargo.toml`, moved by `scripts/set_version.sh`), with
+`default-features = false`.
 On Android the frame arrives as a buffer and the pipeline entry is
 `negative_from_frame(&RawFrame, &NegativeParams, 0)`; the iOS build turns
 on `decode-files` (`mimizan-core/decode-rawler`) and reads the DNG with
