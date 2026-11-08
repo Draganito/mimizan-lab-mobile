@@ -1,0 +1,1 @@
+First release on F-Droid. The app builds from this repository alone: the Mimizan core is a pinned git dependency. Nothing changes in the darkroom.
