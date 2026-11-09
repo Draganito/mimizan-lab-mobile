@@ -1,0 +1,1 @@
+The Mimizan core at 0.18.1. Nothing changes in the darkroom: the negative and the print are the same to the bit.
