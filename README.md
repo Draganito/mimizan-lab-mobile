@@ -421,70 +421,30 @@ and the changelog per `versionCode` are read from
 
 ## Status
 
-0.17.26 on Android and iOS: RAW capture, the finder as the paper
-(Android, and iPhones with Apple Log), Mono and Color, the split-grade
-paper, the zone strip and Peak with a print per frame, review with
-remix and 1:1 detail, the exports, the roll. Checked on a Pixel 9 (main
-and ultrawide), a Pixel 4a, a Galaxy S25 FE and, through TestFlight, an
-iPhone 17 Pro (all three cameras). Every frame taken with the Apple Log
-finder writes the stops between the finder and the developed negative
-to `Files › Mimizan Lab › finder-match.json` (the median of the last
-eight on that lens is what the finder applies; Settings shows it and
-resets it). The first TestFlight round came back with the
-camera's picture on Pro phones: Apple Log and the Bayer RAW still
-very likely live on different formats of the same camera. 0.16.2 says
-in Settings › Viewfinder which step decided it, writes every format
-of the lens to `formats.json` beside the match file, and shares both
-files from there. The first `formats.json` from an iPhone 16 Pro
-(iOS 26.6) answered it: eight Apple Log formats, every one in 10-bit
-4:2:2 (`x422`), none in the 4:2:0 the app insisted on, and among them
-1920×1440 at 30 fps with a 4032×3024 still. 0.17.1 accepted 4:2:2, and
-the second file said the rest: with the Log format active the camera
-offers no RAW type at all (`logRawTypes: []`). 0.17.2/0.17.3 keep the finder
-in the Log format and swap the camera to the photo format for the
-still with the exposure the finder stood at, and swap back. The third
-file, from an iPhone 17 Pro on iOS 27.0, said why that could not work:
-the same 4032×3024 format offers no RAW type when set by hand and
-`bgg4` under the `.photo` preset, so the empty list in the second file
-was about `.inputPriority`, not about the Log format (AVFoundation has
-offered Bayer RAW under the photo preset alone since 2016). 0.17.10
-swaps the session's preset at the shutter, not the format. 0.17.12
-commits the photo preset before reading the RAW type, catches the
-NSException AVFoundation raises instead of aborting, and if the Log
-session will not start falls back to the camera's picture; the
-histogram of a Log frame stays inside the buffer. The Settings note
-reads "Apple Log for the finder; the Bayer RAW still (bgg4) comes from
-the photo preset, 4032×3024, the session switched at the shutter". The 17 Pro also lists three `btp2` Apple-Log-only video
-formats (4224×2240, 4224×3024; the ProRes RAW ones) and a colour space
-the iOS 26 SDK has no name for (`4`); neither is used. 0.17.13 to
-0.17.18 made the swap and the return work on the device: the running
-Log session cannot be put on the photo preset in place, and a photo
-output that has been through the Log keeps an empty RAW list, so the
-still rebuilds the graph the lens opened with (input and fresh outputs
-under `.photo`, the device back to sRGB at its own frame rate), reads
-the RAW type after the commit, shoots, and rebuilds the Log finder;
-opening the lens again after the developer or the background does the
-same, since the three things a Log finder leaves behind — the device's
-colour space and 30 fps lock, a session left on `.inputPriority`, a
-video output still asking for the 10-bit subtype — each made the next
-`addInput`/`addOutput` raise "Unsupported format ((null))" and abort
-(now caught and said in the finder). The first twenty frames from the
-17 Pro put the match at −0.7 to −1.1 stops on all three cameras, the
-ultra-wide half a stop below the main; 0.17.19 keeps the match per
-lens, a lens not yet measured starting from the other lenses' pool.
-0.17.4 to 0.17.9
-settle the camera screen: the grade as one slider
-over the zone strip (the same soft and hard behind it, the same
-print), the exposure line as a bar above the finder, the finder's
-buttons along its lower edge, slider and strip amber when they are off
-the base print, the pair, the JPEG shot and the standing Peak only
-under a paper finder (every other frame starts at the base print and
-Auto), no binned quick development, and the colour process called
-Color wherever the user reads it. 0.17.0 adds the store builds' one purchase (the
-print at full resolution) through StoreKit 2 and Play Billing; the
+On Android and iOS: RAW capture, the finder as the paper (Android, and
+iPhones with Apple Log), Mono and Color, the split-grade paper, the
+zone strip and Peak with a print per frame, review with remix and 1:1
+detail, the exports, the roll. Checked on a Pixel 9 (main and
+ultrawide), a Pixel 4a, a Galaxy S25 FE and, through TestFlight, an
+iPhone 17 Pro (all three cameras).
+
+Every frame taken with the Apple Log finder writes the stops between
+the finder and the developed negative to
+`Files › Mimizan Lab › finder-match.json`. The median of the last
+eight on that lens is what the finder applies, a lens not yet measured
+starting from the other lenses' pool; Settings shows the match and
+resets it. On the 17 Pro it came to −0.7 to −1.1 stops on all three
+cameras. How the Log finder and the Bayer RAW still were brought
+together, release by release and format by format, is in
+[docs/RESULTS_MOBILE.md](docs/RESULTS_MOBILE.md).
+
+The store builds carry one purchase, the print at full resolution,
+through StoreKit 2 and Play Billing. Neither store has the app yet; the
 product has to exist in App Store Connect and the Play Console before
-the Unlock button can show a price. Open: the Pro-iPhone question, the
-measurement, a fitted camera file for any phone but the Pixel 9, and a
+the Unlock button can show a price.
+
+Open: the Apple Log finder on a 15 Pro or a 16 Pro (the 17 Pro is the
+one checked), a fitted camera file for any phone but the Pixel 9, and a
 MediaTek phone.
 
 ## License
