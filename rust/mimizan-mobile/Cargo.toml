@@ -2,7 +2,7 @@
 name = "mimizan-mobile"
 # The app's version: scripts/set_version.sh keeps this, build.gradle.kts and
 # ios/project.yml on the same number.
-version = "0.17.28"
+version = "0.17.29"
 edition = "2021"
 license = "GPL-3.0-or-later"
 authors = ["Dragan Bojovic"]
@@ -39,7 +39,7 @@ host-raw = ["decode-files"]
 #   [patch."https://github.com/Draganito/mimizan"]
 #   mimizan-core = { path = "../../../mimizan/crates/mimizan-core" }
 # into rust/mimizan-mobile/.cargo/config.toml (ignored by git).
-mimizan-core = { git = "https://github.com/Draganito/mimizan", rev = "7de9c120a0ce6fbb933fc51cfdf2e29d817e9971", default-features = false }
+mimizan-core = { git = "https://github.com/Draganito/mimizan", rev = "3084a059a03bcf062c9ec56af28bbaa45c6fef68", default-features = false }
 uniffi = { version = "0.32" }
 rayon = "1.12"
 serde_json = "1"
