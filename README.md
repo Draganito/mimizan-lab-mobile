@@ -50,10 +50,12 @@ the edge becomes a line.
 **Your pictures are yours.** No cloud. No AI. No account. Nothing
 leaves the phone unless you send it.
 
-**Buy it once.** The camera, the developer, Mono and Colour and the
+**Buy it once.** The camera, the developer, Mono and Color and the
 print at half size are free. One purchase, no subscription, unlocks the
 full-size print, the 16-bit TIFF and the negative for the desktop
-darkroom. Shared with your family.
+darkroom. Shared with your family. That is the store build, and
+neither store has the app yet; the APK from the releases page is
+complete and free.
 
 **From the phone you already carry.** Prints that stand next to a
 medium-format negative, from your pocket.
@@ -65,8 +67,8 @@ because that is the form AVFoundation hands over.
 
 A short handbook for the phone and the desktop window:
 [docs/HANDBOOK.md](https://github.com/Draganito/mimizan/blob/main/docs/HANDBOOK.md).
-The phone runs the Mimizan separation only; AMaZE, RCD, DCB and LMMSE
-stay on the desktop.
+The phone runs the same separation as the desktop; neither has a
+demosaicer.
 
 ## Which phones
 
@@ -106,8 +108,7 @@ shutter swaps the session for the still and back: the finder holds its
 last frame for about a second while the finder's exposure is set in
 the photo format and the RAW is taken. On the other iPhones and on the
 iPad the finder is the camera's own picture, and the still is
-immediate. The app asks the camera, not the model name. The swap is in
-TestFlight first (see *Status*).
+immediate. The app asks the camera, not the model name.
 
 ## Install
 
@@ -123,8 +124,9 @@ between a release download and your own `installDebug`.
 
 **Free and paid.** The APK from the releases page, the macOS app and
 the Windows build are complete and free. The Play Store app and the App
-Store app are free to use as well — camera, finder, developer, Mono
-and Color, roll, 1:1 view and a JPEG at half the edge — and sell one thing once:
+Store app, neither published yet, are free to use as well — camera,
+finder, developer, Mono and Color, roll, 1:1 view and a JPEG at half
+the edge — and sell one thing once:
 the print at full resolution, which is the full-size JPEG, the 16-bit
 TIFF and the linear negative. The same product
 (`ch.bojovic.mimizanlab.fullres`) on both stores; on Apple it is a
@@ -273,9 +275,9 @@ the same frame to 0.015 % RMS.
 The Rust crate depends on `mimizan-core` as a git dependency pinned to
 one commit of `Draganito/mimizan` (`rev` in `rust/mimizan-mobile/Cargo.toml`;
 `mimizan-core.ref` carries the same hash for the workflows). So this
-repository builds on its own — a TestFlight build, the GitHub APK and an
-F-Droid build of the same version carry the same core (see
-[Release](#release)).
+repository builds on its own — a TestFlight build and the GitHub APK
+of the same version carry the same core, and an F-Droid build would
+(see [Release](#release)).
 
 ```bash
 git clone https://github.com/Draganito/mimizan-lab-mobile.git
@@ -351,7 +353,7 @@ backgrounding, which is what one development takes.
 
 A Mac with Xcode 26 builds it, or the `iOS` GitHub workflow, which
 builds an unsigned `.app` on a macOS runner when a push touches `ios/`,
-`rust/`, `cameras/` or `scripts/build_ios.sh`:
+`rust/`, `cameras/`, `mimizan-core.ref` or `scripts/build_ios.sh`:
 
 ```bash
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim
@@ -399,20 +401,23 @@ The `v*` tag starts `TestFlight` and `Android Release`. A tag
 iOS side. The iOS build number is the workflow's run number, not the
 `27` in `project.yml`; that one is for a local Xcode build.
 
-**F-Droid.** F-Droid builds the `github` flavor from the same `v*`
-tags on its own buildserver and signs it with its own key, so an
-F-Droid install and a GitHub APK do not update each other. The recipe
-is `metadata/ch.bojovic.mimizanlab.yml` in
-[fdroiddata](https://gitlab.com/fdroid/fdroiddata); the copy kept here
-is `docs/fdroid/ch.bojovic.mimizanlab.yml`. The buildserver (Debian
-trixie) takes OpenJDK 21 and `rustup` from apt, the NDK the workflows
-use from F-Droid's sdkmanager and Gradle from its transparency log;
-Gradle drives cargo-ndk and the UniFFI generator as everywhere else.
-The store text, icon, screenshots and the changelog per `versionCode`
-are read from `fastlane/metadata/android/en-US` in this repository:
-a release gets a `changelogs/<versionCode>.txt` there. Nothing else is
-needed per release — F-Droid's update check reads the tag and
-`build.gradle.kts`.
+**F-Droid.** Not there yet. The first inclusion request
+([fdroiddata !56357](https://gitlab.com/fdroid/fdroiddata/-/merge_requests/56357),
+November 2026) was declined: an app has to show about three months of
+maintenance first, so the request goes in again from February 2027.
+The repository is ready for it. F-Droid would build the `github` flavor
+from the same `v*` tags on its own buildserver and sign it with its own
+key, so an F-Droid install and a GitHub APK would not update each
+other. The recipe for `metadata/ch.bojovic.mimizanlab.yml` in
+fdroiddata is kept here as `docs/fdroid/ch.bojovic.mimizanlab.yml`, at
+the version of that request; it is brought to the current tag with the
+next one. The buildserver (Debian trixie) takes OpenJDK 21 and `rustup`
+from apt, the NDK the workflows use from F-Droid's sdkmanager and
+Gradle from its transparency log; Gradle drives cargo-ndk and the
+UniFFI generator as everywhere else. The store text, icon, screenshots
+and the changelog per `versionCode` are read from
+`fastlane/metadata/android/en-US` in this repository: a release gets a
+`changelogs/<versionCode>.txt` there.
 
 ## Status
 
