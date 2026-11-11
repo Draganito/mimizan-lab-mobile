@@ -66,8 +66,13 @@ jobs:
           cargo clippy --release --all-targets --features host-raw -- -D warnings
       - name: Host tests (file decoder on)
         # The desktop's `testdata/` (the NEF of the bit-for-bit round trip)
-        # is not in the mimizan checkout; that one test says so and passes.
+        # is gitignored and not in the mimizan checkout. Synthetic FFI tests
+        # always run; the NEF proof skips only because MIMIZAN_ALLOW_SKIP_HOST
+        # is set here on purpose. Without that env the test fails if the file
+        # is missing.
         working-directory: mimizan-lab-mobile/rust/mimizan-mobile
+        env:
+          MIMIZAN_ALLOW_SKIP_HOST: "1"
         run: cargo test --release --features host-raw
       - name: iOS static library (cross-check from Linux)
         working-directory: mimizan-lab-mobile/rust/mimizan-mobile

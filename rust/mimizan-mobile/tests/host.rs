@@ -392,6 +392,13 @@ fn camera2_style_input_matches_desktop_decoder_bit_for_bit() {
 
     let path = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../mimizan/testdata/NikonZF.nef"));
     if !path.exists() {
+        // testdata/ is gitignored on the desktop; CI must set this so a skip
+        // is an explicit choice, not a silent green.
+        assert!(
+            std::env::var_os("MIMIZAN_ALLOW_SKIP_HOST").is_some(),
+            "missing {}; set MIMIZAN_ALLOW_SKIP_HOST=1 to skip the bit-for-bit proof",
+            path.display()
+        );
         eprintln!("skipping: {} not present", path.display());
         return;
     }
@@ -454,6 +461,11 @@ fn develop_file_matches_develop_bit_for_bit() {
     let path =
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../mimizan/testdata/nikon_zf_01.nef"));
     if !path.exists() {
+        assert!(
+            std::env::var_os("MIMIZAN_ALLOW_SKIP_HOST").is_some(),
+            "missing {}; set MIMIZAN_ALLOW_SKIP_HOST=1 to skip the bit-for-bit proof",
+            path.display()
+        );
         eprintln!("skipping: {} not present", path.display());
         return;
     }
