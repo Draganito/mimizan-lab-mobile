@@ -121,6 +121,13 @@ struct FilterStrip: View {
         )
     }
 
+    /// The room between the filter row and the paper strip under it.
+    /// Both answer a finger drawn along them, and neither is as tall as
+    /// a fingertip: with less room a drag meant for the strip, begun a
+    /// little high, scrubbed through the filters. Twin of the Android
+    /// `FilterStripGap`.
+    static let gap: CGFloat = 20
+
     /// The glass's own colour, as it looks held up to the light.
     static func ink(_ f: Filter) -> Color {
         switch f {

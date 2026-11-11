@@ -157,14 +157,17 @@ struct ReviewView: View {
     private func controls(prefs: Prefs) -> some View {
         let plate = vm.plate
         VStack(alignment: .leading, spacing: 12) {
-            if plate == nil {
-                FilterStrip.mono(selected: vm.filter, onSelect: vm.setFilter)
-            } else {
-                FilterStrip.plate(selected: prefs.plateFilters, hasMatrix: vm.info?.hasColourMatrix ?? false, onSelect: vm.setPlateFilters)
-            }
             let grade = vm.print.grade
             let peak = vm.print.peak
-            PaperStrip(soft: grade.soft, hard: grade.hard, onBoth: vm.setGrade)
+            // The filter row and the strip, with room between them for a thumb.
+            VStack(alignment: .leading, spacing: FilterStrip.gap) {
+                if plate == nil {
+                    FilterStrip.mono(selected: vm.filter, onSelect: vm.setFilter)
+                } else {
+                    FilterStrip.plate(selected: prefs.plateFilters, hasMatrix: vm.info?.hasColourMatrix ?? false, onSelect: vm.setPlateFilters)
+                }
+                PaperStrip(soft: grade.soft, hard: grade.hard, onBoth: vm.setGrade)
+            }
             PeakRow(mode: peak.mode, modes: PeakMode.allCases, onMode: vm.setPeakMode)
             if peak.mode == .custom {
                 let lim = Prefs.peakLimits

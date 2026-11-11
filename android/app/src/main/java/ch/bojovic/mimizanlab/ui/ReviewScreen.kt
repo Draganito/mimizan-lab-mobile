@@ -238,16 +238,19 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    if (plate == null) {
-                        MonoFilterStrip(selected = s.filter, onSelect = vm::setFilter)
-                    } else {
-                        PlateFilterStrip(
-                            selected = plateFilters,
-                            hasMatrix = s.info?.hasColourMatrix ?: false,
-                            onSelect = vm::setPlateFilters,
-                        )
+                    // The filter row and the strip, with room between them for a thumb.
+                    Column(verticalArrangement = Arrangement.spacedBy(FilterStripGap)) {
+                        if (plate == null) {
+                            MonoFilterStrip(selected = s.filter, onSelect = vm::setFilter)
+                        } else {
+                            PlateFilterStrip(
+                                selected = plateFilters,
+                                hasMatrix = s.info?.hasColourMatrix ?: false,
+                                onSelect = vm::setPlateFilters,
+                            )
+                        }
+                        PaperStrip(s.print.grade.soft, s.print.grade.hard, onBoth = vm::setGrade)
                     }
-                    PaperStrip(s.print.grade.soft, s.print.grade.hard, onBoth = vm::setGrade)
                     val peak = s.print.peak
                     PeakRow(peak.mode, PeakMode.entries, onMode = vm::setPeakMode)
                     if (peak.mode == PeakMode.CUSTOM) {

@@ -118,6 +118,14 @@ fun FilterStrip(labels: List<String>, inks: List<Color>, selected: Int, dimmed: 
     }
 }
 
+/**
+ * The room between the filter row and the paper strip under it. Both
+ * answer a finger drawn along them, and neither is as tall as a
+ * fingertip: with less room a drag meant for the strip, begun a little
+ * high, scrubbed through the filters. Twin of the iOS `FilterStrip.gap`.
+ */
+val FilterStripGap = 20.dp
+
 @Composable
 fun MonoFilterStrip(selected: Filter, onSelect: (Filter) -> Unit) {
     val all = Filter.entries
