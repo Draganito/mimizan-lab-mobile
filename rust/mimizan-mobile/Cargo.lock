@@ -878,8 +878,8 @@ dependencies = [
 
 [[package]]
 name = "mimizan-core"
-version = "0.18.7"
-source = "git+https://github.com/Draganito/mimizan?rev=3084a059a03bcf062c9ec56af28bbaa45c6fef68#3084a059a03bcf062c9ec56af28bbaa45c6fef68"
+version = "0.18.8"
+source = "git+https://github.com/Draganito/mimizan?rev=48f910d1d108937f5d7ae90dcc85f13e84b67cee#48f910d1d108937f5d7ae90dcc85f13e84b67cee"
 dependencies = [
  "image",
  "libm",

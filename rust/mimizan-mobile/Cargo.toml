@@ -39,7 +39,7 @@ host-raw = ["decode-files"]
 #   [patch."https://github.com/Draganito/mimizan"]
 #   mimizan-core = { path = "../../../mimizan/crates/mimizan-core" }
 # into rust/mimizan-mobile/.cargo/config.toml (ignored by git).
-mimizan-core = { git = "https://github.com/Draganito/mimizan", rev = "3084a059a03bcf062c9ec56af28bbaa45c6fef68", default-features = false }
+mimizan-core = { git = "https://github.com/Draganito/mimizan", rev = "48f910d1d108937f5d7ae90dcc85f13e84b67cee", default-features = false }
 uniffi = { version = "0.32" }
 rayon = "1.12"
 serde_json = "1"
