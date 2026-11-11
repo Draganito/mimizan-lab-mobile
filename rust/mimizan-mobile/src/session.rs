@@ -93,10 +93,10 @@ pub struct Developed {
     inner: Mutex<Inner>,
 }
 
-fn lock_msg<T>(r: std::sync::LockResult<T>) -> T {
+fn lock_msg<T>(r: std::sync::LockResult<T>) -> Result<T> {
     match r {
-        Ok(g) => g,
-        Err(p) => p.into_inner(),
+        Ok(g) => Ok(g),
+        Err(_) => Err(MimizanError::Invalid { msg: "developed state poisoned after a panic".into() }),
     }
 }
 
@@ -617,7 +617,12 @@ impl Inner {
 #[uniffi::export]
 impl Developed {
     pub fn info(&self) -> DevelopInfo {
-        lock_msg(self.inner.lock()).info()
+        // UniFFI keeps this infallible; a poisoned lock still yields the
+        // last state rather than panicking across the FFI.
+        match self.inner.lock() {
+            Ok(g) => g.info(),
+            Err(p) => p.into_inner().info(),
+        }
     }
 
     /// Change the mix without separating again, and return to the
@@ -625,7 +630,7 @@ impl Developed {
     /// (raw weights are converted with this image's balance), then the
     /// filter is applied. Returns the balanced weights the mix now uses.
     pub fn remix(&self, weights: Weights, space: WeightSpace, filter: Filter) -> Result<Weights> {
-        let mut g = lock_msg(self.inner.lock());
+        let mut g = lock_msg(self.inner.lock())?;
         let w = weights.core();
         w.validate()?;
         let w = w.to_balanced(space.core(), g.info.wb).filtered(filter.core());
@@ -646,7 +651,7 @@ impl Developed {
     /// filters as resolved for this frame (`Camera` becomes `Channels`
     /// without a colour matrix).
     pub fn set_plate(&self, filters: PlateFilters, space: PlateSpace) -> Result<PlateWeights> {
-        let mut g = lock_msg(self.inner.lock());
+        let mut g = lock_msg(self.inner.lock())?;
         let w = g.resolve_plate(filters, space)?;
         for (name, row) in ["red", "green", "blue"].iter().zip(w.rows) {
             info!(
@@ -667,7 +672,10 @@ impl Developed {
     /// Preview, 1:1 window and every export of the plate follow.
     pub fn set_lamps(&self, red: f64, blue: f64) -> Result<()> {
         let lamps = [check_lamp("red", red)?, check_lamp("blue", blue)?];
-        lock_msg(self.inner.lock()).lamps = lamps;
+        {
+            let mut g = lock_msg(self.inner.lock())?;
+            g.lamps = lamps;
+        }
         Ok(())
     }
 
@@ -678,7 +686,7 @@ impl Developed {
     /// luminance of the plate (the monochrome mix); `preview_rgb` is the
     /// colour.
     pub fn preview(&self, soft: f64, hard: f64) -> Result<GrayImage> {
-        let g = lock_msg(self.inner.lock());
+        let g = lock_msg(self.inner.lock())?;
         let (pv, map) = g.preview_and_paper(soft, hard)?;
         let plane = mix_planes(&pv.lum, &pv.c1, &pv.c2, &g.weights);
         let data = gray8(&plane, &map);
@@ -689,7 +697,7 @@ impl Developed {
     /// cached preview planes, each placed by its lamp and put through the
     /// same paper, interleaved RGB. Needs the plate process.
     pub fn preview_rgb(&self, soft: f64, hard: f64) -> Result<RgbImage> {
-        let g = lock_msg(self.inner.lock());
+        let g = lock_msg(self.inner.lock())?;
         let p = g.plate_or_err()?;
         let (pv, map) = g.preview_and_paper(soft, hard)?;
         let planes = Inner::plate_planes(&pv.lum, &pv.c1, &pv.c2, &p.weights);
@@ -701,7 +709,7 @@ impl Developed {
     /// after the paper (preview planes, lamps applied). Needs the plate
     /// process; `histogram` stays the luminance's.
     pub fn histogram_rgb(&self, soft: f64, hard: f64) -> Result<Vec<u64>> {
-        let g = lock_msg(self.inner.lock());
+        let g = lock_msg(self.inner.lock())?;
         let p = g.plate_or_err()?;
         let (pv, map) = g.preview_and_paper(soft, hard)?;
         let planes = Inner::plate_planes(&pv.lum, &pv.c1, &pv.c2, &p.weights);
@@ -734,7 +742,7 @@ impl Developed {
         peak_radius: f64,
         peak_amount: f64,
     ) -> Result<GrayImage> {
-        let g = lock_msg(self.inner.lock());
+        let g = lock_msg(self.inner.lock())?;
         let win = DetailWindow::new(&g, x, y, width, height, soft, hard, peak_radius, peak_amount)?;
         let (lum, c1, c2) = win.crops(&g);
         let mixed = if g.weights.is_native() { lum } else { mix_planes(&lum, &c1, &c2, &g.weights) };
@@ -758,7 +766,7 @@ impl Developed {
         peak_radius: f64,
         peak_amount: f64,
     ) -> Result<RgbImage> {
-        let g = lock_msg(self.inner.lock());
+        let g = lock_msg(self.inner.lock())?;
         let p = g.plate_or_err()?;
         let win = DetailWindow::new(&g, x, y, width, height, soft, hard, peak_radius, peak_amount)?;
         let (lum, c1, c2) = win.crops(&g);
@@ -769,7 +777,9 @@ impl Developed {
             let mixed = mix_planes(&lum, &c1, &c2, &rows[c]);
             planes[c] = Some(win.positive(mixed, lamps[c]));
         }
-        let [Some(r), Some(gr), Some(b)] = planes else { unreachable!() };
+        let [Some(r), Some(gr), Some(b)] = planes else {
+            return Err(MimizanError::Invalid { msg: "plate detail missing a channel".into() });
+        };
         let n = r.data.len();
         let mut data = vec![0u8; 3 * n];
         data.par_chunks_mut(3).enumerate().for_each(|(i, px)| {
@@ -783,7 +793,7 @@ impl Developed {
     /// 256-bin histogram of the current mix after the paper, from the preview
     /// planes (the viewer's picture, not the TIFF's exact clipping counts).
     pub fn histogram(&self, soft: f64, hard: f64) -> Result<Vec<u64>> {
-        let g = lock_msg(self.inner.lock());
+        let g = lock_msg(self.inner.lock())?;
         let pv = g
             .preview
             .as_ref()
@@ -801,18 +811,15 @@ impl Developed {
 
     /// Peak's radius and amount for this negative, measured on the
     /// native-size print at these paper exposures the way the desktop does
-    /// (`peak::tune` in the core): the current mix, or the plate's green
-    /// positive; nothing sharpened for the render, no border, no scaling.
-    /// The result is already inside the range `export_jpeg` accepts. Costs
-    /// one full-resolution print pass.
+    /// (`peak::tune` in the core): the monochrome mix, kept while a plate
+    /// is on, so Peak matches the desktop's edit weights; nothing sharpened
+    /// for the render, no border, no scaling. The result is already inside
+    /// the range `export_jpeg` accepts. Costs one full-resolution print pass.
     pub fn measure_peak(&self, soft: f64, hard: f64) -> Result<PeakMeasured> {
-        let g = lock_msg(self.inner.lock());
+        let g = lock_msg(self.inner.lock())?;
         let t = Instant::now();
         let params = PrintParams { recipe: export_recipe(soft, hard, 0.0, 0.0)?, ..Default::default() };
-        let weights = match g.plate {
-            Some(p) => p.weights.weights()[1],
-            None => g.weights,
-        };
+        let weights = g.weights;
         let mask = g.mask_plane();
         let out = g.render_positive(&weights, &mask, &params, g.orientation, 0.0);
         drop(mask);
@@ -836,7 +843,7 @@ impl Developed {
     /// frame; the difference between the two is the finder's exposure
     /// error, in stops.
     pub fn mix_median(&self) -> Result<Option<f64>> {
-        let g = lock_msg(self.inner.lock());
+        let g = lock_msg(self.inner.lock())?;
         let pv = g
             .preview
             .as_ref()
@@ -879,7 +886,7 @@ impl Developed {
         peak_amount: f64,
         binned: bool,
     ) -> Result<ExportInfo> {
-        let g = lock_msg(self.inner.lock());
+        let g = lock_msg(self.inner.lock())?;
         let mut recipe = export_recipe(soft, hard, peak_radius, peak_amount)?;
         if binned {
             // The sheet is half the negative in both directions; `layout`
@@ -910,7 +917,7 @@ impl Developed {
         peak_radius: f64,
         peak_amount: f64,
     ) -> Result<ExportInfo> {
-        let g = lock_msg(self.inner.lock());
+        let g = lock_msg(self.inner.lock())?;
         let params = PrintParams {
             recipe: export_recipe(soft, hard, peak_radius, peak_amount)?,
             ..Default::default()
@@ -930,7 +937,7 @@ impl Developed {
     /// `mimizan print` on the desktop prints in colour. The sidecar is one
     /// frame, the same for all three.
     pub fn export_negative(&self, path: String) -> Result<ExportInfo> {
-        let g = lock_msg(self.inner.lock());
+        let g = lock_msg(self.inner.lock())?;
         let t = Instant::now();
         let p = PathBuf::from(path);
         let plane = match g.plate {
@@ -962,7 +969,10 @@ impl Developed {
     /// 16-bit samples of the current full-resolution mix, little-endian,
     /// sensor frame (host tests).
     pub fn negative_u16_le(&self) -> Vec<u8> {
-        let g = lock_msg(self.inner.lock());
+        let g = match self.inner.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
         let plane = mix(&g.sep, &g.weights);
         let mut out = vec![0u8; plane.data.len() * 2];
         out.par_chunks_mut(2).zip(plane.data.par_iter()).for_each(|(o, &v)| {
@@ -974,7 +984,10 @@ impl Developed {
 
     /// Full-resolution mix plane (host tests).
     pub fn mix_plane(&self) -> Plane {
-        let g = lock_msg(self.inner.lock());
+        let g = match self.inner.lock() {
+            Ok(g) => g,
+            Err(p) => p.into_inner(),
+        };
         mix(&g.sep, &g.weights)
     }
 }
