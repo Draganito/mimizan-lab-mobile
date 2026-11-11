@@ -6,7 +6,10 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import MimizanCore
+import os
 import UniformTypeIdentifiers
+
+private let log = Logger(subsystem: "ch.bojovic.mimizanlab", category: "raw-cache")
 
 /// What the roll knows about a frame without decoding it again.
 struct ShotMeta: Codable, Equatable {
@@ -143,12 +146,27 @@ final class RawCache: @unchecked Sendable {
         fm.fileExists(atPath: rawFile(name).path) && fm.fileExists(atPath: metaFile(name).path)
     }
 
-    /// The metadata alone; nil when the frame is not cached or its file is damaged.
+    /// The metadata alone; nil when the frame is not cached. A `.json` that
+    /// is there but does not decode is moved beside itself as
+    /// `<name>.bad-<stamp>.json` (twin of `FormatDump.readOrSetAside`), so
+    /// the damaged file is not lost and the roll no longer lists a frame
+    /// it cannot open.
     func loadMeta(_ name: String) -> ShotMeta? {
-        guard has(name), let data = try? Data(contentsOf: metaFile(name)) else { return nil }
+        guard has(name) else { return nil }
+        let url = metaFile(name)
+        guard let data = try? Data(contentsOf: url) else { return nil }
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
-        return try? dec.decode(ShotMeta.self, from: data)
+        if let meta = try? dec.decode(ShotMeta.self, from: data) { return meta }
+        let stamp = Int(Date().timeIntervalSince1970)
+        let aside = url.deletingPathExtension().appendingPathExtension("bad-\(stamp).json")
+        do {
+            try fm.moveItem(at: url, to: aside)
+            log.warning("\(url.lastPathComponent) did not decode; set aside as \(aside.lastPathComponent)")
+        } catch {
+            log.warning("could not set aside damaged \(url.lastPathComponent): \(error.localizedDescription)")
+        }
+        return nil
     }
 
     /// A JPEG of the thumbnail the development already made. Nothing is decoded from the raw.

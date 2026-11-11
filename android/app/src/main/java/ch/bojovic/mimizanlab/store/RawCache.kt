@@ -3,6 +3,7 @@ package ch.bojovic.mimizanlab.store
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.Log
 import ch.bojovic.mimizanlab.engine.DevelopSettings
 import ch.bojovic.mimizanlab.raw.RawMeta
 import java.io.File
@@ -64,10 +65,27 @@ class RawCache(context: Context, private val budgetBytes: Long = 1_500L shl 20) 
 
     fun has(name: String) = rawFile(name).exists() && metaFile(name).exists()
 
-    /** The metadata alone; null when the frame is not cached or its file is damaged. */
+    /**
+     * The metadata alone; null when the frame is not cached. A `.json` that
+     * is there but does not decode (schema change, cut-off write) is moved
+     * beside itself as `<name>.bad-<stamp>.json`, twin of iOS
+     * `FormatDump.readOrSetAside`, so the damaged file is not lost and the
+     * roll no longer lists a frame it cannot open.
+     */
     fun loadMeta(name: String): RawMeta? {
         if (!has(name)) return null
-        return runCatching { RawMeta.fromJson(JSONObject(metaFile(name).readText())) }.getOrNull()
+        val f = metaFile(name)
+        return try {
+            RawMeta.fromJson(JSONObject(f.readText()))
+        } catch (t: Throwable) {
+            val aside = File(dir, "$name.bad-${System.currentTimeMillis() / 1000}.json")
+            if (!f.renameTo(aside)) {
+                Log.w(TAG, "could not set aside damaged ${f.name}", t)
+            } else {
+                Log.w(TAG, "${f.name} did not decode; set aside as ${aside.name}", t)
+            }
+            null
+        }
     }
 
     fun load(name: String): Pair<RawMeta, ByteArray>? {
@@ -153,5 +171,9 @@ class RawCache(context: Context, private val budgetBytes: Long = 1_500L shl 20) 
             val name = f.nameWithoutExtension
             if (name !in keep && name !in names && f.lastModified() < stale) f.delete()
         }
+    }
+
+    companion object {
+        private const val TAG = "RawCache"
     }
 }
