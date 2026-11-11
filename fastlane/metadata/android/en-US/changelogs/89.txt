@@ -1,0 +1,1 @@
+The paper strip as on the desktop. It runs from five stops under the grey card to the clip, so every slice is a grey of the scene. Two fingers change the grade and nothing else: the print's mid-grey stays where it is, and the grade stops at 00 and at 5. The Mimizan core at 0.18.8.
