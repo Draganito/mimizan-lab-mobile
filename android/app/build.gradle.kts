@@ -172,8 +172,16 @@ kotlin {
     }
 }
 
+val syncCameras = tasks.register<Copy>("syncCameras") {
+    group = "rust"
+    description = "cameras/ into assets, so the JSON is not edited in two places"
+    from(rootProject.file("../cameras"))
+    into("src/main/assets/cameras")
+}
+
 tasks.named("preBuild") {
     dependsOn(generateUniffiBindings)
+    dependsOn(syncCameras)
 }
 
 dependencies {

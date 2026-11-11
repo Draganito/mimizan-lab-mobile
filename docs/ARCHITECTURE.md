@@ -101,8 +101,8 @@ algorithm is duplicated in the mobile crate.
 
 ## Development
 
-`DevelopService` (`foregroundServiceType` `mediaProcessing` on API 35+,
-`dataSync` on 33 and 34) drains `Darkroom.runNext` one frame at a time
+`DevelopService` (`foregroundServiceType` `dataSync|mediaProcessing` in
+the manifest, both at once) drains `Darkroom.runNext` one frame at a time
 under a partial wake lock and stops itself when the queue is empty.
 `Darkroom.enqueue` starts it for every frame; the worker reads the latest
 start id before it finds the queue empty and leaves through
@@ -338,7 +338,7 @@ Android ones file for file:
 | `Darkroom.kt` + `DevelopService.kt` | `Darkroom/Darkroom.swift` | two serial `DispatchQueue`s behind `Gate` (intake: write and read the frame; worker: the development), so the core never runs on Swift's cooperative pool; `beginBackgroundTask` instead of a foreground service, ended by the expiry handler too; a frame deleted while it develops is dropped on completion |
 | `RawCache.kt` | `Store/RawCache.swift` | `Caches/raw/<name>.dng` + `.json` + `.grade`, excluded from backup, 1.5 GB budget; an orphan `.dng`, or a sidecar without its `.dng`, is swept only once it is a minute old; a `.json` the decoder refuses is set aside as `<name>.bad-<stamp>.json` (`readOrSetAside`), as are `finder-match.json` and `formats.json` |
 | `MediaStoreWriter.kt` | `Store/Exporter.swift` | `Documents/Mimizan Lab` (visible in Files, `UIFileSharingEnabled`) plus `PHPhotoLibrary` add-only for JPEGs; the DNG export (`ReviewViewModel.exportDng`, iOS only — Android writes no DNG) copies the cached frame there under its name, behind the full-resolution purchase like the TIFFs; the mask sidecar takes the final file's name, so `(2)` pairs stay paired |
-| `Prefs.kt` | `Store/Prefs.swift` | same keys and defaults in `UserDefaults` (no lamp keys: the lamps are not a setting on either phone) |
+| `Prefs.kt` | `Store/Prefs.swift` | same keys in `UserDefaults` (no lamp keys: the lamps are not a setting on either phone). Fresh install: Android `ShotMode.JPEG` (the finder is already the paper), iOS `.developer` (the finder may be the camera's picture) |
 | `store/Entitlements.kt` (`play` flavor) | `Store/Entitlements.swift` | StoreKit 2: `Transaction.currentEntitlements` on every start, `Transaction.updates` for purchases made on the Mac, by the family or refunded, `AppStore.sync()` behind Restore; the answer cached under `entitlement_fullres`. No flavor on iOS, the App Store is the only channel; `UI/UnlockView.swift` is the Settings section and the sheet a locked export opens |
 | `ReviewViewModel.kt` / `ReviewScreen.kt` | `Review/` | the `Developed` calls go through `Gate`, a serial `DispatchQueue` wrapped in `withCheckedContinuation`, never the main thread; the sliders and Peak move the frame's own print (`Darkroom.setPrint` → `<name>.grade`) and each render hands the roll a fresh thumbnail, as on Android; `MagnifyGesture` + `DragGesture` for the 1:1 viewer |
 | `RollScreen.kt` | `UI/RollView.swift` | no import from Files or Photos (a full-size NEF develops past the iPad's memory); the roll is the camera's own frames |
