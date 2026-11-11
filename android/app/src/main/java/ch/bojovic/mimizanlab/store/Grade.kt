@@ -136,6 +136,32 @@ object GradeMath {
         return Grade(s24 / 24.0, (s24 + 2 * c12) / 24.0)
     }
 
+    /** Linear value of the grey card: the core's `zone::GRAY_CARD`. */
+    const val GREY_CARD: Double = 0.18
+
+    /** Stops of the scene the paper strip shows under the grey card. */
+    const val STRIP_BELOW: Double = 5.0
+
+    /** Stops of the scene over the grey card: up to the clip, linear 1, where the negative ends. */
+    val STRIP_ABOVE: Double = -kotlin.math.log2(GREY_CARD)
+
+    /**
+     * Where a grey [stops] from the grey card stands, as a part of the
+     * strip's width. The card itself is at `stripFracOf(0.0)`, the mark.
+     */
+    fun stripFracOf(stops: Double): Double = (stops + STRIP_BELOW) / (STRIP_BELOW + STRIP_ABOVE)
+
+    /**
+     * Linear grey at [frac] of the strip's width: [STRIP_BELOW] stops
+     * under the grey card at the left edge, the clip at the right.
+     */
+    fun stripLinearAt(frac: Double): Double =
+        (GREY_CARD * Math.pow(2.0, frac * (STRIP_BELOW + STRIP_ABOVE) - STRIP_BELOW)).coerceIn(0.0, 1.0)
+
+    /** The whole stops from the grey card that lie inside the strip, the edges left out: the ticks. */
+    fun stripTicks(): List<Double> =
+        generateSequence(1.0 - kotlin.math.ceil(STRIP_BELOW)) { it + 1.0 }.takeWhile { it < STRIP_ABOVE }.toList()
+
     /** A peak radius inside the core's range; a non-finite value is the default. */
     fun clampPeakRadius(v: Double, limits: PeakLimits): Double =
         (if (v.isFinite()) v else limits.radiusDefault).coerceIn(limits.radiusMin, limits.radiusMax)

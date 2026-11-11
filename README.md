@@ -166,9 +166,11 @@ the camera's own preview, desaturated in mono, untouched in colour.
    it was last printed as. The colour
    space starts at sRGB; Adobe RGB is under *Color space* in Settings.
 3. **Grade.** One strip, the paper itself: it is drawn from
-   the core's paper table for the standing pair, over ten zones of
-   linear grey with the grey card under the mark in the middle, so
-   the strip shows what the paper does to the picture. One finger
+   the core's paper table for the standing pair, over the scene, a
+   zone to the stop, from five stops under the grey card to the clip
+   two and a half above it, the card under the mark two thirds along.
+   So the strip is the print of a grey wedge, every slice a grey of
+   its own, and shows what the paper does to the picture. One finger
    drags the exposure — both paper exposures move by the same stops,
    the ramp slides under the mark, the grade stays. Two fingers spread
    the grade — the ramp widens (softer) or closes (harder) around the

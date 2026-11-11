@@ -162,8 +162,10 @@ separation:
   the three plate filters in equal fields over the paper strip, the
   chosen one in the glass's colour, tap or drag. Both apps show
   them as one strip (`PaperStrip`, Compose and SwiftUI alike), drawn
-  from `paper_lut` for the pair over ten zones of
-  linear grey — a one-finger drag shifts the pair (`shiftGrade`), a
+  from `paper_lut` for the pair over the scene, from five stops under
+  the grey card to the clip (`GradeMath.stripLinearAt` on Android,
+  `PaperStrip.linearAt` on iOS; the desktop's strip has the same axis)
+  — a one-finger drag shifts the pair (`shiftGrade`), a
   two-finger spread sets the grade (`withContrast`, two stops per
   doubling of the spread, kept within ±3 on the phone; a pair from
   before that lies beyond is clipped only when touched), a double tap

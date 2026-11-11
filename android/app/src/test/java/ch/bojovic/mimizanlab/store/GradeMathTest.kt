@@ -113,6 +113,34 @@ class GradeMathTest {
         assertEquals(0.0, GradeMath.withContrast(0.0, 0.0, Double.NaN, limit).hard, eps)
     }
 
+    // The paper strip's axis: the scene, from five stops under the grey card to the clip.
+
+    @Test
+    fun everySliceOfTheStripIsAGreyOfItsOwn() {
+        // The 192 slices the strip is drawn in: each lighter than the one before, none at the clip.
+        val n = 192
+        var last = 0.0
+        for (i in 0 until n) {
+            val l = GradeMath.stripLinearAt((i + 0.5) / n)
+            assert(l > last) { "slice $i is $l after $last" }
+            last = l
+        }
+        assert(last < 1.0) { "the last slice is $last" }
+    }
+
+    @Test
+    fun theStripRunsFromFiveStopsUnderTheCardToTheClip() {
+        assertEquals(0.18 / 32.0, GradeMath.stripLinearAt(0.0), eps)
+        assertEquals(1.0, GradeMath.stripLinearAt(1.0), eps)
+        // The mark is the grey card, two thirds along; the ticks are the whole stops from it.
+        assertEquals(0.18, GradeMath.stripLinearAt(GradeMath.stripFracOf(0.0)), eps)
+        assertEquals(0.669, GradeMath.stripFracOf(0.0), 0.001)
+        assertEquals(listOf(-4.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0), GradeMath.stripTicks())
+        for (stops in GradeMath.stripTicks()) {
+            assertEquals(0.18 * Math.pow(2.0, stops), GradeMath.stripLinearAt(GradeMath.stripFracOf(stops)), eps)
+        }
+    }
+
     private val peakLimits = PeakLimits(radiusDefault = 0.7, radiusMin = 0.3, radiusMax = 3.0, amountMax = 2.0)
     private val standingPeak = Peak.standing(PeakMode.OFF, peakLimits)
 

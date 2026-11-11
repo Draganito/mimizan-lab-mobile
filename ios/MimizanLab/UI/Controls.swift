@@ -176,11 +176,14 @@ extension Color {
 }
 
 /// The paper as one strip. It is drawn from the core's own paper table
-/// (`paperLut` for the standing soft and hard exposures) over a linear
-/// axis of `zones` stops around the grey card, so what the strip shows
-/// is what the paper does to the picture; the ticks are the zones. One
+/// (`paperLut` for the standing soft and hard exposures) over the scene,
+/// a zone to the stop, from five stops under the grey card to the clip
+/// two and a half above it, where the negative ends (`linearAt`): the
+/// strip is the print of a grey wedge, every slice a grey of its own,
+/// and what it shows is what the paper does to the picture. The ticks
+/// are the zones; the card stands at the mark, two thirds along. One
 /// finger drags the exposure: both exposures move by the same stops
-/// (`shiftGrade`), the ramp slides under the mark in the middle, the
+/// (`shiftGrade`), the ramp slides under the mark, the
 /// width of the strip is three stops. Two fingers spread the grade: the
 /// ramp widens (softer) or closes (harder) around the middle, the mean
 /// held (`withContrast`); the grade is kept within ±`contrastLimit` here
@@ -203,9 +206,27 @@ struct PaperStrip: View {
     /// Stops of grade the strip reaches, each way: the core allows twice
     /// that; the phone's sensors never want it.
     static let contrastLimit: Double = Prefs.stopLimit
-    /// Stops of linear grey the strip spans; the grey card in the middle.
-    static let zones: Double = 10
+    /// Linear value of the grey card: the core's `zone::GRAY_CARD`.
+    static let greyCard: Double = 0.18
+    /// Stops of the scene the strip shows under the grey card.
+    static let below: Double = 5
+    /// Stops of the scene over the grey card: up to the clip, linear 1, where the negative ends.
+    static let above: Double = -log2(greyCard)
     private static let samples = 192
+
+    /// Where a grey `stops` from the grey card stands, as a part of the
+    /// strip's width. The card itself is at `fracOf(0)`, the mark.
+    static func fracOf(_ stops: Double) -> Double { (stops + below) / (below + above) }
+
+    /// Linear grey at `frac` of the strip's width: `below` stops under
+    /// the grey card at the left edge, the clip at the right. Twin of
+    /// the Android `GradeMath.stripLinearAt`.
+    static func linearAt(_ frac: Double) -> Double {
+        min(max(greyCard * pow(2, frac * (below + above) - below), 0), 1)
+    }
+
+    /// The whole stops from the grey card that lie inside the strip, the edges left out: the ticks.
+    static var ticks: [Double] { Array(stride(from: 1 - below.rounded(.up), to: above, by: 1)) }
 
     var body: some View {
         let off = abs(soft) >= 1.0 / 24 || abs(hard) >= 1.0 / 24
@@ -214,22 +235,21 @@ struct PaperStrip: View {
             let width = max(g.size.width, 1)
             Canvas { ctx, size in
                 // The ramp: each slice the paper's value for the linear grey
-                // of its stop, the grey card at 0.18 in the middle.
+                // of its stop.
                 let n = PaperStrip.samples
                 let w = size.width / CGFloat(n)
                 for i in 0..<n {
-                    let stops = (Double(i) + 0.5) / Double(n) * PaperStrip.zones - PaperStrip.zones / 2
-                    let linear = min(max(0.18 * pow(2, stops), 0), 1)
+                    let linear = PaperStrip.linearAt((Double(i) + 0.5) / Double(n))
                     let v = Double(PaperStrip.value(lut, at: linear))
                     ctx.fill(Path(CGRect(x: CGFloat(i) * w, y: 0, width: w + 0.5, height: size.height)), with: .color(Color(white: v)))
                 }
-                // The zones, one stop apart, as ticks from the top edge.
-                for z in 1..<Int(PaperStrip.zones) {
-                    let x = size.width * CGFloat(Double(z) / PaperStrip.zones)
+                // The zones, whole stops from the grey card, as ticks from the top edge.
+                for stops in PaperStrip.ticks {
+                    let x = size.width * CGFloat(PaperStrip.fracOf(stops))
                     ctx.fill(Path(CGRect(x: x - 0.5, y: 0, width: 1, height: size.height * 0.3)), with: .color(.gray.opacity(0.6)))
                 }
                 // The mark: the grey card's place, never moving.
-                let mx = size.width / 2
+                let mx = size.width * CGFloat(PaperStrip.fracOf(0))
                 var mark = Path()
                 mark.move(to: CGPoint(x: mx - 5, y: size.height))
                 mark.addLine(to: CGPoint(x: mx + 5, y: size.height))

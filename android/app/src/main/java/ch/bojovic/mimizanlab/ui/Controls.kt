@@ -190,12 +190,15 @@ val SettingInk = Color(0xFFFFB74D)
 
 /**
  * The paper as one strip. It is drawn from the core's own paper table
- * ([paperLut] for the standing soft and hard exposures) over a linear
- * axis of [PaperStripZones] stops around the grey card, so what the
- * strip shows is what the paper does to the picture; the ticks are the
- * zones. One finger drags the exposure: both exposures move by the same
- * stops ([Prefs.shiftGrade]), the ramp slides under the mark in the
- * middle, the width of the strip is three stops. Two fingers spread the
+ * ([paperLut] for the standing soft and hard exposures) over the scene,
+ * a zone to the stop, from five stops under the grey card to the clip
+ * two and a half above it, where the negative ends
+ * ([GradeMath.stripLinearAt]): the strip is the print of a grey wedge,
+ * every slice a grey of its own, and what it shows is what the paper
+ * does to the picture. The ticks are the zones; the card stands at the
+ * mark, two thirds along. One finger drags the exposure: both exposures
+ * move by the same stops ([Prefs.shiftGrade]), the ramp slides under the
+ * mark, the width of the strip is three stops. Two fingers spread the
  * grade: the ramp widens (softer) or closes (harder) around the middle,
  * the mean held ([Prefs.withContrast]); the grade is kept within
  * ±[PaperStripContrastLimit] here — a pair from before that lies beyond
@@ -271,22 +274,20 @@ fun PaperStrip(soft: Double, hard: Double, onBoth: (Double, Double) -> Unit) {
             },
     ) {
         // The ramp: each slice the paper's value for the linear grey of
-        // its stop, the grey card at 0.18 in the middle.
+        // its stop.
         val n = 192
         val w = size.width / n
         for (i in 0 until n) {
-            val stops = (i + 0.5) / n * PaperStripZones - PaperStripZones / 2
-            val linear = (0.18 * Math.pow(2.0, stops)).coerceIn(0.0, 1.0)
-            val v = lutValue(lut, linear)
+            val v = lutValue(lut, GradeMath.stripLinearAt((i + 0.5) / n))
             drawRect(Color(v, v, v), topLeft = Offset(i * w, 0f), size = androidx.compose.ui.geometry.Size(w + 0.5f, size.height))
         }
-        // The zones, one stop apart, as ticks from the top edge.
-        for (z in 1 until PaperStripZones.toInt()) {
-            val x = size.width * (z / PaperStripZones).toFloat()
+        // The zones, whole stops from the grey card, as ticks from the top edge.
+        for (stops in GradeMath.stripTicks()) {
+            val x = size.width * GradeMath.stripFracOf(stops).toFloat()
             drawRect(Color.Gray.copy(alpha = 0.6f), topLeft = Offset(x - 0.5f, 0f), size = androidx.compose.ui.geometry.Size(1f, size.height * 0.3f))
         }
         // The mark: the grey card's place, never moving.
-        val mx = size.width / 2
+        val mx = size.width * GradeMath.stripFracOf(0.0).toFloat()
         val mark = Path().apply {
             moveTo(mx - 5.dp.toPx(), size.height)
             lineTo(mx + 5.dp.toPx(), size.height)
@@ -299,9 +300,6 @@ fun PaperStrip(soft: Double, hard: Double, onBoth: (Double, Double) -> Unit) {
 
 /** Stops of grade the strip reaches, each way: the core allows twice that; the phone's sensors never want it. */
 val PaperStripContrastLimit: Double get() = Prefs.STOP_LIMIT
-
-/** Stops of linear grey the strip spans; the grey card in the middle. */
-const val PaperStripZones: Double = 10.0
 
 /** The paper table read at [linear], between entries. */
 private fun lutValue(lut: FloatArray, linear: Double): Float {
