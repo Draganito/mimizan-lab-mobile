@@ -93,7 +93,16 @@ final class Darkroom {
     /// moment, matched against the negative once it is developed.
     @discardableResult
     func submit(dng: Data, lens: String, capturedAt: Date, settings: DevelopSettings, print: Print, developNow: Bool = true, finder: FinderSample? = nil) -> String {
-        let name = Darkroom.nameFor(capturedAt)
+        // Two frames within one second get `_2`, `_3`, as on Android, so the
+        // roll never lists one name twice.
+        var name = Darkroom.nameFor(capturedAt)
+        let taken = Set(shots.map(\.name))
+        var n = 2
+        let base = name
+        while taken.contains(name) || cache.has(name) {
+            name = "\(base)_\(n)"
+            n += 1
+        }
         let provisional = ShotMeta(info: FrameInfo.empty, lens: lens, capturedAt: capturedAt, imported: false)
         shots.insert(Shot(name: name, meta: provisional, settings: settings, print: print, status: .saving, finder: finder), at: 0)
         let cache = cache
