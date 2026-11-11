@@ -39,7 +39,8 @@ private struct StackRoot: View {
                                 if let name { path.append(.review(name)); selection = nil }
                             }
                     case let .review(name):
-                        ReviewView(name: name)
+                        // id(name): the strip's double-tap memory is this frame's alone.
+                        ReviewView(name: name).id(name)
                     }
                 }
         }

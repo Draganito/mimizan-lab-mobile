@@ -48,6 +48,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -239,17 +240,20 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     // The filter row and the strip, with room between them for a thumb.
-                    Column(verticalArrangement = Arrangement.spacedBy(FilterStripGap)) {
-                        if (plate == null) {
-                            MonoFilterStrip(selected = s.filter, onSelect = vm::setFilter)
-                        } else {
-                            PlateFilterStrip(
-                                selected = plateFilters,
-                                hasMatrix = s.info?.hasColourMatrix ?: false,
-                                onSelect = vm::setPlateFilters,
-                            )
+                    // key(name): the strip's double-tap memory is this frame's alone.
+                    key(s.name) {
+                        Column(verticalArrangement = Arrangement.spacedBy(FilterStripGap)) {
+                            if (plate == null) {
+                                MonoFilterStrip(selected = s.filter, onSelect = vm::setFilter)
+                            } else {
+                                PlateFilterStrip(
+                                    selected = plateFilters,
+                                    hasMatrix = s.info?.hasColourMatrix ?: false,
+                                    onSelect = vm::setPlateFilters,
+                                )
+                            }
+                            PaperStrip(s.print.grade.soft, s.print.grade.hard, onBoth = vm::setGrade)
                         }
-                        PaperStrip(s.print.grade.soft, s.print.grade.hard, onBoth = vm::setGrade)
                     }
                     val peak = s.print.peak
                     PeakRow(peak.mode, PeakMode.entries, onMode = vm::setPeakMode)
