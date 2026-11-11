@@ -1,0 +1,1 @@
+Delete all stays off while a frame is still saving. A second tap on the shutter cannot start another shot on iOS. A poisoned Developed lock returns an error; Peak keeps the mono mix on a plate. The strip counts grade notches the same way as iOS. An orphan .raw under a minute is kept. An unverified StoreKit purchase is left unfinished.
