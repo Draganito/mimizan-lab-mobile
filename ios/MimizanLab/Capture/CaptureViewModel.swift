@@ -292,13 +292,19 @@ final class CaptureViewModel {
 
     // MARK: the shot
 
+    /// Set before the session's `capturing` flag, so a second tap in the
+    /// same run loop cannot start another shot. Twin of Android `shooting`.
+    private var shooting = false
+
     func capture() {
-        guard let l = lens, !state.capturing else { return }
+        guard let l = lens, !shooting, !state.capturing else { return }
+        shooting = true
         var settings = develop
         let mode = shotMode
         let start = startingPrint
         settings.autoJpeg = mode == .jpeg
         Task {
+            defer { shooting = false }
             do {
                 let still = try await session.capture()
                 // What the finder applied as the frame was taken, for the match.
