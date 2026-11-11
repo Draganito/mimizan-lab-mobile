@@ -4,10 +4,9 @@
 # unsigned .app (and the same as a Payload/.ipa for re-signing tools);
 # nothing here needs an Apple developer account.
 #
-# The core is a path dependency on the sibling checkout of Draganito/mimizan,
-# as it is on the desktop (rust/mimizan-mobile/Cargo.toml). The checkout is
-# the commit in mimizan-core.ref, so the build here carries the same core
-# as the APK built next to that checkout (scripts/set_version.sh writes it).
+# The core is the git commit in mimizan-core.ref (Cargo.toml `rev`), checked
+# out beside this repo so the build carries the same core as the APK
+# (scripts/set_version.sh writes the pin).
 name: iOS
 
 on:
