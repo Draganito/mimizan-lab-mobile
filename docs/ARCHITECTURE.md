@@ -194,23 +194,25 @@ separation:
   so the roll shows the frame as it was last left. Exports use the shown
   pair.
 * after a development -> `measure_peak(soft, hard)`: the native-size
-  print of the current mix (the plate's green positive), nothing
-  sharpened, through the core's `peak::tune` — the same search as the
-  desktop's `peak` program and GUI. The radius (Gaussian σ, pixels of the
-  negative) and amount are kept with the negative in memory
-  (`Darkroom.Negative.peak`). Peak is part of the frame's print
-  (`Shot.print.peak`, the `peak` object in `<name>.grade`), like the
-  grade: *Off* applies nothing, *Auto* applies the measurement of each
-  negative, *Custom* applies the frame's own pair, which starts from this
-  negative's measurement the moment Custom is chosen in review
+  print of the monochrome mix (kept while a plate is on, so Peak matches
+  the desktop's edit weights), nothing sharpened, through the core's
+  `peak::tune` — the same search as the desktop's `peak` program and GUI.
+  The radius (Gaussian σ, pixels of the negative) and amount are kept with
+  the negative in memory (`Darkroom.Negative.peak`). Peak is part of the
+  frame's print (`Shot.print.peak`, the `peak` object in `<name>.grade`),
+  like the grade: *Off* applies nothing, *Auto* applies the measurement of
+  each negative, *Custom* applies the frame's own pair, which starts from
+  this negative's measurement the moment Custom is chosen in review
   (`Peak.applied`). The standing Peak in the settings (`Prefs.peakMode`)
   is Off or Auto only — what a new frame starts with and the automatic
   JPEG applies; a hand pair belongs to one negative, so Custom is the
   developer's alone and never a setting. On iOS the setting is only
   offered under a paper finder, where a JPEG leaves without the
-  developer; elsewhere `startingPrint` hands every frame Auto. A `.grade` file from 0.15.0
-  has no `peak` object and reads with the standing Peak. The 1:1 view
-  and every export follow the mode; the preview is never sharpened.
+  developer; elsewhere `startingPrint` hands every frame Auto. Android's
+  finder is always the paper, so `Darkroom.submit` always starts from
+  `prefs.standingPrint`. A `.grade` file from 0.15.0 has no `peak` object
+  and reads with the standing Peak. The 1:1 view and every export follow
+  the mode; the preview is never sharpened.
 * after a development on iOS with the Apple Log finder ->
   `mix_median()`: the median of the current monochrome mix on the linear
   axis from the preview planes, near-black and clip left out (the
@@ -336,7 +338,7 @@ Android ones file for file:
 | — | `Store/FormatDump.swift` | for the devices nobody here holds: each time a lens opens, every `AVCaptureDevice.Format` (size, subtype fourcc, frame rates, colour spaces, binned, HDR, photo-quality flags, `supportedMaxPhotoDimensions`, ISO range), the format settled on, the RAW and stream types after the commit, the RAW types seen while the Apple Log format was active (empty by construction under `.inputPriority`, kept as the record), and the outcome sentence go to `Documents/formats.json` by lens label. `CaptureState.finderNote` is that sentence for Settings: which step of the Apple Log path passed or failed, with the counts; `formatsFile` says whether the file was written (time, count, size) or why not. Settings shares both files with `ShareLink`, so a tester never has to find them in Files |
 | `CameraViewModel.kt` | `Capture/CaptureViewModel.swift` | `withObservationTracking` instead of `combine` for the tone (the standing grade, the process and plate filters, the lens matrix remembered per lens in `Prefs`, the match); a start under way is not started a second time; the capture carries the finder's `FinderSample` into `Darkroom.submit` |
 | `Darkroom.kt` + `DevelopService.kt` | `Darkroom/Darkroom.swift` | two serial `DispatchQueue`s behind `Gate` (intake: write and read the frame; worker: the development), so the core never runs on Swift's cooperative pool; `beginBackgroundTask` instead of a foreground service, ended by the expiry handler too; a frame deleted while it develops is dropped on completion |
-| `RawCache.kt` | `Store/RawCache.swift` | `Caches/raw/<name>.dng` + `.json` + `.grade`, excluded from backup, 1.5 GB budget; an orphan `.dng`, or a sidecar without its `.dng`, is swept only once it is a minute old; a `.json` the decoder refuses is set aside as `<name>.bad-<stamp>.json` (`readOrSetAside`), as are `finder-match.json` and `formats.json` |
+| `RawCache.kt` | `Store/RawCache.swift` | `Caches/raw/<name>.raw`/`.dng` + `.json` + `.grade`, excluded from backup, 1.5 GB budget; an orphan `.raw`/`.dng`, or a sidecar without its frame, is swept only once it is a minute old; a frame `.json` the decoder refuses is set aside as `<name>.bad-<stamp>.json` from `loadMeta` on both sides, as are `finder-match.json` and `formats.json` (`FormatDump.readOrSetAside`) |
 | `MediaStoreWriter.kt` | `Store/Exporter.swift` | `Documents/Mimizan Lab` (visible in Files, `UIFileSharingEnabled`) plus `PHPhotoLibrary` add-only for JPEGs; the DNG export (`ReviewViewModel.exportDng`, iOS only — Android writes no DNG) copies the cached frame there under its name, behind the full-resolution purchase like the TIFFs; the mask sidecar takes the final file's name, so `(2)` pairs stay paired |
 | `Prefs.kt` | `Store/Prefs.swift` | same keys in `UserDefaults` (no lamp keys: the lamps are not a setting on either phone). Fresh install: Android `ShotMode.JPEG` (the finder is already the paper), iOS `.developer` (the finder may be the camera's picture) |
 | `store/Entitlements.kt` (`play` flavor) | `Store/Entitlements.swift` | StoreKit 2: `Transaction.currentEntitlements` on every start, `Transaction.updates` for purchases made on the Mac, by the family or refunded, `AppStore.sync()` behind Restore; the answer cached under `entitlement_fullres`. No flavor on iOS, the App Store is the only channel; `UI/UnlockView.swift` is the Settings section and the sheet a locked export opens |
