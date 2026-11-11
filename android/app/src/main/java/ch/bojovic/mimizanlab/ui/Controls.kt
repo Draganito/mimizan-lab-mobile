@@ -90,11 +90,12 @@ fun FilterStrip(labels: List<String>, inks: List<Color>, selected: Int, dimmed: 
         val w = maxWidth / n
         Row(Modifier.fillMaxWidth().height(26.dp)) {
             for (i in 0 until n) {
+                val interaction = remember(i) { MutableInteractionSource() }
                 Box(
                     Modifier
                         .width(w)
                         .height(26.dp)
-                        .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { onSelect(i) },
+                        .clickable(indication = null, interactionSource = interaction) { onSelect(i) },
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -247,11 +248,14 @@ fun PaperStrip(soft: Double, hard: Double, onBoth: (Double, Double) -> Unit) {
             .pointerInput(Unit) {
                 // Pan and zoom of one gesture, read together: the pan is the
                 // exposure from the pair as the gesture began, the zoom the
-                // grade from the grade as it began, each applied to the
-                // current pair so both have their say at once.
+                // grade from the grade as it began. The step of grade is the
+                // same count as on iOS: from the grade at the start, through
+                // the notches of the spread, minus the grade of the shifted
+                // pair, so a drag at the same time keeps its say.
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)
                     val base = latest.value
+                    val baseGrade = kotlin.math.round((base.second - base.first) * 12.0).toInt()
                     var dx = 0f
                     var scale = 1f
                     var moving = false
@@ -269,10 +273,8 @@ fun PaperStrip(soft: Double, hard: Double, onBoth: (Double, Double) -> Unit) {
                                 event.changes.forEach { if (it.positionChanged()) it.consume() }
                                 val delta = -dx.toDouble() / size.width.coerceAtLeast(1).toDouble() * Prefs.STOP_LIMIT
                                 val shifted = Prefs.shiftGrade(base.first, base.second, delta)
-                                // Spreading the ramp is the softer paper. The
-                                // shifted pair has the grade the gesture began
-                                // with, so the notches count from there.
-                                val notches = GradeMath.spreadNotches(scale.toDouble())
+                                val now = kotlin.math.round((shifted.hard - shifted.soft) * 12.0).toInt()
+                                val notches = baseGrade + GradeMath.spreadNotches(scale.toDouble()) - now
                                 val g = if (notches == 0) shifted else Prefs.graded(shifted.soft, shifted.hard, notches)
                                 onBoth(g.soft, g.hard)
                             }
