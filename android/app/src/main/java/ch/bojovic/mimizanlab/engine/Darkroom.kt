@@ -213,7 +213,17 @@ class Darkroom private constructor(private val context: Context) {
     /** Drop list entries whose frame the cache has trimmed away. */
     private fun syncWithCache() {
         val names = cache.names().toSet()
-        _shots.update { list -> list.filter { it.name in names || it.status == ShotStatus.Saving } }
+        // Saving / Queued / Developing stay: the pixels may not be on disk
+        // yet, or trim ran while the name was still in the queue. Without
+        // them runNext could take a name off the queue and find no shot.
+        _shots.update { list ->
+            list.filter {
+                it.name in names ||
+                    it.status == ShotStatus.Saving ||
+                    it.status == ShotStatus.Queued ||
+                    it.status == ShotStatus.Developing
+            }
+        }
         refreshCacheSize()
     }
 
@@ -243,7 +253,13 @@ class Darkroom private constructor(private val context: Context) {
     /** Develop the next queued frame; false when the queue is empty. */
     suspend fun runNext(onProgress: (String) -> Unit): Boolean {
         val name = queueLock.withLock { queue.removeFirstOrNull() } ?: return false
-        val shot = _shots.value.firstOrNull { it.name == name } ?: return true
+        val shot = _shots.value.firstOrNull { it.name == name }
+        if (shot == null) {
+            // The roll no longer lists it (deleted, or a race before the
+            // sync kept Queued/Developing). Nothing to develop; go on.
+            Log.w(TAG, "queued $name is gone from the roll")
+            return true
+        }
         onProgress(name)
         developLock.withLock {
             updateShot(name) { it.copy(status = ShotStatus.Developing) }
