@@ -1,0 +1,1 @@
+More room between the filter row and the paper strip, so a drag on the strip no longer lands on the filters.
