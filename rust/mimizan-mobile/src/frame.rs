@@ -22,10 +22,11 @@ pub fn as_shot_from_gains(g: &[f64]) -> Result<[f64; 3]> {
 /// core's XYZ → camera matrix; `None` when absent or all zero.
 pub fn matrix_of(m: Option<&[f64]>) -> Result<Option<[[f64; 3]; 3]>> {
     match m {
-        Some(m) if m.len() == 9 && m.iter().all(|v| v.is_finite()) && m.iter().any(|v| *v != 0.0) => {
-            Ok(Some([[m[0], m[1], m[2]], [m[3], m[4], m[5]], [m[6], m[7], m[8]]]))
+        Some(m) if m.len() == 9 && m.iter().any(|v| !v.is_finite()) => {
+            Err(MimizanError::Invalid { msg: "xyz_to_cam has a non-finite value".into() })
         }
-        Some(m) if m.len() == 9 => Ok(None),
+        Some(m) if m.len() == 9 && m.iter().all(|v| *v == 0.0) => Ok(None),
+        Some(m) if m.len() == 9 => Ok(Some([[m[0], m[1], m[2]], [m[3], m[4], m[5]], [m[6], m[7], m[8]]])),
         Some(_) => Err(MimizanError::Invalid { msg: "xyz_to_cam needs 9 values".into() }),
         None => Ok(None),
     }

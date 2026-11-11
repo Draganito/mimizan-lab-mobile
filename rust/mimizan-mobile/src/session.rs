@@ -522,7 +522,16 @@ impl Inner {
                 lamp_blue: self.lamps[1],
             }),
             timing: self.timing.clone(),
-            json: serde_json::to_string(&self.info).unwrap_or_default(),
+            json: match serde_json::to_string(&self.info) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!(error = %e, "develop info json");
+                    format!(
+                        r#"{{"error":{}}}"#,
+                        serde_json::to_string(&e.to_string()).unwrap_or_else(|_| "\"?\"".into())
+                    )
+                }
+            },
         }
     }
 
