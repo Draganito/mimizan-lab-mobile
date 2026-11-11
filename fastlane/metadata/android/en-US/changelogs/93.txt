@@ -1,0 +1,1 @@
+A damaged frame .json is set aside instead of leaving a ghost on the roll. A non-finite colour matrix is refused. The host NEF proof skips only when allowed. mimizan prefs stay out of cloud backup. Writing the standing Peak drops the leftover peak_on key.
