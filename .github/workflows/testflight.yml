@@ -42,6 +42,17 @@ jobs:
           repository: Draganito/mimizan
           ref: ${{ steps.core.outputs.sha }}
           path: mimizan
+      - name: Version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          t="${GITHUB_REF_NAME}"
+          t="${t#v}"
+          name=$(sed -n 's/^ *MARKETING_VERSION: "\([^"]*\)"/\1/p' mimizan-lab-mobile/ios/project.yml)
+          cargo=$(awk '/^\[package\]/{p=1;next} p&&/^version = /{gsub(/"/,"",$3); print $3; exit}' mimizan-lab-mobile/rust/mimizan-mobile/Cargo.toml)
+          if [ "$name" != "$t" ] || [ "$cargo" != "$t" ]; then
+            echo "tag says $t, project.yml says $name, Cargo.toml says $cargo" >&2
+            exit 1
+          fi
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios
