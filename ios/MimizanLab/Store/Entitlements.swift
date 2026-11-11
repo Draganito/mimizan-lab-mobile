@@ -42,9 +42,9 @@ final class Entitlements {
                     await t.finish()
                     await self.refresh()
                 case let .unverified(t, error):
-                    // Never granted, but finished, or the store delivers it again on every launch.
+                    // Never granted and not finished: finishing would drop a
+                    // purchase the store may yet verify. It may be offered again.
                     log.warning("unverified transaction \(t.id): \(error.localizedDescription)")
-                    await t.finish()
                 }
             }
         }
@@ -100,7 +100,6 @@ final class Entitlements {
                     message = "Full resolution unlocked. Thank you."
                 case let .unverified(t, error):
                     log.warning("unverified purchase \(t.id): \(error.localizedDescription)")
-                    await t.finish()
                     message = "The purchase could not be verified."
                 }
             case .userCancelled:
