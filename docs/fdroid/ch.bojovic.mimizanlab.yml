@@ -11,9 +11,9 @@ RepoType: git
 Repo: https://github.com/Draganito/mimizan-lab-mobile.git
 
 Builds:
-  - versionName: 0.17.31
-    versionCode: 90
-    commit: 00550a8c1b44c7c0b0afb6e6b61222d5ff1767ac
+  - versionName: 0.17.33
+    versionCode: 92
+    commit: dad32854142a8515a16b21412e2f5cb1783d0987
     subdir: android/app
     sudo:
       - apt-get update
@@ -21,6 +21,7 @@ Builds:
     gradle:
       - github
     build:
+      # Pinned for a reproducible F-Droid .so; GitHub CI uses rust-toolchain@stable.
       - rustup toolchain install 1.98.1 --profile minimal --target aarch64-linux-android
       - rustup default 1.98.1
       - cargo install --locked cargo-ndk
@@ -28,5 +29,5 @@ Builds:
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v[\d.]+$
-CurrentVersion: 0.17.31
-CurrentVersionCode: 90
+CurrentVersion: 0.17.33
+CurrentVersionCode: 92
