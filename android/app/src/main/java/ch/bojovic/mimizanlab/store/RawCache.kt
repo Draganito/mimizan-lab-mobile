@@ -122,8 +122,10 @@ class RawCache(context: Context, private val budgetBytes: Long = 1_500L shl 20) 
      * Oldest frames first until the directory fits the budget. The budget
      * counts everything in the directory: pixels, metadata and thumbnails.
      * Leftovers of an interrupted write (`.tmp` older than a minute, so a
-     * thumbnail being written right now is left alone) go first, and a
-     * `.raw` without its metadata is never a frame, so it goes regardless.
+     * thumbnail being written right now is left alone) go first. A `.raw`
+     * without its metadata is never a frame, but under a minute it may
+     * still be the write in flight (twin of iOS `orphanAge`), so it stays
+     * until the budget forces it out.
      */
     private fun trim(keep: Set<String>) {
         val all = dir.listFiles() ?: return
@@ -137,7 +139,9 @@ class RawCache(context: Context, private val budgetBytes: Long = 1_500L shl 20) 
         for (f in raws) {
             val name = f.nameWithoutExtension
             if (name in keep) continue
-            if (total <= budgetBytes && metaFile(name).exists()) continue
+            val hasMeta = metaFile(name).exists()
+            if (total <= budgetBytes && hasMeta) continue
+            if (total <= budgetBytes && !hasMeta && f.lastModified() >= stale) continue
             total -= f.length() + metaFile(name).length() + printFile(name).length() + thumbFile(name).length()
             remove(name)
         }
