@@ -83,7 +83,11 @@ class Prefs(context: Context) {
     fun setPeakMode(mode: PeakMode) {
         require(mode in PeakMode.STANDING) { "a standing Peak is Off or Auto" }
         _peakMode.value = mode
-        sp.edit { putString(KEY_PEAK_MODE, mode.name) }
+        sp.edit {
+            putString(KEY_PEAK_MODE, mode.name)
+            // Migration from the bool key is done; drop the leftover.
+            remove(KEY_PEAK)
+        }
     }
 
     /** What a frame taken now is printed with: the standing grade and the standing Peak. */

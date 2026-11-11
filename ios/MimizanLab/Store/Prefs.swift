@@ -235,6 +235,8 @@ final class Prefs {
         guard PeakMode.standing.contains(mode) else { return }
         peakMode = mode
         store.set(mode.rawValue, forKey: Keys.peakMode)
+        // Migration from the bool key is done; drop the leftover.
+        store.removeObject(forKey: Keys.peak)
     }
 
     /// A hand pair inside the core's ranges.
