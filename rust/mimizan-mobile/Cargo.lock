@@ -878,8 +878,8 @@ dependencies = [
 
 [[package]]
 name = "mimizan-core"
-version = "0.18.8"
-source = "git+https://github.com/Draganito/mimizan?rev=e82f9907914e752e83dcaa557b23cb004a41fae0#e82f9907914e752e83dcaa557b23cb004a41fae0"
+version = "0.18.9"
+source = "git+https://github.com/Draganito/mimizan?rev=fe8bb3d7231fb164e536bbf1093f37b2522290ac#fe8bb3d7231fb164e536bbf1093f37b2522290ac"
 dependencies = [
  "image",
  "libm",
@@ -895,7 +895,7 @@ dependencies = [
 
 [[package]]
 name = "mimizan-mobile"
-version = "0.17.35"
+version = "0.17.36"
 dependencies = [
  "mimizan-core",
  "rayon",

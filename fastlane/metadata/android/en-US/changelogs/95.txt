@@ -1,0 +1,1 @@
+Nothing changes on Android. The core is 0.18.9, the same code as 0.18.8. This version is for the iOS build: its settings end with the copyright line and a list of the third-party libraries.
