@@ -78,11 +78,11 @@ algorithm is duplicated in the mobile crate.
    leaves an orphan `.raw` that the next trim removes) together with
    `<name>.grade`, the frame's recipe (`Recipe` / `RecipeFile`): the
    print (`Print`: grade and Peak), which starts as the standing pair
-   of that moment (`Prefs.standingPrint`), and the process, filter and
-   plate filters the frame was developed or last re-mixed in (enum
-   names; every key past `soft` and `hard` is optional, so an older
-   file still reads). Unless the shot mode is Raw, it queues the
-   development. Two shots within one second get `_2`, `_3` after the
+   of that moment (`Prefs.standingPrint`), and the process, filter,
+   plate filters and plate primaries (`plateSpace`) the frame was
+   developed or last re-mixed in (enum names; every key past `soft` and
+   `hard` is optional, so an older file still reads). Unless the shot
+   mode is Raw, it queues the development. Two shots within one second get `_2`, `_3` after the
    time stamp, so the roll never lists one name twice. A finished development adds
    `<name>.jpg`, the roll's 256 px thumbnail, written to `.jpg.tmp` and
    renamed the same way; the roll shows it after a restart without
@@ -166,7 +166,7 @@ separation:
   the grey card to the clip (`GradeMath.stripLinearAt` on Android,
   `PaperStrip.linearAt` on iOS; the desktop's strip has the same axis)
   — a one-finger drag shifts the pair (`shiftGrade`), a
-  two-finger spread sets the grade (`spreadNotches`: two stops of
+  two-finger spread sets the grade (`spreadNotches`: one stop of
   hard light over soft per doubling of the spread, a twelfth to the
   notch), a double tap
   is the base print and a second one brings the pair back.

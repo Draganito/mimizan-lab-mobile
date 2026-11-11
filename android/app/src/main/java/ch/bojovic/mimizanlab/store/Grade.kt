@@ -5,6 +5,7 @@ import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.PeakLimits
 import ch.bojovic.mimizanlab.engine.PeakMeasured
 import ch.bojovic.mimizanlab.engine.PlateFilters
+import ch.bojovic.mimizanlab.engine.PlateSpace
 import ch.bojovic.mimizanlab.engine.Process
 import org.json.JSONObject
 
@@ -63,11 +64,12 @@ data class Print(val grade: Grade, val peak: Peak)
 
 /**
  * `<name>.grade` on disk: the grade's two exposures, `peak`, and the
- * process and filter the frame was last developed or re-mixed in (enum
- * names, as the iOS app writes them). Every field past `soft` and `hard`
- * is optional, so an older file reads: one from 0.15.0 has the grade
- * alone and takes the standing Peak; one from 0.17.9 or earlier has no
- * process and reads as Mono, Pan.
+ * process, filter, plate filters and plate primaries the frame was last
+ * developed or re-mixed in (enum names, as the iOS app writes them).
+ * Every field past `soft` and `hard` is optional, so an older file
+ * reads: one from 0.15.0 has the grade alone and takes the standing
+ * Peak; one from 0.17.9 or earlier has no process and reads as Mono,
+ * Pan; one without `plateSpace` reads as sRGB.
  */
 object Recipe {
     fun toJson(print: Print, settings: DevelopSettings): JSONObject =
@@ -76,6 +78,7 @@ object Recipe {
             .put("process", settings.process.name)
             .put("filter", settings.filter.name)
             .put("plateFilters", settings.plateFilters.name)
+            .put("plateSpace", settings.plateSpace.name)
 
     /** The print and the settings from the file's text; null when the text is not a recipe. */
     fun fromJson(text: String, limit: Double, limits: PeakLimits, standingPeak: Peak): Pair<Print, DevelopSettings>? = runCatching {
@@ -86,6 +89,7 @@ object Recipe {
             filter = GradeMath.enumOr(o.optString("filter"), Filter.NONE),
             process = GradeMath.enumOr(o.optString("process"), Process.MONO),
             plateFilters = GradeMath.enumOr(o.optString("plateFilters"), PlateFilters.CAMERA),
+            plateSpace = GradeMath.enumOr(o.optString("plateSpace"), PlateSpace.SRGB),
         )
         Print(grade, peak) to settings
     }.getOrNull()
@@ -115,13 +119,14 @@ object GradeMath {
     /**
      * Notches of grade a spread of two fingers by [scale] stands for, a
      * twelfth of a stop of hard light over soft each: spreading the ramp
-     * is the softer paper, closing it the harder, two stops to the
-     * doubling. The step itself is the core's ([Prefs.graded]). A scale
-     * that is no number is no spread.
+     * is the softer paper, closing it the harder, one stop to the
+     * doubling (half the earlier two-stop gain, so a full grade swing
+     * may need two spreads). The step itself is the core's
+     * ([Prefs.graded]). A scale that is no number is no spread.
      */
     fun spreadNotches(scale: Double): Int {
         val s = if (scale.isFinite()) scale.coerceIn(0.05, 20.0) else 1.0
-        return Math.round(-24.0 * kotlin.math.log2(s)).toInt()
+        return Math.round(-12.0 * kotlin.math.log2(s)).toInt()
     }
 
     /** Linear value of the grey card: the core's `zone::GRAY_CARD`. */

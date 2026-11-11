@@ -3,13 +3,18 @@ package ch.bojovic.mimizanlab.store
 import ch.bojovic.mimizanlab.engine.DevelopSettings
 import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.PeakLimits
-import ch.bojovic.mimizanlab.engine.PlateFilters
-import ch.bojovic.mimizanlab.engine.Process
 import ch.bojovic.mimizanlab.engine.PeakMeasured
+import ch.bojovic.mimizanlab.engine.PlateFilters
+import ch.bojovic.mimizanlab.engine.PlateSpace
+import ch.bojovic.mimizanlab.engine.Process
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/** The grade arithmetic with the core's limit passed in by hand: ±3 stops of paper. */
+/**
+ * The grade arithmetic with the core's limit passed in by hand.
+ * ±3 is `paper::STOP_LIMIT`; the JVM unit tests stay clear of UniFFI/JNI,
+ * so they do not read [Prefs.STOP_LIMIT] / [Prefs.PEAK] at runtime.
+ */
 class GradeMathTest {
     private val limit = 3.0
     private val eps = 1e-9
@@ -61,16 +66,16 @@ class GradeMathTest {
     // The spread of two fingers: notches of grade for the core's step.
 
     @Test
-    fun aSpreadIsTwoStopsOfGradeToTheDoubling() {
+    fun aSpreadIsOneStopOfGradeToTheDoubling() {
         assertEquals(0, GradeMath.spreadNotches(1.0))
-        // Spread to twice the width: two stops softer. Closed to half: two stops harder.
-        assertEquals(-24, GradeMath.spreadNotches(2.0))
-        assertEquals(24, GradeMath.spreadNotches(0.5))
-        // From the base print grade 5 is 24 notches off and the soft end 44: both within the fingers' reach.
-        assert(GradeMath.spreadNotches(0.05) >= 44) { "closing" }
-        assert(GradeMath.spreadNotches(20.0) <= -44) { "spreading" }
-        // One notch is a 2.9 % change of the width.
-        assertEquals(-1, GradeMath.spreadNotches(Math.pow(2.0, 1.0 / 24.0)))
+        // Spread to twice the width: one stop softer. Closed to half: one stop harder.
+        assertEquals(-12, GradeMath.spreadNotches(2.0))
+        assertEquals(12, GradeMath.spreadNotches(0.5))
+        // From the base print grade 5 is 24 notches off: two full doublings reach it.
+        assert(GradeMath.spreadNotches(0.05) >= 22) { "closing" }
+        assert(GradeMath.spreadNotches(20.0) <= -22) { "spreading" }
+        // One notch is a 5.9 % change of the width.
+        assertEquals(-1, GradeMath.spreadNotches(Math.pow(2.0, 1.0 / 12.0)))
         assertEquals(0, GradeMath.spreadNotches(1.01))
         // No number, no spread; a scale of nothing is the furthest close.
         assertEquals(0, GradeMath.spreadNotches(Double.NaN))
@@ -112,7 +117,12 @@ class GradeMathTest {
     @Test
     fun recipeRoundTripsThroughItsFileAndRefusesOtherText() {
         val p = Print(Grade(0.5, -1.25), Peak(PeakMode.CUSTOM, 1.1, 0.6))
-        val settings = DevelopSettings(filter = Filter.RED25, process = Process.PLATE, plateFilters = PlateFilters.WRATTEN)
+        val settings = DevelopSettings(
+            filter = Filter.RED25,
+            process = Process.PLATE,
+            plateFilters = PlateFilters.WRATTEN,
+            plateSpace = PlateSpace.ADOBE_RGB,
+        )
         val back = Recipe.fromJson(Recipe.toJson(p, settings).toString(), limit, peakLimits, standingPeak)
         assertEquals(p, back?.first)
         assertEquals(settings, back?.second)

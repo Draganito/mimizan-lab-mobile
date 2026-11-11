@@ -312,12 +312,13 @@ final class Prefs {
 
     /// Notches of grade a spread of two fingers by `scale` stands for, a
     /// twelfth of a stop of hard light over soft each: spreading the ramp
-    /// is the softer paper, closing it the harder, two stops to the
-    /// doubling. A scale that is no number is no spread. Twin of the
-    /// Android `GradeMath.spreadNotches`.
+    /// is the softer paper, closing it the harder, one stop to the
+    /// doubling (half the earlier two-stop gain, so a full grade swing
+    /// may need two spreads). A scale that is no number is no spread.
+    /// Twin of the Android `GradeMath.spreadNotches`.
     nonisolated static func spreadNotches(_ scale: Double) -> Int {
         let s = scale.isFinite ? min(max(scale, 0.05), 20) : 1
-        return Int((-24 * log2(s)).rounded())
+        return Int((-12 * log2(s)).rounded())
     }
 
     /// The pair `notches` twelfths of a stop harder, or softer below
