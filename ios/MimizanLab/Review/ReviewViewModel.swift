@@ -155,7 +155,8 @@ final class ReviewViewModel {
     private func recordSettings(_ info: DevelopInfo) {
         darkroom.setSettings(
             name, process: info.plate != nil ? .plate : .mono, filter: info.filter,
-            plateFilters: info.plate?.weights.filters ?? darkroom.prefs.plateFilters
+            plateFilters: info.plate?.weights.filters ?? darkroom.prefs.plateFilters,
+            plateSpace: info.plate?.space ?? darkroom.prefs.plateSpace
         )
     }
 

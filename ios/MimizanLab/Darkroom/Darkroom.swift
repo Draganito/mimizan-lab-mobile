@@ -189,11 +189,12 @@ final class Darkroom {
     /// The developer re-mixed this frame in another process or filter:
     /// the roll's entry says so, and a development from the cache later
     /// starts from it.
-    func setSettings(_ name: String, process: Process, filter: Filter, plateFilters: PlateFilters) {
+    func setSettings(_ name: String, process: Process, filter: Filter, plateFilters: PlateFilters, plateSpace: PlateSpace) {
         updateShot(name) {
             $0.settings.process = process
             $0.settings.filter = filter
             $0.settings.plateFilters = plateFilters
+            $0.settings.plateSpace = plateSpace
         }
         saveRecipe(name)
     }

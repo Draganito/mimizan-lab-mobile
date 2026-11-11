@@ -63,6 +63,7 @@ private struct RecipeFile: Codable {
     var process: String?
     var filter: String?
     var plateFilters: String?
+    var plateSpace: String?
 
     init(print: Print, settings: DevelopSettings) {
         soft = print.grade.soft
@@ -71,6 +72,7 @@ private struct RecipeFile: Codable {
         process = settings.process.rawValue
         filter = settings.filter.name
         plateFilters = settings.plateFilters.name
+        plateSpace = settings.plateSpace.name
     }
 
     func print(standingPeak: Peak) -> Print {
@@ -82,6 +84,7 @@ private struct RecipeFile: Codable {
         s.process = process.flatMap(Process.init(rawValue:)) ?? .mono
         s.filter = Filter.fromName(filter) ?? .none
         s.plateFilters = PlateFilters.fromName(plateFilters) ?? .camera
+        s.plateSpace = PlateSpace.fromName(plateSpace) ?? .srgb
         return s
     }
 }

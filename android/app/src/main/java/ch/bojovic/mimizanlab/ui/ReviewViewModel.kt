@@ -237,12 +237,13 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                     if (remix) {
                         val process = darkroom.prefs.process.value
                         val plateFilters = darkroom.prefs.plateFilters.value
+                        val plateSpace = darkroom.prefs.plateSpace.value
                         if (process == Process.PLATE) {
-                            d.setPlate(plateFilters, darkroom.prefs.plateSpace.value)
+                            d.setPlate(plateFilters, plateSpace)
                         } else {
                             d.remix(normaliseWeights(s.weights), WeightSpace.BALANCED, s.filter)
                         }
-                        darkroom.setSettings(s.name, process, s.filter, plateFilters)
+                        darkroom.setSettings(s.name, process, s.filter, plateFilters, plateSpace)
                     }
                     val soft = s.print.grade.soft
                     val hard = s.print.grade.hard

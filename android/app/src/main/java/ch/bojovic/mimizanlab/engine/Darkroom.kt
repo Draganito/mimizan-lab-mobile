@@ -357,8 +357,10 @@ class Darkroom private constructor(private val context: Context) {
      * roll's entry says so, and a development from the cache later starts
      * from it.
      */
-    fun setSettings(name: String, process: Process, filter: Filter, plateFilters: PlateFilters) {
-        updateShot(name) { it.copy(settings = it.settings.copy(process = process, filter = filter, plateFilters = plateFilters)) }
+    fun setSettings(name: String, process: Process, filter: Filter, plateFilters: PlateFilters, plateSpace: PlateSpace) {
+        updateShot(name) {
+            it.copy(settings = it.settings.copy(process = process, filter = filter, plateFilters = plateFilters, plateSpace = plateSpace))
+        }
         saveRecipe(name)
     }
 
