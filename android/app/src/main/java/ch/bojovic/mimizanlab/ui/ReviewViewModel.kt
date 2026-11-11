@@ -91,6 +91,12 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         openJob?.cancel()
+        // A render or 1:1 window still running for the last frame must not
+        // land on this one: cancel them and drop the handle before the
+        // collector binds the new negative (twin of iOS `developed === d`).
+        renderJob?.cancel()
+        detailJob?.cancel()
+        developed = null
         detailRegion = null
         _state.value = ReviewState(name = name, print = shotPrint(name))
         openJob = viewModelScope.launch {
@@ -221,8 +227,11 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
         renderJob?.cancel()
         renderJob = viewModelScope.launch(Dispatchers.Default) {
             val d = developed ?: return@launch
+            val forName = _state.value.name
             renderLock.withLock {
                 try {
+                    // Still the negative and the frame this job was opened for?
+                    if (developed !== d || _state.value.name != forName) return@withLock
                     _state.update { it.copy(busy = true) }
                     val s = _state.value
                     if (remix) {
@@ -250,18 +259,25 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                         bitmap = toBitmap(d.preview(soft, hard))
                         histRgb = FloatArray(0)
                     }
+                    if (developed !== d || _state.value.name != forName) {
+                        // Left this frame while the picture was building.
+                        _state.update { if (it.name == forName) it.copy(busy = false) else it }
+                        return@withLock
+                    }
                     _state.update {
                         it.copy(
                             preview = bitmap, histogram = hist, histogramRgb = histRgb, detail = null,
                             busy = false, info = info, plate = plate,
                         )
                     }
-                    darkroom.setThumbnail(s.name, bitmap)
+                    darkroom.setThumbnail(forName, bitmap)
                     // A zoomed-in view has to follow the new tones.
                     detailRegion?.let { r -> requestDetail(r[0], r[1], r[2], r[3]) }
                 } catch (t: Throwable) {
                     Log.e("Review", "render", t)
-                    _state.update { it.copy(busy = false, message = t.message) }
+                    if (developed === d && _state.value.name == forName) {
+                        _state.update { it.copy(busy = false, message = t.message) }
+                    }
                 }
             }
         }
@@ -282,8 +298,10 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
         detailJob = viewModelScope.launch(Dispatchers.Default) {
             delay(120)
             val d = developed ?: return@launch
+            val forName = _state.value.name
             renderLock.withLock {
                 try {
+                    if (developed !== d || _state.value.name != forName) return@withLock
                     val s = _state.value
                     val applied = peakApplied(s)
                     val bitmap = if (s.plate != null) {
@@ -291,6 +309,7 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                     } else {
                         toBitmap(d.detail(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.print.grade.soft, s.print.grade.hard, applied.first, applied.second))
                     }
+                    if (developed !== d || _state.value.name != forName) return@withLock
                     _state.update { it.copy(detail = Detail(x, y, bitmap)) }
                 } catch (t: Throwable) {
                     Log.w("Review", "detail", t)
