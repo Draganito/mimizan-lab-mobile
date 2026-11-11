@@ -58,59 +58,24 @@ class GradeMathTest {
         assertEquals(0.0, GradeMath.shiftGrade(0.0, 0.0, Double.NaN, limit).soft, eps)
     }
 
-    // The one grade slider: the same pairs the two sliders set, nothing else.
+    // The spread of two fingers: notches of grade for the core's step.
 
     @Test
-    fun withContrastKeepsTheMeanAndSetsTheGap() {
-        val g = GradeMath.withContrast(-1.0, 0.5, 2.5, limit)
-        assertEquals(2.5, g.hard - g.soft, eps)
-        assertEquals(-0.25, (g.soft + g.hard) / 2, eps)
-        assertEquals(-1.5, g.soft, eps)
-        assertEquals(1.0, g.hard, eps)
-    }
-
-    @Test
-    fun withContrastIsTheIdentityOnEveryPairTheSlidersCanSet() {
-        // Every twelfth pair inside the limit comes back unchanged when its
-        // own contrast is asked for: an untouched slider never moves a print.
-        for (s in -36..36) for (h in -36..36) {
-            val soft = s / 12.0
-            val hard = h / 12.0
-            val g = GradeMath.withContrast(soft, hard, hard - soft, limit)
-            assertEquals("soft $soft hard $hard", soft, g.soft, eps)
-            assertEquals("soft $soft hard $hard", hard, g.hard, eps)
-        }
-    }
-
-    @Test
-    fun withContrastLandsOnTheTwelfthGridInsideTheLimit() {
-        for (s in -36..36) for (h in -36..36) for (c in -72..72) {
-            val g = GradeMath.withContrast(s / 12.0, h / 12.0, c / 12.0, limit)
-            assertEquals(g.soft, kotlin.math.round(g.soft * 12.0) / 12.0, eps)
-            assertEquals(g.hard, kotlin.math.round(g.hard * 12.0) / 12.0, eps)
-            assert(g.soft >= -limit - eps && g.soft <= limit + eps) { "soft ${g.soft}" }
-            assert(g.hard >= -limit - eps && g.hard <= limit + eps) { "hard ${g.hard}" }
-            // The mean moves by at most a twenty-fourth, and only to make the grid.
-            val mean = (s + h) / 24.0
-            assert(kotlin.math.abs((g.soft + g.hard) / 2 - mean) <= 1.0 / 24.0 + eps) { "mean" }
-        }
-    }
-
-    @Test
-    fun withContrastClampsSoNeitherExposureLeavesTheLimit() {
-        // Mean +2: at most 1 stop of room each way, so the gap is at most 2.
-        val g = GradeMath.withContrast(2.0, 2.0, 5.0, limit)
-        assertEquals(1.0, g.soft, eps)
-        assertEquals(3.0, g.hard, eps)
-        val n = GradeMath.withContrast(2.0, 2.0, -5.0, limit)
-        assertEquals(3.0, n.soft, eps)
-        assertEquals(1.0, n.hard, eps)
-        // A sixth-stop step on an odd-twelfth pair: the mean gives a twenty-fourth, lighter, once.
-        val odd = GradeMath.withContrast(0.0, 1.0 / 12.0, 2.0 / 12.0, limit)
-        assertEquals(2.0 / 12.0, odd.hard - odd.soft, eps)
-        assertEquals(-1.0 / 12.0, odd.soft, eps)
-        assertEquals(1.0 / 12.0, odd.hard, eps)
-        assertEquals(0.0, GradeMath.withContrast(0.0, 0.0, Double.NaN, limit).hard, eps)
+    fun aSpreadIsTwoStopsOfGradeToTheDoubling() {
+        assertEquals(0, GradeMath.spreadNotches(1.0))
+        // Spread to twice the width: two stops softer. Closed to half: two stops harder.
+        assertEquals(-24, GradeMath.spreadNotches(2.0))
+        assertEquals(24, GradeMath.spreadNotches(0.5))
+        // From the base print grade 5 is 24 notches off and the soft end 44: both within the fingers' reach.
+        assert(GradeMath.spreadNotches(0.05) >= 44) { "closing" }
+        assert(GradeMath.spreadNotches(20.0) <= -44) { "spreading" }
+        // One notch is a 2.9 % change of the width.
+        assertEquals(-1, GradeMath.spreadNotches(Math.pow(2.0, 1.0 / 24.0)))
+        assertEquals(0, GradeMath.spreadNotches(1.01))
+        // No number, no spread; a scale of nothing is the furthest close.
+        assertEquals(0, GradeMath.spreadNotches(Double.NaN))
+        assertEquals(0, GradeMath.spreadNotches(Double.POSITIVE_INFINITY))
+        assertEquals(GradeMath.spreadNotches(0.05), GradeMath.spreadNotches(0.0))
     }
 
     // The paper strip's axis: the scene, from five stops under the grey card to the clip.

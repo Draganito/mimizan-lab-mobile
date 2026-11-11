@@ -469,6 +469,26 @@ pub fn paper_lut(soft: f64, hard: f64, n: u32) -> Result<Vec<f32>> {
     Ok((0..=n).map(|i| map.eval(i as f64 / n as f64) as f32).collect())
 }
 
+/// The paper's two exposures, in stops of time from the base exposure.
+#[derive(Clone, Copy, Debug, PartialEq, uniffi::Record)]
+pub struct PaperPair {
+    pub soft: f64,
+    pub hard: f64,
+}
+
+/// The pair `notches` twelfths of a stop harder, or softer below zero,
+/// with the print's mid-grey left where it is: the core's
+/// `SplitGrade::graded`, the step the desktop's wheel takes and the
+/// phone's spread of two fingers. The grade stops at 00 and at 5, and
+/// before an exposure would leave ±[`paper_stop_limit`]; both exposures
+/// come back on twelfths. A pair that is not finite reads as the base
+/// print, one outside the limit as the limit.
+#[uniffi::export]
+pub fn paper_graded(soft: f64, hard: f64, notches: i32) -> PaperPair {
+    let g = mimizan_core::paper::SplitGrade::new(soft, hard).graded(notches);
+    PaperPair { soft: g.soft, hard: g.hard }
+}
+
 /// 8-bit grey image, row-major, upright.
 #[derive(Clone, Debug, PartialEq, uniffi::Record)]
 pub struct GrayImage {

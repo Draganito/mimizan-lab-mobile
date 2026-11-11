@@ -112,28 +112,16 @@ object GradeMath {
         return Grade(soft + d, hard + d)
     }
 
-    /** The grade as one number: hard light against soft, in stops. Zero is the paper's grade 2. */
-    fun contrast(soft: Double, hard: Double): Double = hard - soft
-
     /**
-     * The pair with [contrast] stops between hard and soft and the same
-     * exposure (the mean of the two, what the zone strip moves). Done in
-     * twenty-fourths so both land on the twelfth grid: when the mean sits
-     * between two twelfths the pair goes a twenty-fourth lighter, once.
-     * [contrast] is clamped so neither exposure leaves ±[limit]. The pair
-     * is the same two numbers the two sliders would have set: nothing
-     * downstream changes.
+     * Notches of grade a spread of two fingers by [scale] stands for, a
+     * twelfth of a stop of hard light over soft each: spreading the ramp
+     * is the softer paper, closing it the harder, two stops to the
+     * doubling. The step itself is the core's ([Prefs.graded]). A scale
+     * that is no number is no spread.
      */
-    fun withContrast(soft: Double, hard: Double, contrast: Double, limit: Double): Grade {
-        val m24 = Math.round((snapStops(soft, limit) + snapStops(hard, limit)) * 12.0)
-        val lim24 = Math.round(limit * 24.0)
-        val room = lim24 - kotlin.math.abs(m24)
-        val wanted = finiteOrZero(contrast).coerceIn(-2 * limit, 2 * limit)
-        val c12 = Math.round(wanted * 12.0).coerceIn(-room, room)
-        var s24 = m24 - c12
-        if (Math.floorMod(s24, 2L) != 0L) s24 -= 1
-        if (s24 < -lim24) s24 += 2
-        return Grade(s24 / 24.0, (s24 + 2 * c12) / 24.0)
+    fun spreadNotches(scale: Double): Int {
+        val s = if (scale.isFinite()) scale.coerceIn(0.05, 20.0) else 1.0
+        return Math.round(-24.0 * kotlin.math.log2(s)).toInt()
     }
 
     /** Linear value of the grey card: the core's `zone::GRAY_CARD`. */

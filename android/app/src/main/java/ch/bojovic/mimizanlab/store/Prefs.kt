@@ -7,6 +7,7 @@ import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.PlateFilters
 import ch.bojovic.mimizanlab.engine.PlateSpace
 import ch.bojovic.mimizanlab.engine.Process
+import ch.bojovic.mimizanlab.engine.paperGraded
 import ch.bojovic.mimizanlab.engine.paperStopLimit
 import ch.bojovic.mimizanlab.engine.peakLimits
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -198,8 +199,14 @@ class Prefs(context: Context) {
         /** Add [delta] stops to both exposures, snapped to a twelfth, and stop at the limit so the gap stays. */
         fun shiftGrade(soft: Double, hard: Double, delta: Double): Grade = GradeMath.shiftGrade(soft, hard, delta, STOP_LIMIT)
 
-        /** The pair with [contrast] stops between hard and soft, the exposure kept, inside ±[STOP_LIMIT]. */
-        fun withContrast(soft: Double, hard: Double, contrast: Double): Grade = GradeMath.withContrast(soft, hard, contrast, STOP_LIMIT)
+        /**
+         * The pair [notches] twelfths of a stop harder, or softer below
+         * zero, with the print's mid-grey left where it is: the core's
+         * grade step, the one the desktop's wheel takes. The grade stops
+         * at 00 and at 5, and before an exposure would leave ±[STOP_LIMIT].
+         */
+        fun graded(soft: Double, hard: Double, notches: Int): Grade =
+            paperGraded(soft, hard, notches).let { Grade(it.soft, it.hard) }
 
         /** Twelfths of a stop, inside ±[STOP_LIMIT]; a non-finite value snaps to zero. */
         fun snapStops(v: Double): Double = GradeMath.snapStops(v, STOP_LIMIT)

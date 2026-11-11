@@ -173,8 +173,12 @@ the camera's own preview, desaturated in mono, untouched in colour.
    its own, and shows what the paper does to the picture. One finger
    drags the exposure — both paper exposures move by the same stops,
    the ramp slides under the mark, the grade stays. Two fingers spread
-   the grade — the ramp widens (softer) or closes (harder) around the
-   middle, ±3 stops of hard against soft; zero is the paper's grade 2.
+   the grade — the ramp widens (softer) or closes (harder) round the
+   print's mid-grey, which stays where it is, as when one speed-matched
+   filter is changed for another; at the base exposure that tone is the
+   grey card. The grade stops at 00 and at 5, where the paper has no
+   further grade to give, and sooner where a lighter print leaves the
+   hard light no room; the base print is the paper's grade 2.
    A double tap is the base print, a second double tap on a strip
    already there brings the pair back. No label and no number: the
    picture is the reading. Behind

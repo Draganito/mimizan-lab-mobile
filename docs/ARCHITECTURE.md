@@ -166,16 +166,17 @@ separation:
   the grey card to the clip (`GradeMath.stripLinearAt` on Android,
   `PaperStrip.linearAt` on iOS; the desktop's strip has the same axis)
   — a one-finger drag shifts the pair (`shiftGrade`), a
-  two-finger spread sets the grade (`withContrast`, two stops per
-  doubling of the spread, kept within ±3 on the phone; a pair from
-  before that lies beyond is clipped only when touched), a double tap
+  two-finger spread sets the grade (`spreadNotches`: two stops of
+  hard light over soft per doubling of the spread, a twelfth to the
+  notch), a double tap
   is the base print and a second one brings the pair back.
-  `GradeMath.withContrast` (Android) / `Prefs.withContrast` (iOS) turn
-  a grade back into the pair in twenty-fourths so both stay on the
-  twelfth grid and neither leaves ±3, and the pair is what reaches the
-  core, the files and the exports, exactly as two sliders set it before
-  (the JVM test walks the whole grid: every pair is its own fixed
-  point). Preview, histogram and
+  The step of grade is the core's, `SplitGrade::graded` behind
+  `paper_graded` (`Prefs.graded` in both apps), the same the desktop's
+  wheel takes: the print's mid-grey stays where it is, the grade stops
+  at 00 and at 5 and before an exposure would leave ±3, both exposures
+  stay on the twelfth grid, and the same steps back give the same pair.
+  The pair is what reaches the core, the files and the exports, exactly
+  as two sliders set it before. Preview, histogram and
   the 1:1 window evaluate `Tone::Paper` per pixel, the same map the JPEG
   and TIFF use, so the screen and the file agree. The viewfinder cannot
   do that per pixel in Rust, so it indexes `paper_lut` (4097 samples of

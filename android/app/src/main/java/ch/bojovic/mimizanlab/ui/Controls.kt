@@ -199,10 +199,13 @@ val SettingInk = Color(0xFFFFB74D)
  * mark, two thirds along. One finger drags the exposure: both exposures
  * move by the same stops ([Prefs.shiftGrade]), the ramp slides under the
  * mark, the width of the strip is three stops. Two fingers spread the
- * grade: the ramp widens (softer) or closes (harder) around the middle,
- * the mean held ([Prefs.withContrast]); the grade is kept within
- * ±[PaperStripContrastLimit] here — a pair from before that lies beyond
- * shows at the end and is clipped only when touched. Both gestures
+ * grade: the ramp widens (softer) or closes (harder) round the print's
+ * mid-grey, which stays where it is, as when one speed-matched filter
+ * is changed for another ([Prefs.graded], the core's step, two stops of
+ * hard light over soft to the doubling). The grade stops at 00 and at
+ * 5, and sooner where a lighter print leaves the hard light no room; a
+ * pair from before that lies beyond an end stays there and comes back
+ * on a step inwards. Both gestures
  * together are allowed. A double tap is the base print; a second double
  * tap on a strip already there brings the pair back. Behind it are the
  * same two numbers as ever, soft and hard, and the print is the same.
@@ -241,7 +244,6 @@ fun PaperStrip(soft: Double, hard: Double, onBoth: (Double, Double) -> Unit) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)
                     val base = latest.value
-                    val baseContrast = GradeMath.contrast(base.first, base.second)
                     var dx = 0f
                     var scale = 1f
                     var moving = false
@@ -259,13 +261,11 @@ fun PaperStrip(soft: Double, hard: Double, onBoth: (Double, Double) -> Unit) {
                                 event.changes.forEach { if (it.positionChanged()) it.consume() }
                                 val delta = -dx.toDouble() / size.width.coerceAtLeast(1).toDouble() * Prefs.STOP_LIMIT
                                 val shifted = Prefs.shiftGrade(base.first, base.second, delta)
-                                // Spreading the ramp is the softer paper: the
-                                // grade falls by two stops per doubling.
-                                val c = baseContrast - 2.0 * kotlin.math.log2(scale.toDouble().coerceAtLeast(0.05))
-                                val g = Prefs.withContrast(
-                                    shifted.soft, shifted.hard,
-                                    c.coerceIn(-PaperStripContrastLimit, PaperStripContrastLimit),
-                                )
+                                // Spreading the ramp is the softer paper. The
+                                // shifted pair has the grade the gesture began
+                                // with, so the notches count from there.
+                                val notches = GradeMath.spreadNotches(scale.toDouble())
+                                val g = if (notches == 0) shifted else Prefs.graded(shifted.soft, shifted.hard, notches)
                                 onBoth(g.soft, g.hard)
                             }
                         }
@@ -297,9 +297,6 @@ fun PaperStrip(soft: Double, hard: Double, onBoth: (Double, Double) -> Unit) {
         drawPath(mark, if (off) SettingInk else Color.White)
     }
 }
-
-/** Stops of grade the strip reaches, each way: the core allows twice that; the phone's sensors never want it. */
-val PaperStripContrastLimit: Double get() = Prefs.STOP_LIMIT
 
 /** The paper table read at [linear], between entries. */
 private fun lutValue(lut: FloatArray, linear: Double): Float {

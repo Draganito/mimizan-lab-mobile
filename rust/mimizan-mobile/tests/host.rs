@@ -157,6 +157,50 @@ fn paper_lut_is_the_print_curve() {
     assert!((paper_stop_limit() - 3.0).abs() < 1e-12);
 }
 
+/// The spread of two fingers on the paper strip: the grade and nothing
+/// else, from 00 to 5.
+#[test]
+fn paper_graded_changes_the_grade_and_leaves_the_grey_card_at_its_tone() {
+    use mimizan_core::paper::{grade_label, SplitGrade, GREY_DENSITY};
+    let split = |p: &PaperPair| SplitGrade::new(p.soft, p.hard);
+    let density = |p: &PaperPair| split(p).curve().density(0.18);
+    let label = |p: &PaperPair| grade_label(split(p).curve().grade());
+    let limit = paper_stop_limit();
+
+    // From the base print, as far as the fingers go: grade 5 one way,
+    // grade 00 the other, and no further on another step.
+    let hardest = paper_graded(0.0, 0.0, 1000);
+    let softest = paper_graded(0.0, 0.0, -1000);
+    assert_eq!((label(&hardest).as_str(), label(&softest).as_str()), ("5", "00"));
+    assert!((hardest.hard - hardest.soft - 2.0).abs() < 1e-12, "grade 5 is two stops of hard over soft");
+    assert_eq!(paper_graded(hardest.soft, hardest.hard, 1), hardest);
+    assert_eq!(paper_graded(softest.soft, softest.hard, -1), softest);
+
+    // On the way the grey card keeps its tone, to the twelfth the pair is
+    // written in, and the pair is one the files can carry.
+    let reach = ((softest.hard - softest.soft) * 12.0).round() as i32..=24;
+    assert_eq!(*reach.start(), -38, "the hard light is at its limit before the soft end");
+    for n in reach {
+        let p = paper_graded(0.0, 0.0, n);
+        assert!((density(&p) - GREY_DENSITY).abs() < 0.06, "{n}: grey card at {}", density(&p));
+        assert!(((p.hard - p.soft) * 12.0 - f64::from(n)).abs() < 1e-9, "{n}: the grade");
+        for v in [p.soft, p.hard] {
+            assert!((v * 12.0 - (v * 12.0).round()).abs() < 1e-9 && v.abs() <= limit, "{n}: {v}");
+        }
+        assert_eq!(paper_graded(p.soft, p.hard, -n), PaperPair { soft: 0.0, hard: 0.0 }, "{n}: and back");
+        assert_eq!(split(&p), SplitGrade::default().graded(n), "{n}: the core's step");
+    }
+    // The pinch this replaces kept the mean of the two exposures: at grade
+    // 5 that pair prints the grey card two thirds of a density darker.
+    let mean_held = PaperPair { soft: -1.0, hard: 1.0 };
+    assert_eq!(label(&mean_held), "5");
+    assert!(density(&mean_held) - GREY_DENSITY > 0.6, "{}", density(&mean_held));
+
+    // No step is the pair itself; a pair that is no number is the base print.
+    assert_eq!(paper_graded(0.5, -0.25, 0), PaperPair { soft: 0.5, hard: -0.25 });
+    assert_eq!(paper_graded(f64::NAN, f64::INFINITY, 0), PaperPair { soft: 0.0, hard: 0.0 });
+}
+
 #[test]
 fn camera_file_sets_weights_and_noise() {
     let cam = r#"{

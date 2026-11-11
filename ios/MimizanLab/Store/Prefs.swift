@@ -229,7 +229,6 @@ final class Prefs {
         store.set(hard, forKey: Keys.hard)
     }
 
-    /// The standing grade as one number; the exposure (the strip) stays.
     /// The standing Peak, Off or Auto.
     func setPeakMode(_ mode: PeakMode) {
         // A hand pair belongs to one negative: Custom is never standing.
@@ -303,26 +302,29 @@ final class Prefs {
         Grade(soft: snapStops(soft), hard: snapStops(hard))
     }
 
-    /// The grade as one number: hard light against soft, in stops. Zero is the paper's grade 2.
-    nonisolated static func contrast(soft: Double, hard: Double) -> Double { hard - soft }
+    /// The grade as the core counts it: hard light over soft, in twelfths
+    /// of a stop. Zero is the paper's grade 2.
+    nonisolated static func gradeTwelfths(soft: Double, hard: Double) -> Int {
+        Int(((snapStops(hard) - snapStops(soft)) * 12).rounded())
+    }
 
-    /// The pair with `contrast` stops between hard and soft and the same
-    /// exposure (the mean of the two, what a drag on the strip moves). Done in
-    /// twenty-fourths so both land on the twelfth grid: when the mean sits
-    /// between two twelfths the pair goes a twenty-fourth lighter, once.
-    /// `contrast` is clamped so neither exposure leaves ±`stopLimit`. The
-    /// pair is the same two numbers two sliders would have set: nothing
-    /// downstream changes. Twin of the Android `GradeMath.withContrast`.
-    nonisolated static func withContrast(soft: Double, hard: Double, contrast: Double) -> Grade {
-        let m24 = Int(((snapStops(soft) + snapStops(hard)) * 12).rounded())
-        let lim24 = Int((stopLimit * 24).rounded())
-        let room = lim24 - abs(m24)
-        let wanted = min(max(finiteOrZero(contrast), -2 * stopLimit), 2 * stopLimit)
-        let c12 = min(max(Int((wanted * 12).rounded()), -room), room)
-        var s24 = m24 - c12
-        if s24 & 1 != 0 { s24 -= 1 }
-        if s24 < -lim24 { s24 += 2 }
-        return Grade(soft: Double(s24) / 24, hard: Double(s24 + 2 * c12) / 24)
+    /// Notches of grade a spread of two fingers by `scale` stands for, a
+    /// twelfth of a stop of hard light over soft each: spreading the ramp
+    /// is the softer paper, closing it the harder, two stops to the
+    /// doubling. A scale that is no number is no spread. Twin of the
+    /// Android `GradeMath.spreadNotches`.
+    nonisolated static func spreadNotches(_ scale: Double) -> Int {
+        let s = scale.isFinite ? min(max(scale, 0.05), 20) : 1
+        return Int((-24 * log2(s)).rounded())
+    }
+
+    /// The pair `notches` twelfths of a stop harder, or softer below
+    /// zero, with the print's mid-grey left where it is: the core's
+    /// grade step, the one the desktop's wheel takes. The grade stops at
+    /// 00 and at 5, and before an exposure would leave ±`stopLimit`.
+    nonisolated static func graded(soft: Double, hard: Double, by notches: Int) -> Grade {
+        let p = paperGraded(soft: soft, hard: hard, notches: Int32(clamping: notches))
+        return Grade(soft: p.soft, hard: p.hard)
     }
 
     // MARK: limits, asked of the core once

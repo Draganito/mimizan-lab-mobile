@@ -185,10 +185,13 @@ extension Color {
 /// finger drags the exposure: both exposures move by the same stops
 /// (`shiftGrade`), the ramp slides under the mark, the
 /// width of the strip is three stops. Two fingers spread the grade: the
-/// ramp widens (softer) or closes (harder) around the middle, the mean
-/// held (`withContrast`); the grade is kept within ±`contrastLimit` here
-/// — a pair from before that lies beyond shows at the end and is clipped
-/// only when touched. Both gestures together are allowed. A double tap
+/// ramp widens (softer) or closes (harder) round the print's mid-grey,
+/// which stays where it is, as when one speed-matched filter is changed
+/// for another (`Prefs.graded`, the core's step, two stops of hard light
+/// over soft to the doubling). The grade stops at 00 and at 5, and
+/// sooner where a lighter print leaves the hard light no room; a pair
+/// from before that lies beyond an end stays there and comes back on a
+/// step inwards. Both gestures together are allowed. A double tap
 /// is the base print; a second double tap on a strip already there
 /// brings the pair back. Behind it are the same two numbers as ever,
 /// soft and hard, and the print is the same. White at the base print,
@@ -197,15 +200,13 @@ struct PaperStrip: View {
     let soft: Double
     let hard: Double
     let onBoth: (Double, Double) -> Void
-    /// The pair as a drag began; the grade as a spread began. Each
-    /// gesture its own, since both may run at once and end apart.
+    /// The pair as a drag began; the grade as a spread began, in
+    /// twelfths. Each gesture its own, since both may run at once and
+    /// end apart.
     @State private var origin: (Double, Double)?
-    @State private var pinchBase: Double?
+    @State private var pinchBase: Int?
     @State private var remembered: (Double, Double)?
 
-    /// Stops of grade the strip reaches, each way: the core allows twice
-    /// that; the phone's sensors never want it.
-    static let contrastLimit: Double = Prefs.stopLimit
     /// Linear value of the grey card: the core's `zone::GRAY_CARD`.
     static let greyCard: Double = 0.18
     /// Stops of the scene the strip shows under the grey card.
@@ -281,16 +282,19 @@ struct PaperStrip: View {
                     .simultaneously(with:
                         MagnificationGesture()
                             .onChanged { scale in
-                                let base = pinchBase ?? Prefs.contrast(soft: soft, hard: hard)
+                                let now = Prefs.gradeTwelfths(soft: soft, hard: hard)
+                                let base = pinchBase ?? now
                                 if pinchBase == nil { pinchBase = base }
-                                // Spreading the ramp is the softer paper: the
-                                // grade falls by two stops per doubling. The
-                                // mean is the current one, so a drag at the
-                                // same time keeps its say.
-                                let c = base - 2 * log2(max(Double(scale), 0.05))
-                                let lim = PaperStrip.contrastLimit
-                                let g = Prefs.withContrast(soft: soft, hard: hard, contrast: min(max(c, -lim), lim))
-                                onBoth(g.soft, g.hard)
+                                // Spreading the ramp is the softer paper. The
+                                // grade the spread asks for counts from the
+                                // grade it began with; the step to it is taken
+                                // from the current pair, so a drag at the same
+                                // time keeps its say.
+                                let notches = base + Prefs.spreadNotches(Double(scale)) - now
+                                guard notches != 0 else { return }
+                                let g = Prefs.graded(soft: soft, hard: hard, by: notches)
+                                // At an end of the grades the step is the pair itself.
+                                if g.soft != soft || g.hard != hard { onBoth(g.soft, g.hard) }
                             }
                             .onEnded { _ in pinchBase = nil }
                     )
