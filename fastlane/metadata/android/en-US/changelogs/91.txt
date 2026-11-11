@@ -1,0 +1,1 @@
+A render of one frame no longer lands on the next. A double tap on the strip remembers this frame's pair. A queued frame stays on the roll until it is developed. Two shots in the same second get distinct names on iOS.
