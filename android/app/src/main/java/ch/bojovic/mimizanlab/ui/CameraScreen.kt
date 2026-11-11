@@ -381,7 +381,13 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                         Text("Raw frames in the app: ${shots.size} · ${Format.bytes(cacheBytes)}")
                         Text("Pictures in the gallery are not touched.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                     }
-                    TextButton(onClick = { confirmDeleteAll = true }, enabled = shots.isNotEmpty()) { Text("Delete all") }
+                    val rollBusy = shots.any {
+                        it.status == ShotStatus.Saving || it.status == ShotStatus.Queued || it.status == ShotStatus.Developing
+                    }
+                    TextButton(
+                        onClick = { confirmDeleteAll = true },
+                        enabled = shots.isNotEmpty() && !rollBusy,
+                    ) { Text("Delete all") }
                 }
                 Spacer(Modifier.height(16.dp))
                 Text(
