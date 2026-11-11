@@ -461,5 +461,7 @@ Mimizan Lab Mobile is free software under the GNU General Public License,
 version 3 or any later version. See [LICENSE](LICENSE). The APK ships that
 text and a short notice in its assets. The iOS App Store build does not:
 that copy keeps the copyright line and leaves this license out of the
-bundle. Releases published before this change stay under the MIT license
-they were shipped with.
+bundle. Its Settings name the libraries of others it links, each with its
+own license and source: rawler (LGPL-2.1) and UniFFI (MPL-2.0). Releases
+published before this change stay under the MIT license they were shipped
+with.

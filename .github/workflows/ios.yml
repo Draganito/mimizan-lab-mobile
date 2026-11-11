@@ -135,6 +135,9 @@ jobs:
         run: |
           app=$(find DerivedData/Build/Products -name "MimizanLab.app" -type d | head -1)
           test -n "$app"
+          # Settings show rawler's licence from this file; a build without
+          # it would ship the notice with the text missing.
+          test -s "$app/LGPL-2.1.txt"
           mkdir -p out/Payload
           cp -R "$app" out/Payload/
           (cd out && zip -qry MimizanLab-unsigned.ipa Payload)

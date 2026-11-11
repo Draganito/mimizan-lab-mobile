@@ -384,6 +384,10 @@ cross-checked from Linux.
 on the xcframework and a Swift target with the generated file (both
 git-ignored). `ios/project.yml` (XcodeGen) builds the app target against
 it, with `../cameras` as a folder reference. The App Store build
-does not bundle `../LICENSE`. `.github/workflows/ios.yml` runs the script on a macOS runner,
+does not bundle `../LICENSE`: its Settings footer is the copyright line
+alone. Under it, "Third-party software" names the libraries of others the
+app links, rawler (LGPL-2.1, text in `ios/MimizanLab/Resources/LGPL-2.1.txt`,
+a bundle resource the Package step checks for) and UniFFI (MPL-2.0), each
+with a link to its source. `.github/workflows/ios.yml` runs the script on a macOS runner,
 generates the project and builds an unsigned Release `.app` for a generic
 iOS device; the artifact is the `.app` and a `Payload/` `.ipa`.
