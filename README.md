@@ -9,7 +9,7 @@ the same paper, one RGB file.
 
 **The first photographic application that takes the black-and-white
 negative directly from the luma-chroma separation of the sensor signal
-([Alleysson 2005](https://doi.org/10.1109/TIP.2004.841200),
+([Alleysson, Süsstrunk and Hérault 2005](https://doi.org/10.1109/TIP.2004.841200),
 [Dubois 2005](https://doi.org/10.1109/LSP.2005.859503)) without ever
 reconstructing an RGB image — on the desktop, and now in your pocket.**
 

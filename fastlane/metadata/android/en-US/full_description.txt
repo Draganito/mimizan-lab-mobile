@@ -1,6 +1,6 @@
 Mimizan Lab on the phone: a monochrome RAW camera and a darkroom. The app calls the same Rust core as the Mimizan Lab desktop darkroom. A frame is developed on the device into a monochrome negative, or into a three-colour plate (Prokudin-Gorsky's principle): three mixes through three taking filters, the same paper, one RGB file.
 
-The first photographic application that takes the black-and-white negative directly from the luma-chroma separation of the sensor signal (Alleysson 2005, Dubois 2005) without ever reconstructing an RGB image.
+The first photographic application that takes the black-and-white negative directly from the luma-chroma separation of the sensor signal (Alleysson, Süsstrunk and Hérault 2005; Dubois 2005) without ever reconstructing an RGB image.
 
 <b>Not a filter that looks like film. A darkroom.</b> Other apps paint scratches and light leaks over a phone photo. Mimizan Lab develops a real negative on real paper. Nothing is pretended, because nothing has to be.
 
