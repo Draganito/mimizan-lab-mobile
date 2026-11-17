@@ -12,10 +12,12 @@
 //   value = lut[gray]                    — the paper's display value of that
 //                                           linear grey
 //
-// In the plate process the three positives are mixed the same way; the
-// red and the blue one are read from the table of their lamp (the paper
-// with the lamp's placing in it, `paperLutLamp`), the green one from the
-// paper's own, which is what the still does with its lamps.
+// In the plate process the three positives are mixed the same way; each
+// is read from a table of its own (`plateLut`): the paper with the
+// lamp's placing in it, green's lamp at zero, as the plate's file holds
+// it (a plate in sRGB on the sRGB curve, one in Adobe RGB the print's
+// value), which is what the still's preview shows. The histogram stays
+// on the paper's own table, the print's values.
 //
 // Android inverts the ISP's exact matrix; AVFoundation exposes none, so
 // the pull-back goes through the sensor's XYZ → camera matrix (from the
@@ -46,26 +48,31 @@ struct PaperTone: Equatable, Sendable {
     var plate: (SIMD3<Float>, SIMD3<Float>, SIMD3<Float>)?
     /// Log-linear → the negative's axis: `2^FinderMatch.stops`.
     var gain: Float
-    /// The paper over the linear axis, `n + 1` display values.
+    /// The paper over the linear axis, `n + 1` display values: the
+    /// print's values, for the monochrome finder and the histogram.
     var lut: [Float]
-    /// The paper under the red and under the blue lamp of the plate, the
-    /// same length: the display value of linear `x · 2^lamp`. nil is the
-    /// paper's own table (the lamp at zero, or the monochrome negative).
+    /// The plate's green, red and blue positive as the plate's file holds
+    /// them (`plateLut`), the same length: what the screen shows of linear
+    /// `x · 2^lamp`, green's lamp at zero. nil is the paper's own table
+    /// (the monochrome negative, or a table that could not be read).
+    var lutGreen: [Float]?
     var lutRed: [Float]?
     var lutBlue: [Float]?
 
     static func == (a: PaperTone, b: PaperTone) -> Bool {
-        a.v == b.v && a.gain == b.gain && a.lut == b.lut && a.lutRed == b.lutRed && a.lutBlue == b.lutBlue
+        a.v == b.v && a.gain == b.gain && a.lut == b.lut
+            && a.lutGreen == b.lutGreen && a.lutRed == b.lutRed && a.lutBlue == b.lutBlue
             && a.plate?.0 == b.plate?.0 && a.plate?.1 == b.plate?.1 && a.plate?.2 == b.plate?.2
     }
 
     /// The three tables one after the other, as the kernel reads them:
-    /// the paper, the paper under the red lamp, the paper under the blue.
-    /// A lamp's table of another length than the paper's is not used.
+    /// the paper or the plate's green, the plate's red, the plate's blue.
+    /// A plate's table of another length than the paper's is not used.
     var tables: [Float] {
-        let red = lutRed.flatMap { $0.count == lut.count ? $0 : nil } ?? lut
-        let blue = lutBlue.flatMap { $0.count == lut.count ? $0 : nil } ?? lut
-        return lut + red + blue
+        let green = lutGreen.flatMap { $0.count == lut.count ? $0 : nil } ?? lut
+        let red = lutRed.flatMap { $0.count == lut.count ? $0 : nil } ?? green
+        let blue = lutBlue.flatMap { $0.count == lut.count ? $0 : nil } ?? green
+        return green + red + blue
     }
 
     /// Display value of the linear grey `g`, for the histogram's inner loop.

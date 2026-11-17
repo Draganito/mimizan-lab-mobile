@@ -1,0 +1,1 @@
+In Color with sRGB the phone now shows the picture as the exported file holds it: the finder, the developer's picture, its 1:1 window and the paper strip. Until now the deep shadows stood lighter on the screen than in the print; a shadow set on the phone is now the shadow in the file. Mono and Adobe RGB are shown as before, and no file changes. The core is 0.18.17.

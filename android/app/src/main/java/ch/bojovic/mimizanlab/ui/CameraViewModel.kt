@@ -21,7 +21,7 @@ import ch.bojovic.mimizanlab.engine.mixWeights
 import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.PlateFilters
 import ch.bojovic.mimizanlab.engine.paperLut
-import ch.bojovic.mimizanlab.engine.paperLutLamp
+import ch.bojovic.mimizanlab.engine.plateLut
 import ch.bojovic.mimizanlab.engine.plateWeights
 import ch.bojovic.mimizanlab.store.Grade
 import ch.bojovic.mimizanlab.store.Lamps
@@ -160,21 +160,25 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             null
         }
         val lut = paperLut(pl.soft, pl.hard, 4096u).toFloatArray()
-        // The paper under a lamp, for the plate's red and blue positive;
-        // the paper's own table when the lamp is at zero or cannot be read.
-        fun under(lamp: Double): FloatArray =
-            if (plate == null || lamp == 0.0) lut
+        // The plate's positive under a lamp, as the plate's file holds it
+        // (the still's preview): the paper's own table for the monochrome
+        // negative, or when the table cannot be read.
+        fun shown(lamp: Double): FloatArray =
+            if (plate == null) lut
             else try {
-                paperLutLamp(pl.soft, pl.hard, 4096u, lamp).toFloatArray()
+                plateLut(pl.soft, pl.hard, 4096u, lamp, dev.plateSpace).toFloatArray()
             } catch (t: Throwable) {
-                Log.w(TAG, "lamp table", t)
+                Log.w(TAG, "plate table", t)
                 lut
             }
+        val green = shown(0.0)
+        fun under(lamp: Double): FloatArray = if (lamp == 0.0) green else shown(lamp)
         return FinderTone(
             v = FinderTone.pullBack(weights, color),
             lut = lut,
             zebra = if (zebra) 0.985f else 2f,
             plate = plate,
+            lutGreen = green,
             lutRed = under(lamps.red),
             lutBlue = under(lamps.blue),
         )

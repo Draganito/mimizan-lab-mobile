@@ -1,7 +1,8 @@
 // The core's 8-bit pictures as CGImages. The grey preview is the paper's
-// display value; the plate is the paper's gamma 2.2 in the plate's
-// primaries, which the display takes as sRGB (the same small difference,
-// now in colour).
+// display value. The plate comes in the samples its file holds: a plate
+// in sRGB on the sRGB curve, which the display takes as it is, so the
+// screen is the exported file; one in Adobe RGB in the paper's gamma 2.2
+// and that space's primaries, which the display takes as sRGB.
 import CoreGraphics
 import Foundation
 import MimizanCore

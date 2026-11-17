@@ -252,7 +252,7 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                                     onSelect = vm::setPlateFilters,
                                 )
                             }
-                            PaperStrip(s.print.grade.soft, s.print.grade.hard, onBoth = vm::setGrade)
+                            PaperStrip(s.print.grade.soft, s.print.grade.hard, plate = plate?.space, onBoth = vm::setGrade)
                             // The plate's two lamps, this print's own.
                             if (plate != null) LampStrip(s.print.lamps.red, s.print.lamps.blue, onBoth = vm::setLamps)
                         }

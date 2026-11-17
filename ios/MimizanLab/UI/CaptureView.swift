@@ -70,7 +70,7 @@ struct CaptureView: View {
             // Only where the finder is the paper and answers the gesture;
             // elsewhere the paper is set in the developer, on the picture.
             if state.paperFinder {
-                PaperStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, onBoth: vm.setGrade)
+                PaperStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, plate: develop.isPlate ? develop.plateSpace : nil, onBoth: vm.setGrade)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                 // In Color the plate's two lamps, under the paper as on the

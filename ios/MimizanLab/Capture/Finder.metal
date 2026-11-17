@@ -8,8 +8,9 @@
 //              back to linear BT.2020, apply the paper, per pixel. The
 //              same arithmetic as the Android shader in `MonoViewfinder.kt`.
 //              `lut` holds three tables of `lutLast + 1` values one after
-//              the other: the paper, the paper under the plate's red lamp
-//              and under its blue one (`PaperTone.tables`).
+//              the other: the paper or the plate's green, the plate's red
+//              and its blue under their lamps, the plate's as its file
+//              holds them (`PaperTone.tables`).
 //
 // Zebra stripes mark display values at or above `zebra`.
 #include <metal_stdlib>
@@ -70,8 +71,8 @@ static inline float logLinear(float y) {
     return r0;
 }
 
-/// The table `table` at linear g: 0 the paper, 1 and 2 the paper under
-/// the red and the blue lamp.
+/// The table `table` at linear g: 0 the paper (the plate's green), 1 and
+/// 2 the plate's red and blue under their lamps.
 static inline float paper(float g, constant float* lut, float lutLast, int table) {
     int base = table * (int(lutLast) + 1);
     float x = clamp(g, 0.0f, 1.0f) * lutLast;
@@ -99,8 +100,9 @@ kernel void finderLog(texture2d<float, access::sample> luma [[texture(0)]],
     float3 o;
     if (u.plate > 0.5f) {
         // Three positives: each taking filter on the linear picture, the
-        // same paper, red and blue placed by their lamps (in their
-        // tables). A clipped site clamps at 1 in every channel.
+        // same paper, red and blue placed by their lamps, shown as the
+        // plate's file holds them (all in their tables). A clipped site
+        // clamps at 1 in every channel.
         float3 g = clamp(float3(dot(l, u.vR), dot(l, u.vG), dot(l, u.vB)), 0.0f, 1.0f);
         o = float3(paper(g.r, lut, u.lutLast, 1), paper(g.g, lut, u.lutLast, 0), paper(g.b, lut, u.lutLast, 2));
     } else {

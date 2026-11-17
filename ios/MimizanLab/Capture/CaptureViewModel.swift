@@ -136,22 +136,25 @@ final class CaptureViewModel {
             log.warning("paper lut: \(error.localizedDescription)")
             lut = (0...4096).map { Float($0) / 4096 }
         }
-        // The paper under a lamp, for the plate's red and blue positive:
-        // nil is the paper's own table (a lamp at zero, or the monochrome
-        // negative).
-        func under(_ lamp: Double) -> [Float]? {
-            guard plate != nil, lamp != 0 else { return nil }
+        // The plate's positive under a lamp, as the plate's file holds it
+        // (the still's preview): nil for the monochrome negative, which
+        // reads the paper's own table.
+        func shown(_ lamp: Double) -> [Float]? {
+            guard plate != nil else { return nil }
             do {
-                return try paperLutLamp(soft: prefs.soft, hard: prefs.hard, n: 4096, lamp: lamp)
+                return try plateLut(soft: prefs.soft, hard: prefs.hard, n: 4096, lamp: lamp, space: dev.plateSpace)
             } catch {
-                log.warning("lamp table: \(error.localizedDescription)")
+                log.warning("plate table: \(error.localizedDescription)")
                 return nil
             }
         }
+        // Red and blue at zero are the green table (`PaperTone.tables`).
+        let green = shown(0)
+        func under(_ lamp: Double) -> [Float]? { lamp == 0 ? nil : shown(lamp) }
         return PaperTone(
             v: back.pullBack(w.simd), plate: plate,
             gain: Float(exp2(prefs.finderMatch.stops(lens: lens?.label))), lut: lut,
-            lutRed: under(prefs.lampRed), lutBlue: under(prefs.lampBlue)
+            lutGreen: green, lutRed: under(prefs.lampRed), lutBlue: under(prefs.lampBlue)
         )
     }
 

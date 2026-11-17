@@ -279,7 +279,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
             } else {
                 MonoFilterStrip(selected = develop.filter, onSelect = vm::setFilter)
             }
-            PaperStrip(grade.soft, grade.hard, onBoth = vm::setGrade)
+            PaperStrip(grade.soft, grade.hard, plate = if (develop.isPlate) develop.plateSpace else null, onBoth = vm::setGrade)
             // In Color the plate's two lamps, under the paper as on the
             // desktop: red in the left half, blue in the right. The
             // finder is the paper under them, so a move shows the colour.

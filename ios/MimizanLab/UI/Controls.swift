@@ -203,10 +203,14 @@ extension Color {
 /// is the base print; a second double tap on a strip already there
 /// brings the pair back. Behind it are the same two numbers as ever,
 /// soft and hard, and the print is the same. White at the base print,
-/// amber away from it.
+/// amber away from it. With a `plate` the slices are the greys the
+/// colour picture shows: the paper as the plate's file holds it
+/// (`plateLut`, a plate in sRGB on the sRGB curve).
 struct PaperStrip: View {
     let soft: Double
     let hard: Double
+    /// The plate's primaries while the plate is on; nil is the monochrome negative.
+    var plate: PlateSpace? = nil
     let onBoth: (Double, Double) -> Void
     /// The pair as a drag began; the grade as a spread began, in
     /// twelfths. Each gesture its own, since both may run at once and
@@ -239,7 +243,7 @@ struct PaperStrip: View {
 
     var body: some View {
         let off = abs(soft) >= 1.0 / 24 || abs(hard) >= 1.0 / 24
-        let lut = PaperStrip.table(soft: soft, hard: hard)
+        let lut = PaperStrip.table(soft: soft, hard: hard, plate: plate)
         GeometryReader { g in
             let width = max(g.size.width, 1)
             Canvas { ctx, size in
@@ -313,8 +317,14 @@ struct PaperStrip: View {
 
     /// The paper over linear grey for this pair, from the core; a straight
     /// line only if the core refuses (it does not, inside ±`stopLimit`).
-    private static func table(soft: Double, hard: Double) -> [Float] {
-        (try? paperLut(soft: soft, hard: hard, n: 256)) ?? (0...256).map { Float($0) / 256 }
+    private static func table(soft: Double, hard: Double, plate: PlateSpace?) -> [Float] {
+        let lut: [Float]?
+        if let plate {
+            lut = try? plateLut(soft: soft, hard: hard, n: 256, lamp: 0, space: plate)
+        } else {
+            lut = try? paperLut(soft: soft, hard: hard, n: 256)
+        }
+        return lut ?? (0...256).map { Float($0) / 256 }
     }
 
     /// The table read at `linear`, between entries.

@@ -238,6 +238,12 @@ fn flat_input(w: usize, h: usize, v: f64) -> RawInput {
     input
 }
 
+/// A print value as a file in sRGB holds it: the sRGB encoding of the
+/// light `v^2.2` (`print::write_as` in the core).
+fn in_srgb_file(v: f64) -> f64 {
+    mimizan_core::kodak::srgb_encode(v.clamp(0.0, 1.0).powf(2.2))
+}
+
 /// Nikon Z f, D65, rows R, G, B: a matrix with negative off-diagonals.
 const ZF_MATRIX: [f64; 9] = [1.1607, -0.4491, -0.0977, -0.4522, 1.246, 0.2304, -0.0458, 0.1519, 0.7616];
 
@@ -288,9 +294,16 @@ fn plate_is_a_remix_grey_stays_grey_and_the_lamps_move_one_channel() {
         assert_eq!((d.width, d.height), (32, 24));
         let i = 3 * (12 * 32 + 16);
         assert!(d.data[i].abs_diff(d.data[i + 1]) <= 1 && d.data[i + 1].abs_diff(d.data[i + 2]) <= 1);
-        // The grey preview is the same picture as the plate's luminance.
+        // The grey preview is the same picture as the plate's luminance:
+        // the print's value there, which the plate in sRGB shows as its
+        // file's sample.
         let grey = dev.preview(0.0, 0.0).unwrap();
-        assert!(grey.data[c / 3].abs_diff(g) <= 1, "{f:?}: luminance {} vs green {g}", grey.data[c / 3]);
+        let shown = (in_srgb_file(f64::from(grey.data[c / 3]) / 255.0) * 255.0).round() as u8;
+        assert!(
+            shown.abs_diff(g) <= 1,
+            "{f:?}: luminance {} shown as {shown} vs green {g}",
+            grey.data[c / 3]
+        );
     }
 
     // Lamps: half a stop on red lifts red, green and blue stay.
@@ -316,6 +329,13 @@ fn plate_is_a_remix_grey_stays_grey_and_the_lamps_move_one_channel() {
     assert_eq!((planes[0].width, planes[0].height), (w, h));
     assert!(planes[0].at(80, 60) > planes[1].at(80, 60), "the red lamp is in the file");
     assert!((planes[1].at(80, 60) - planes[2].at(80, 60)).abs() < 1.0 / 65535.0);
+    // The preview of the plate in sRGB is that file, lamp and all.
+    let pv = dev.preview_rgb(0.0, 0.0).unwrap();
+    let c = pv.data.len() / 2 - pv.data.len() / 2 % 3;
+    for (k, plane) in planes.iter().enumerate() {
+        let face = (plane.at(80, 60) * 255.0).round();
+        assert!((face - f64::from(pv.data[c + k])).abs() <= 1.0, "channel {k}: {face} vs {}", pv.data[c + k]);
+    }
     let jpg = dev.export_jpeg(dir.join("p.jpg").display().to_string(), 0.0, 0.0, 0.7, 0.0, false).unwrap();
     assert_eq!((jpg.width, jpg.height), (w as u32, h as u32));
     assert!(std::fs::metadata(dir.join("p.jpg")).unwrap().len() > 0);
@@ -334,7 +354,7 @@ fn plate_is_a_remix_grey_stays_grey_and_the_lamps_move_one_channel() {
     let sheet = out.plate.as_ref().unwrap();
     // The print's values are the paper's gamma 2.2; a file in sRGB is
     // written on the sRGB curve (`print::write_as`), the same light.
-    let in_file = |v: f64| mimizan_core::kodak::srgb_encode(v.powf(2.2));
+    let in_file = in_srgb_file;
     assert!(
         (in_file(out.plane.at(80, 60)) - planes[0].at(80, 60)).abs() < 2.0 / 65535.0,
         "same red as the phone's TIFF"
@@ -424,17 +444,116 @@ fn the_lamp_table_is_the_stills_placing() {
         let v = lut[i] as f64 + (lut[i + 1] as f64 - lut[i] as f64) * (x - i as f64);
         (v * 255.0).round() as u8
     };
-    let rgb = dev.preview_rgb(0.0, 0.0).unwrap();
-    let c = rgb.data.len() / 2 - rgb.data.len() / 2 % 3;
-    let want = [
-        read(&paper_lut_lamp(0.0, 0.0, n, 0.5).unwrap()),
-        read(&paper_lut(0.0, 0.0, n).unwrap()),
-        read(&paper_lut_lamp(0.0, 0.0, n, -0.75).unwrap()),
-    ];
-    for (k, (&got, &want)) in rgb.data[c..c + 3].iter().zip(&want).enumerate() {
-        assert!(got.abs_diff(want) <= 1, "channel {k}: {got} vs {want}");
+    // The viewfinder reads a plate from `plate_lut`, the lamp's table as
+    // the plate's file holds it; in both spaces it is the still's preview.
+    for space in [PlateSpace::Srgb, PlateSpace::AdobeRgb] {
+        dev.set_plate(PlateFilters::Camera, space).unwrap();
+        let rgb = dev.preview_rgb(0.0, 0.0).unwrap();
+        let c = rgb.data.len() / 2 - rgb.data.len() / 2 % 3;
+        let want = [
+            read(&plate_lut(0.0, 0.0, n, 0.5, space).unwrap()),
+            read(&plate_lut(0.0, 0.0, n, 0.0, space).unwrap()),
+            read(&plate_lut(0.0, 0.0, n, -0.75, space).unwrap()),
+        ];
+        for (k, (&got, &want)) in rgb.data[c..c + 3].iter().zip(&want).enumerate() {
+            assert!(got.abs_diff(want) <= 1, "{space:?}, channel {k}: {got} vs {want}");
+        }
+        assert!(want[0] > want[1] && want[1] > want[2], "{space:?}: red up, blue down: {want:?}");
     }
-    assert!(want[0] > want[1] && want[1] > want[2], "red up, blue down: {want:?}");
+}
+
+/// `plate_lut` is the lamp's table as the plate's file holds it: in Adobe
+/// RGB the print's values, in sRGB the sRGB encoding of the light they
+/// stand for. The curves part in the shadows and meet above the middle.
+#[test]
+fn the_plates_table_is_the_lamps_table_in_the_files_samples() {
+    let n = 4096u32;
+    for lamp in [0.0, -0.75, 0.5, 2.0] {
+        let print = paper_lut_lamp(0.25, -0.5, n, lamp).unwrap();
+        let adobe = plate_lut(0.25, -0.5, n, lamp, PlateSpace::AdobeRgb).unwrap();
+        assert_eq!(adobe, print, "lamp {lamp}: the Adobe space keeps the print's values");
+        let srgb = plate_lut(0.25, -0.5, n, lamp, PlateSpace::Srgb).unwrap();
+        assert_eq!(srgb.len(), print.len());
+        let mut last = -1.0f32;
+        for (i, (&shown, &v)) in srgb.iter().zip(&print).enumerate() {
+            assert!((f64::from(shown) - in_srgb_file(f64::from(v))).abs() < 1e-5, "lamp {lamp}, entry {i}");
+            assert!(shown >= last, "lamp {lamp}: the table falls at {i}");
+            last = shown;
+        }
+    }
+    assert_eq!(plate_lut(0.0, 0.0, n, 0.0, PlateSpace::AdobeRgb).unwrap(), paper_lut(0.0, 0.0, n).unwrap());
+    // Where the two curves stand: the file's 5, 18 and 48 of 255 for the
+    // print's 13, 25 and 51, and no more than two levels apart from 102 up.
+    let level = |v: u8| (in_srgb_file(f64::from(v) / 255.0) * 255.0).round() as u8;
+    assert_eq!((level(13), level(25), level(51)), (5, 18, 48));
+    assert_eq!((level(0), level(255)), (0, 255));
+    for v in 102..=255u8 {
+        assert!(level(v).abs_diff(v) <= 2, "{v} is shown as {}", level(v));
+    }
+    assert!(plate_lut(0.0, 0.0, n, 2.5, PlateSpace::Srgb).is_err(), "lamps stay within the limit");
+    assert!(plate_lut(3.5, 0.0, n, 0.0, PlateSpace::Srgb).is_err(), "exposures stay inside the slider");
+}
+
+/// The 1:1 window of a plate is the file the export writes, sample for
+/// sample, in sRGB and in the Adobe space, with lamps and a paper off its
+/// base that prints the patches into the shadows, where the two curves
+/// part. The preview of a plate in sRGB is darker there than the same
+/// plate in the Adobe space, and the histogram, which counts the print's
+/// values, is the same in both.
+#[test]
+fn the_plates_window_is_the_written_file_and_the_histogram_counts_the_print() {
+    let (w, h) = (320usize, 240usize);
+    let mut input = synthetic_input(w, h, 1);
+    input.xyz_to_cam = Some(ZF_MATRIX.to_vec());
+    let dev = develop(input, DevelopParams { preview_long_edge: 160, ..DevelopParams::default() }).unwrap();
+    dev.set_lamps(0.25, -0.5).unwrap();
+    let (soft, hard) = (1.5, 1.0);
+    let dir = tmp_dir("screen");
+    let mut shadows = 0usize;
+    let mut previews = Vec::new();
+    let mut histograms = Vec::new();
+    for space in [PlateSpace::Srgb, PlateSpace::AdobeRgb] {
+        dev.set_plate(PlateFilters::Channels, space).unwrap();
+        let path = dir.join(format!("{space:?}.tif"));
+        dev.export_tiff16(path.display().to_string(), soft, hard, 0.7, 0.0).unwrap();
+        let file = mimizan_core::tiffin::read_rgb16(&path).unwrap();
+        assert_eq!((file[0].width, file[0].height), (w, h));
+        let shown = dev.detail_rgb(0, 0, w as u32, h as u32, soft, hard, 0.7, 0.0).unwrap();
+        assert_eq!((shown.width, shown.height), (w as u32, h as u32));
+        let mut off_by_one = 0usize;
+        for y in 0..h {
+            for x in 0..w {
+                for (c, plane) in file.iter().enumerate() {
+                    let face = (plane.at(x, y) * 255.0).round() as i32;
+                    let d = (i32::from(shown.data[(y * w + x) * 3 + c]) - face).abs();
+                    assert!(
+                        d <= 1,
+                        "{space:?}, channel {c} at {x},{y}: the screen is {d} levels from the file"
+                    );
+                    off_by_one += (d == 1) as usize;
+                    shadows += (space == PlateSpace::Srgb && (4..40).contains(&face)) as usize;
+                }
+            }
+        }
+        // The window and the file are one evaluation; a level apart only
+        // where the file's 16 bits round the other way.
+        assert!(off_by_one * 1000 <= 3 * w * h, "{space:?}: {off_by_one} of {} a level off", 3 * w * h);
+        previews.push(dev.preview_rgb(soft, hard).unwrap());
+        histograms.push(dev.histogram_rgb(soft, hard).unwrap());
+    }
+    assert!(shadows > 5000, "only {shadows} shadow samples compared");
+    // The same plate in the two spaces: the print's values are the Adobe
+    // preview, the sRGB preview is each of them as its file's sample.
+    let (srgb, adobe) = (&previews[0], &previews[1]);
+    let mut darker = 0usize;
+    for (&s, &a) in srgb.data.iter().zip(&adobe.data) {
+        let want = (in_srgb_file(f64::from(a) / 255.0) * 255.0).round() as u8;
+        assert!(s.abs_diff(want) <= 1, "print value {a}: shown {s}, the file's sample {want}");
+        darker += (a < 60 && s < a) as usize;
+    }
+    assert!(darker > 1000, "only {darker} shadow samples darker in sRGB");
+    assert_eq!(histograms[0], histograms[1], "the histogram counts the print's values in both spaces");
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// A burnt-out highlight stands above 1 in the negative (1 is the level

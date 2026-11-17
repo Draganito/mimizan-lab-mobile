@@ -327,7 +327,8 @@ fn mix_planes(lum: &Plane, c1: &Plane, c2: &Plane, w: &CoreWeights) -> Plane {
 }
 
 /// The print map for these exposures. Preview, histogram, the 1:1 window and
-/// the file all evaluate this map, so the screen and the file agree.
+/// the file all evaluate this map, so the screen and the file agree; a
+/// plate is then shown in its file's samples ([`Screen`]).
 fn paper(soft: f64, hard: f64) -> Result<ToneMap> {
     Ok(Tone::Paper(split_grade(soft, hard)?).compile())
 }
@@ -338,8 +339,9 @@ fn gray8(plane: &Plane, map: &ToneMap) -> Vec<u8> {
 
 /// The three positives of a plate as 8-bit RGB: channel `c` placed by its
 /// lamp (`v · 2^lamp`, the print's placing), then the same paper as the
-/// grey, interleaved. `lamps` are R, G, B.
-fn rgb8(planes: &[Plane; 3], lamps: [f64; 3], map: &ToneMap) -> Vec<u8> {
+/// grey, shown as the plate's file holds it (`screen`), interleaved.
+/// `lamps` are R, G, B.
+fn rgb8(planes: &[Plane; 3], lamps: [f64; 3], map: &ToneMap, screen: Screen) -> Vec<u8> {
     let n = planes[0].data.len();
     debug_assert!(planes.iter().all(|p| p.data.len() == n));
     let gains = lamps.map(|l| 2f64.powf(l));
@@ -348,7 +350,7 @@ fn rgb8(planes: &[Plane; 3], lamps: [f64; 3], map: &ToneMap) -> Vec<u8> {
         for c in 0..3 {
             let v = planes[c].data[i];
             let placed = if lamps[c] == 0.0 { v } else { v * gains[c] };
-            px[c] = (map.eval(placed) * 255.0).round() as u8;
+            px[c] = screen.byte(map.eval(placed));
         }
     });
     out
@@ -699,18 +701,23 @@ impl Developed {
 
     /// The plate as the viewer shows it: the three positives from the
     /// cached preview planes, each placed by its lamp and put through the
-    /// same paper, interleaved RGB. Needs the plate process.
+    /// same paper, interleaved RGB, in the samples the plate's file holds:
+    /// a plate in sRGB on the sRGB curve, as `export_jpeg` and
+    /// `export_tiff16` write it, one in Adobe RGB in the print's values.
+    /// Needs the plate process.
     pub fn preview_rgb(&self, soft: f64, hard: f64) -> Result<RgbImage> {
         let g = lock_msg(self.inner.lock())?;
         let p = g.plate_or_err()?;
         let (pv, map) = g.preview_and_paper(soft, hard)?;
         let planes = Inner::plate_planes(&pv.lum, &pv.c1, &pv.c2, &p.weights);
-        let data = rgb8(&planes, lamps_rgb(g.lamps), &map);
+        let data = rgb8(&planes, lamps_rgb(g.lamps), &map, Screen::of_plate(p.space));
         Ok(RgbImage { width: pv.lum.width as u32, height: pv.lum.height as u32, data })
     }
 
     /// Three 256-bin histograms, R then G then B, of the plate's positives
-    /// after the paper (preview planes, lamps applied). Needs the plate
+    /// after the paper (preview planes, lamps applied): the print's
+    /// values, what the paper holds, whatever the plate's primaries; the
+    /// picture of `preview_rgb` is the file's samples. Needs the plate
     /// process; `histogram` stays the luminance's.
     pub fn histogram_rgb(&self, soft: f64, hard: f64) -> Result<Vec<u64>> {
         let g = lock_msg(self.inner.lock())?;
@@ -757,7 +764,8 @@ impl Developed {
 
     /// The 1:1 window of the plate: the same geometry, margin and
     /// sharpening as `detail`, three positives placed by their lamps,
-    /// interleaved RGB. Needs the plate process.
+    /// interleaved RGB in the file's samples, as `preview_rgb`. Needs the
+    /// plate process.
     #[allow(clippy::too_many_arguments)] // UniFFI method: a flat argument list is the interface
     pub fn detail_rgb(
         &self,
@@ -785,11 +793,12 @@ impl Developed {
             return Err(MimizanError::Invalid { msg: "plate detail missing a channel".into() });
         };
         let n = r.data.len();
+        let screen = Screen::of_plate(p.space);
         let mut data = vec![0u8; 3 * n];
         data.par_chunks_mut(3).enumerate().for_each(|(i, px)| {
-            px[0] = (r.data[i].clamp(0.0, 1.0) * 255.0).round() as u8;
-            px[1] = (gr.data[i].clamp(0.0, 1.0) * 255.0).round() as u8;
-            px[2] = (b.data[i].clamp(0.0, 1.0) * 255.0).round() as u8;
+            px[0] = screen.byte(r.data[i]);
+            px[1] = screen.byte(gr.data[i]);
+            px[2] = screen.byte(b.data[i]);
         });
         Ok(RgbImage { width: win.rw as u32, height: win.rh as u32, data })
     }

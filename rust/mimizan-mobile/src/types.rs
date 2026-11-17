@@ -487,6 +487,53 @@ pub fn paper_lut_lamp(soft: f64, hard: f64, n: u32, lamp: f64) -> Result<Vec<f32
     Ok((0..=n).map(|i| map.eval(i as f64 / n as f64 * gain) as f32).collect())
 }
 
+/// What the screen shows of a plate's print value: the sample its file
+/// holds for it. A plate in sRGB is written on the sRGB curve (the sRGB
+/// encoding of the light `v^2.2`), a plate in Adobe RGB keeps the value;
+/// the rule is the core's own (`print::sample_curve`,
+/// `print::file_sample`), the one the writer uses, so the preview, the
+/// 1:1 window, the viewfinder and the paper strip cannot hold another.
+/// The histograms count the print's values, not these.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Screen(mimizan_core::icc::GrayTrc);
+
+impl Screen {
+    /// The screen of a plate in `space`, printed on the paper.
+    pub(crate) fn of_plate(space: CorePlateSpace) -> Self {
+        Self(mimizan_core::print::sample_curve(Some(space), mimizan_core::calib::LookEncoding::Gamma22))
+    }
+
+    /// The shown value of print value `v`, both in [0, 1].
+    pub(crate) fn value(self, v: f64) -> f64 {
+        mimizan_core::print::file_sample(v, self.0)
+    }
+
+    /// The shown 8-bit level of print value `v`.
+    pub(crate) fn byte(self, v: f64) -> u8 {
+        (self.value(v) * 255.0).round() as u8
+    }
+}
+
+/// The table the screen shows a plate's positive with: entry `i` is what
+/// a plate in `space` shows of linear `i/n · 2^lamp`, the print value of
+/// [`paper_lut_lamp`] as the file's sample (the rule of the still's
+/// preview). In sRGB that is the sRGB encoding of the light the print
+/// value stands for, in Adobe RGB the print value itself, so there the
+/// table is `paper_lut_lamp` to the bit. The viewfinder reads the plate's
+/// three positives from three such tables (the green one with the lamp
+/// at zero), and the paper strip is drawn from the one at zero while the
+/// plate is on. The histogram and the monochrome negative stay on
+/// [`paper_lut`].
+#[uniffi::export]
+pub fn plate_lut(soft: f64, hard: f64, n: u32, lamp: f64, space: PlateSpace) -> Result<Vec<f32>> {
+    let screen = Screen::of_plate(space.core());
+    let lamp = check_lamp("the", lamp)?;
+    let map = mimizan_core::tone::Tone::Paper(split_grade(soft, hard)?).compile();
+    let n = n.clamp(1, 4096) as usize;
+    let gain = if lamp == 0.0 { 1.0 } else { 2f64.powf(lamp) };
+    Ok((0..=n).map(|i| screen.value(map.eval(i as f64 / n as f64 * gain)) as f32).collect())
+}
+
 /// Stops within ±[`lamp_limit`], finite.
 pub(crate) fn check_lamp(name: &str, v: f64) -> Result<f64> {
     let limit = mimizan_core::print::LAMP_LIMIT;

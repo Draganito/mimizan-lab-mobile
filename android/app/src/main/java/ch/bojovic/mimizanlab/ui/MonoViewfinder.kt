@@ -24,9 +24,10 @@ import ch.bojovic.mimizanlab.camera.FinderTone
  * the colour step back through the inverse matrix of the frame, mixes
  * with the development's weights and applies the paper — per pixel on
  * the GPU, so the display costs nothing on the CPU. In the plate process
- * the red and the blue positive are read from the table of their lamp
- * (rows 1 and 2 of [FinderTone.lutBitmap]), the green from the paper's
- * own. Zebra stripes mark display values above [FinderTone.zebra].
+ * the three positives are read from the tables of the plate (rows 0, 1
+ * and 2 of [FinderTone.lutBitmap]: green, red and blue under their
+ * lamps, as the plate's file holds them). Zebra stripes mark display
+ * values above [FinderTone.zebra].
  *
  * The effect sits on a Compose `graphicsLayer` around the `TextureView`,
  * not on the view itself: a `RenderEffect` on a `TextureView` blacked out
@@ -47,9 +48,9 @@ float lin(float c) {
     return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4);
 }
 
-// The table in `row` at linear g: row 0 the paper, 1 and 2 the paper
-// under the red and the blue lamp. Sampled at the row's centre, so the
-// rows do not mix.
+// The table in `row` at linear g: row 0 the paper (the plate's green),
+// 1 and 2 the plate's red and blue under their lamps. Sampled at the
+// row's centre, so the rows do not mix.
 float paper(float g, float row) {
     return float(lut.eval(float2(g * lutLast + 0.5, row + 0.5)).r);
 }
@@ -60,8 +61,9 @@ half4 main(float2 xy) {
     float3 o;
     if (plate > 0.5) {
         // Three positives: each taking filter on the linear picture, the
-        // same paper, red and blue placed by their lamps (in their
-        // tables). A clipped site clamps at 1 in every channel.
+        // same paper, red and blue placed by their lamps, shown as the
+        // plate's file holds them (all in their tables). A clipped site
+        // clamps at 1 in every channel.
         float3 g = clamp(float3(dot(l, vR), dot(l, vG), dot(l, vB)), 0.0, 1.0);
         o = float3(paper(g.r, 1.0), paper(g.g, 0.0), paper(g.b, 2.0));
     } else {

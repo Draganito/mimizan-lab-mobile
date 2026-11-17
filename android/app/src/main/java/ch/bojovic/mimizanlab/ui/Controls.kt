@@ -50,7 +50,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.PlateFilters
+import ch.bojovic.mimizanlab.engine.PlateSpace
 import ch.bojovic.mimizanlab.engine.paperLut
+import ch.bojovic.mimizanlab.engine.plateLut
 import ch.bojovic.mimizanlab.store.GradeMath
 import ch.bojovic.mimizanlab.store.PeakMode
 import ch.bojovic.mimizanlab.store.Prefs
@@ -219,15 +221,20 @@ val SettingInk = Color(0xFFFFB74D)
  * together are allowed. A double tap is the base print; a second double
  * tap on a strip already there brings the pair back. Behind it are the
  * same two numbers as ever, soft and hard, and the print is the same.
- * White at the base print, amber away from it. Twin of the iOS `PaperStrip`.
+ * White at the base print, amber away from it. With a [plate] the
+ * slices are the greys the colour picture shows: the paper as the
+ * plate's file holds it ([plateLut], a plate in sRGB on the sRGB curve).
+ * Twin of the iOS `PaperStrip`.
  */
 @Composable
-fun PaperStrip(soft: Double, hard: Double, onBoth: (Double, Double) -> Unit) {
+fun PaperStrip(soft: Double, hard: Double, plate: PlateSpace? = null, onBoth: (Double, Double) -> Unit) {
     val off = kotlin.math.abs(soft) >= 1.0 / 24.0 || kotlin.math.abs(hard) >= 1.0 / 24.0
     val latest = rememberUpdatedState(soft to hard)
     var remembered by remember { mutableStateOf<Pair<Double, Double>?>(null) }
-    val lut = remember(soft, hard) {
-        runCatching { paperLut(soft, hard, 256u).toFloatArray() }.getOrElse { FloatArray(257) { it / 256f } }
+    val lut = remember(soft, hard, plate) {
+        runCatching {
+            (if (plate != null) plateLut(soft, hard, 256u, 0.0, plate) else paperLut(soft, hard, 256u)).toFloatArray()
+        }.getOrElse { FloatArray(257) { it / 256f } }
     }
     Canvas(
         Modifier

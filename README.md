@@ -168,7 +168,11 @@ the camera's own preview, desaturated in mono, untouched in colour.
    A print in sRGB is written on the sRGB curve under the sRGB profile,
    so a gallery that reads the profile and one that only assumes sRGB
    show the same picture; in Adobe RGB the values are that space's own
-   gamma 2.2.
+   gamma 2.2. The phone shows a plate in sRGB as that file: the finder
+   (where it is the paper), the developer's picture, its 1:1 window and
+   the paper strip carry the file's samples, so a shadow set on the
+   phone is the shadow in the print. The histogram goes on counting the
+   print's values.
 3. **Grade.** One strip, the paper itself: it is drawn from
    the core's paper table for the standing pair, over the scene, a
    zone to the stop, from five stops under the grey card to the clip
