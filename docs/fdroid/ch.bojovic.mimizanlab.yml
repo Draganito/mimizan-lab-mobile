@@ -11,9 +11,9 @@ RepoType: git
 Repo: https://github.com/Draganito/mimizan-lab-mobile.git
 
 Builds:
-  - versionName: 0.17.37
-    versionCode: 96
-    commit: 994bb6fc43a8cb24b2cc89ea5e6f94acf481454f
+  - versionName: 0.17.38
+    versionCode: 97
+    commit: dc01cb0c2dec2923f4f2f94aadde568f5f1e2e6b
     subdir: android/app
     sudo:
       - apt-get update
@@ -29,5 +29,5 @@ Builds:
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags ^v[\d.]+$
-CurrentVersion: 0.17.37
-CurrentVersionCode: 96
+CurrentVersion: 0.17.38
+CurrentVersionCode: 97
