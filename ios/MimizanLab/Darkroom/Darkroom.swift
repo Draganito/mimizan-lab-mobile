@@ -311,8 +311,9 @@ final class Darkroom {
     /// Off the main actor: the development, the plate if asked, Peak's
     /// measurement, the thumbnail and the automatic JPEG (`binned` without
     /// the full-resolution purchase); the negative's median when the
-    /// finder's is waiting for it. `print` is the frame's grade and Peak;
-    /// a Custom Peak keeps its own pair, Auto takes the measurement made here.
+    /// finder's is waiting for it. `print` is the frame's grade, Peak and
+    /// lamps; a Custom Peak keeps its own pair, Auto takes the measurement
+    /// made here.
     nonisolated private static func develop(
         name: String, path: String, params: DevelopParams, settings: DevelopSettings, print: Print,
         exporter: Exporter, wantJpeg: Bool, binned: Bool, matchFinder: Bool
@@ -328,9 +329,11 @@ final class Darkroom {
                     log.warning("mix median \(name): \(error.localizedDescription)")
                 }
             }
+            // This frame's lamps, whatever the process: the plate reads
+            // them, and a switch to Color in the developer finds them.
+            try developed.setLamps(red: print.lamps.red, blue: print.lamps.blue)
             if settings.isPlate {
-                // The plate is a re-mix of the separation just made; the
-                // lamps stay at zero on the phone.
+                // The plate is a re-mix of the separation just made.
                 let w = try developed.setPlate(filters: settings.plateFilters, space: settings.plateSpace)
                 log.info("plate \(Format.plateFilters(w.filters)): R \(Format.weights(w.red)) G \(Format.weights(w.green)) B \(Format.weights(w.blue))")
             }

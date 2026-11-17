@@ -165,6 +165,10 @@ the camera's own preview, desaturated in mono, untouched in colour.
    choice in its `.grade` file beside the grade, so the roll says what
    it was last printed as. The colour
    space starts at sRGB; Adobe RGB is under *Color space* in Settings.
+   A print in sRGB is written on the sRGB curve under the sRGB profile,
+   so a gallery that reads the profile and one that only assumes sRGB
+   show the same picture; in Adobe RGB the values are that space's own
+   gamma 2.2.
 3. **Grade.** One strip, the paper itself: it is drawn from
    the core's paper table for the standing pair, over the scene, a
    zone to the stop, from five stops under the grey card to the clip
@@ -201,7 +205,28 @@ the camera's own preview, desaturated in mono, untouched in colour.
    beside it on the roll: moving a slider in the developer changes
    that picture alone, and the next shot starts from the standing
    grade again, not from the last correction.
-4. **Peak** is Off or Auto in Settings where the finder is the paper,
+4. **Lamps.** In Color there is a second row under the strip: the two
+   lamps of the print, red in the left half and blue in the right, the
+   desktop's two lamp bars. A lamp gives its positive more light or
+   less before the paper (±2 stops, twelfths); green is the reference,
+   so the two together are the colour balance of the print: red to the
+   right is warmer, blue to the right cooler, and both the same way
+   move the picture between green and magenta. Each bar is dark and
+   says nothing: the mark at the middle is zero, the handle is where
+   the lamp stands, the letter says which lamp, and what it does is in
+   the picture. A finger moves the lamp from where it stands — a tap
+   moves nothing, a drag counts once it has left a small dead zone —
+   and the finger's way is the paper strip's (the width of the whole
+   row is three stops), so the handle follows more slowly than the
+   finger and a twelfth is a clear move, not a tremble. A double tap
+   is zero, a second one brings the lamp back; white at zero, amber
+   away from it. The row stands where the paper strip stands: under
+   the finder where the finder is the paper, as the standing lamps
+   (the finder, the automatic JPEG, where a new frame starts), and in
+   the developer as the picture's own, kept in its `.grade` file. On
+   the other iPhones and the iPad a new frame starts with both at
+   zero. Mono does not read them.
+5. **Peak** is Off or Auto in Settings where the finder is the paper,
    the standing choice for the automatic JPEG and a new frame; on the
    other iPhones and the iPad every frame starts at Auto and Settings
    does not ask. Auto measures radius and amount on each negative, Off
@@ -209,7 +234,7 @@ the camera's own preview, desaturated in mono, untouched in colour.
    go to Off or Custom, which shows the two sliders and, like the
    grade, stays with that picture alone. The preview is never
    sharpened; the 1:1 view is.
-5. **A shot** is JPEG, Developer or Raw. JPEG writes the picture at
+6. **A shot** is JPEG, Developer or Raw. JPEG writes the picture at
    this grade and stays on the finder; it is the print the finder
    showed, so it is only offered where the finder is the paper. On the
    other iPhones and the iPad a shot is Developer or Raw. Developer
@@ -218,23 +243,32 @@ the camera's own preview, desaturated in mono, untouched in colour.
    Android install starts on JPEG, a fresh iOS install on Developer.
    Every development is at full size; a small print is the same
    development on a smaller sheet, never a binned negative.
-6. **The shutter** records one RAW frame into the cache and, in JPEG
+7. **The shutter** records one RAW frame into the cache and, in JPEG
    and Developer, develops it at once (on Android in a foreground
    service). The JPEG lands in `Pictures/Mimizan Lab` on Android, and
    in Files and, add-only, Photos on iOS.
-7. **Review** opens from the thumbnail, or after a Developer shot.
+8. **Review** opens from the thumbnail, or after a Developer shot.
    Pinch to zoom; past the 2048 px preview the window is rendered 1:1
-   from the negative. The paper strip changes the preview,
-   the histogram and every export, through the same paper. Export
+   from the negative. The paper strip, and in Color the two lamps,
+   change the preview, the histogram and every export, through the
+   same paper. A burnt-out highlight is not cut off at the clip: the
+   negative keeps what stands above it (1 is the level at which green
+   is full; red and blue still carry light there), the paper prints
+   it, and a too-light sky comes down with the strip as far as the
+   frame recorded it. Nothing is reconstructed. Export
    writes the JPEG, a 16-bit TIFF, or the linear negative plus
    saturation mask for the desktop (in Color the three-frame
-   `.plate.tif`, which `mimizan print` prints in colour); on iOS also
+   `.plate.tif`, which `mimizan print` prints in colour; the lamps are
+   set again there, they are the print's and not the negative's). A
+   negative with highlights above 1 says so as `range` in its
+   description, as the desktop's file does, and Mimizan 0.18.16 or
+   later reads it back; on iOS also
    the DNG itself, the frame as the camera handed it over. In a store
    build without the purchase the JPEG is printed at half the edge,
    the same development on a smaller sheet, and the TIFFs and the DNG
    open the purchase instead. Share sends the last export, or the automatic
    JPEG of the frame.
-8. **The roll** lists every frame in the cache (1.5 GB, newest first).
+9. **The roll** lists every frame in the cache (1.5 GB, newest first).
    The bin on Android, a swipe on iOS, or a long press on either
    deletes one. Exported pictures stay where they were written.
    Settings shows how much the frames take and can delete them all.
@@ -429,7 +463,7 @@ and the changelog per `versionCode` are read from
 
 On Android and iOS: RAW capture, the finder as the paper (Android, and
 iPhones with Apple Log), Mono and Color, the split-grade paper, the
-zone strip and Peak with a print per frame, review with remix and 1:1
+zone strip, the plate's two lamps and Peak with a print per frame, review with remix and 1:1
 detail, the exports, the roll. Checked on a Pixel 9 (main and
 ultrawide), a Pixel 4a, a Galaxy S25 FE and, through TestFlight, an
 iPhone 17 Pro (all three cameras).

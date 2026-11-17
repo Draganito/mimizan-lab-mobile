@@ -62,10 +62,11 @@ final class FinderRenderer: NSObject, MTKViewDelegate {
     }
 
     func set(tone: FinderTone?) {
-        // The table is too big for `setBytes`; it lives in a buffer of its own,
-        // made here (the tone changes a few times a second at most).
+        // The tables are too big for `setBytes`; they live in a buffer of
+        // their own, made here (the tone changes a few times a second at
+        // most): the paper, then the paper under the red and the blue lamp.
         let lut: MTLBuffer? = tone?.paper.flatMap { p in
-            p.lut.withUnsafeBytes { raw in
+            p.tables.withUnsafeBytes { raw in
                 raw.baseAddress.flatMap { device.makeBuffer(bytes: $0, length: raw.count, options: .storageModeShared) }
             }
         }

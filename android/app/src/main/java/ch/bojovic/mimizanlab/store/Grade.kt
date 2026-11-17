@@ -24,6 +24,25 @@ data class Grade(val soft: Double, val hard: Double) {
 }
 
 /**
+ * The projector's two lamps on a plate: stops of exposure added to the
+ * red and the blue positive before the paper, green the reference (the
+ * core's `Developed.setLamps`, the desktop's two lamp bars). Twelfths of
+ * a stop inside the core's ±`LAMP_LIMIT`. The monochrome negative does
+ * not read them.
+ */
+data class Lamps(val red: Double, val blue: Double) {
+    fun toJson(): JSONObject = JSONObject().put("red", red).put("blue", blue)
+
+    companion object {
+        val ZERO = Lamps(0.0, 0.0)
+
+        /** The lamps from their object; a missing or damaged field is a lamp at zero. */
+        fun fromJson(o: JSONObject, limit: Double): Lamps =
+            Lamps(GradeMath.snapStops(o.optDouble("red", 0.0), limit), GradeMath.snapStops(o.optDouble("blue", 0.0), limit))
+    }
+}
+
+/**
  * Peak on a print. Off applies nothing. Auto is the measurement of the
  * negative it is applied to. Custom is [radius] and [amount] by hand;
  * the two are carried for the other modes too, so a return to Custom
@@ -55,43 +74,53 @@ data class Peak(val mode: PeakMode, val radius: Double, val amount: Double) {
 }
 
 /**
- * What one frame is printed with: the grade and Peak, the recipe beside
- * the RAW. A new frame takes the standing pair of the moment; the
- * developer moves this one alone. Written to `<name>.grade` by
- * [Recipe] together with the frame's process and filter.
+ * What one frame is printed with: the grade, Peak and the plate's two
+ * lamps, the recipe beside the RAW. A new frame takes the standing ones
+ * of the moment; the developer moves this frame's alone. Written to
+ * `<name>.grade` by [Recipe] together with the frame's process and filter.
  */
-data class Print(val grade: Grade, val peak: Peak)
+data class Print(val grade: Grade, val peak: Peak, val lamps: Lamps = Lamps.ZERO)
 
 /**
- * `<name>.grade` on disk: the grade's two exposures, `peak`, and the
- * process, filter, plate filters and plate primaries the frame was last
- * developed or re-mixed in (enum names, as the iOS app writes them).
- * Every field past `soft` and `hard` is optional, so an older file
- * reads: one from 0.15.0 has the grade alone and takes the standing
- * Peak; one from 0.17.9 or earlier has no process and reads as Mono,
- * Pan; one without `plateSpace` reads as sRGB.
+ * `<name>.grade` on disk: the grade's two exposures, `peak`, `lamps`
+ * (`red` and `blue`, stops), and the process, filter, plate filters and
+ * plate primaries the frame was last developed or re-mixed in (enum
+ * names, as the iOS app writes them). Every field past `soft` and
+ * `hard` is optional, so an older file reads: one from 0.15.0 has the
+ * grade alone and takes the standing Peak; one from 0.17.9 or earlier
+ * has no process and reads as Mono, Pan; one without `plateSpace` reads
+ * as sRGB; one from 0.17.36 or earlier has no lamps and reads with both
+ * at zero, which is how it was printed.
  */
 object Recipe {
     fun toJson(print: Print, settings: DevelopSettings): JSONObject =
         print.grade.toJson()
             .put("peak", print.peak.toJson())
+            .put("lamps", print.lamps.toJson())
             .put("process", settings.process.name)
             .put("filter", settings.filter.name)
             .put("plateFilters", settings.plateFilters.name)
             .put("plateSpace", settings.plateSpace.name)
 
     /** The print and the settings from the file's text; null when the text is not a recipe. */
-    fun fromJson(text: String, limit: Double, limits: PeakLimits, standingPeak: Peak): Pair<Print, DevelopSettings>? = runCatching {
+    fun fromJson(
+        text: String,
+        limit: Double,
+        limits: PeakLimits,
+        standingPeak: Peak,
+        lampLimit: Double,
+    ): Pair<Print, DevelopSettings>? = runCatching {
         val o = JSONObject(text)
         val grade = Grade.fromJson(o, limit) ?: return null
         val peak = o.optJSONObject("peak")?.let { Peak.fromJson(it, limits) } ?: standingPeak
+        val lamps = o.optJSONObject("lamps")?.let { Lamps.fromJson(it, lampLimit) } ?: Lamps.ZERO
         val settings = DevelopSettings(
             filter = GradeMath.enumOr(o.optString("filter"), Filter.NONE),
             process = GradeMath.enumOr(o.optString("process"), Process.MONO),
             plateFilters = GradeMath.enumOr(o.optString("plateFilters"), PlateFilters.CAMERA),
             plateSpace = GradeMath.enumOr(o.optString("plateSpace"), PlateSpace.SRGB),
         )
-        Print(grade, peak) to settings
+        Print(grade, peak, lamps) to settings
     }.getOrNull()
 }
 
@@ -115,6 +144,31 @@ object GradeMath {
         val d = (kotlin.math.round(finiteOrZero(delta) * 12.0) / 12.0).coerceIn(lo, hi)
         return Grade(soft + d, hard + d)
     }
+
+    /** A lamp is on when it is off zero by at least half a twelfth of a stop. */
+    fun lampOn(v: Double): Boolean = kotlin.math.abs(v) >= 1.0 / 24.0
+
+    /** The lamp [delta] stops on from [v]: on the twelfth grid, inside ±[limit]. */
+    fun shiftLamp(v: Double, delta: Double, limit: Double): Double = snapStops(finiteOrZero(v) + finiteOrZero(delta), limit)
+
+    /**
+     * Stops a finger drawn [dx] pixels along a lamp bar stands for, at
+     * [stopPx] pixels to the stop, once it has left the dead zone of
+     * [slop] pixels on the side it left it ([side], +1 or -1): the move
+     * counts from the edge of the dead zone, so the lamp starts from
+     * where it stood and not a slop further.
+     */
+    fun lampDragStops(dx: Float, side: Int, slop: Float, stopPx: Float): Double =
+        if (stopPx > 0f) ((dx - side * slop) / stopPx).toDouble() else 0.0
+
+    /**
+     * What a double tap does to a lamp at [rest]: the lamp now, and what
+     * is remembered. A lamp that is on goes to zero and is remembered;
+     * one at zero comes back to what was remembered, or stays when
+     * nothing was. The desktop lamp bar's double click.
+     */
+    fun lampDoubleTap(rest: Double, remembered: Double?): Pair<Double, Double?> =
+        if (lampOn(rest)) 0.0 to rest else (remembered ?: 0.0) to remembered
 
     /**
      * Notches of grade a spread of two fingers by [scale] stands for, a

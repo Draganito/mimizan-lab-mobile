@@ -167,6 +167,10 @@ struct ReviewView: View {
                     FilterStrip.plate(selected: prefs.plateFilters, hasMatrix: vm.info?.hasColourMatrix ?? false, onSelect: vm.setPlateFilters)
                 }
                 PaperStrip(soft: grade.soft, hard: grade.hard, onBoth: vm.setGrade)
+                // The plate's two lamps, this print's own.
+                if plate != nil {
+                    LampStrip(red: vm.print.lamps.red, blue: vm.print.lamps.blue, onBoth: vm.setLamps)
+                }
             }
             PeakRow(mode: peak.mode, modes: PeakMode.allCases, onMode: vm.setPeakMode)
             if peak.mode == .custom {

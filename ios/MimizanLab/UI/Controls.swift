@@ -1,5 +1,6 @@
 // Small pieces the viewfinder and the review share: chips, labelled
-// sliders, the process and filter rows, the paper strip, the histogram.
+// sliders, the process and filter rows, the paper strip, the plate's
+// lamp bars, the histogram.
 import MimizanCore
 import SwiftUI
 
@@ -323,6 +324,114 @@ struct PaperStrip: View {
         let i = min(Int(x), lut.count - 2)
         let f = Float(x - Double(i))
         return lut[i] * (1 - f) + lut[i + 1] * f
+    }
+}
+
+/// The plate's two lamps as one row under the paper strip, the red one
+/// in the left half and the blue one in the right, with room between
+/// them so a thumb meant for one does not start on the other. Each is a
+/// dark bar that says nothing, as on the desktop: the mark at the middle
+/// is zero, the handle stands on the stops the lamp is at (the bar is
+/// ±`Prefs.lampLimit` wide), the letter at the left edge, in the lamp's
+/// colour, says which lamp. What the lamp does to the colour is in the
+/// picture.
+///
+/// A finger moves the lamp from where it stands: a tap moves nothing,
+/// and a drag counts once it has left the dead zone, from the edge of
+/// that zone. The finger's way is the paper strip's — the width of the
+/// whole row is `Prefs.stopLimit` stops, whatever the half is wide — so
+/// the handle follows more slowly than the finger and a twelfth of a
+/// stop is a clear move, not a tremble. The lamp stops on twelfths. A
+/// double tap is zero; a second one on a lamp already there brings it
+/// back. White at zero, amber away from it, like the paper strip. Twin
+/// of the Android `LampStrip`.
+struct LampStrip: View {
+    let red: Double
+    let blue: Double
+    let onBoth: (Double, Double) -> Void
+
+    /// The room between the red and the blue bar.
+    static let gap: CGFloat = 20
+
+    var body: some View {
+        GeometryReader { g in
+            let stopPx = max(g.size.width, 1) / CGFloat(Prefs.stopLimit)
+            HStack(spacing: LampStrip.gap) {
+                LampBar(mark: "R", ink: FilterStrip.ink(.red25), value: red, stopPx: stopPx) { onBoth($0, blue) }
+                LampBar(mark: "B", ink: FilterStrip.ink(.blue47), value: blue, stopPx: stopPx) { onBoth(red, $0) }
+            }
+        }
+        .frame(height: LampBar.height)
+    }
+}
+
+/// One lamp: `value` stops, a finger's way of `stopPx` points to the stop.
+private struct LampBar: View {
+    let mark: String
+    let ink: Color
+    let value: Double
+    let stopPx: CGFloat
+    let onChange: (Double) -> Void
+    /// The lamp as a drag began, and the side the finger left the dead zone on.
+    @State private var origin: (value: Double, side: Double)?
+    @State private var remembered: Double?
+
+    static let height: CGFloat = 32
+    /// The dead zone: a finger that has moved less has not begun a drag.
+    static let slop: CGFloat = 10
+
+    var body: some View {
+        let on = Prefs.lampOn(value)
+        Canvas { ctx, size in
+            // Zero: the mark at the middle, never moving.
+            let mx = size.width / 2
+            var zero = Path()
+            zero.move(to: CGPoint(x: mx - 5, y: size.height))
+            zero.addLine(to: CGPoint(x: mx + 5, y: size.height))
+            zero.addLine(to: CGPoint(x: mx, y: size.height - 7))
+            zero.closeSubpath()
+            ctx.fill(zero, with: .color(.white))
+            // The handle: where the lamp stands.
+            let frac = min(max((value / Prefs.lampLimit + 1) / 2, 0), 1)
+            let hx = size.width * CGFloat(frac)
+            ctx.fill(Path(CGRect(x: hx - 1, y: 0, width: 2, height: size.height)), with: .color(on ? Color.settingInk : Color.white))
+        }
+        .background(Color(white: 0.1))
+        .overlay(alignment: .leading) {
+            Text(mark)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(ink)
+                .padding(.leading, 8)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(on ? Color.settingInk : Color.white.opacity(0.35), lineWidth: on ? 2 : 1))
+        .frame(maxWidth: .infinity)
+        .frame(height: LampBar.height)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            let tap = Prefs.lampDoubleTap(rest: value, remembered: remembered)
+            remembered = tap.remembered
+            if tap.now != value { onChange(tap.now) }
+        }
+        .highPriorityGesture(
+            DragGesture(minimumDistance: LampBar.slop)
+                .onChanged { v in
+                    // From the lamp as the drag began, by the finger's way
+                    // past the dead zone. The zone is along the bar: a
+                    // finger drawn up or down has not left it, however
+                    // far it went.
+                    let dx = Double(v.translation.width)
+                    if origin == nil {
+                        guard abs(dx) > Double(LampBar.slop) else { return }
+                        origin = (value: value, side: dx < 0 ? -1.0 : 1.0)
+                    }
+                    guard let base = origin else { return }
+                    let stops = Prefs.lampDragStops(dx: dx, side: base.side, slop: Double(LampBar.slop), stopPx: Double(stopPx))
+                    let to = Prefs.shiftLamp(base.value, by: stops)
+                    if to != value { onChange(to) }
+                }
+                .onEnded { _ in origin = nil }
+        )
     }
 }
 

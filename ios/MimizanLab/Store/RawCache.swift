@@ -1,6 +1,6 @@
 // App-private copy of every frame: `<name>.dng` as AVFoundation wrote it,
 // `<name>.json`, the metadata the roll shows, and `<name>.grade`, the
-// print (grade and Peak). A shot can be developed again later from the
+// print (grade, Peak and the plate's lamps). A shot can be developed again later from the
 // file alone. Oldest frames go first when the cache exceeds the budget.
 import CoreGraphics
 import Foundation
@@ -52,14 +52,17 @@ struct ShotMeta: Codable, Equatable {
     var bayerPattern: BayerPattern { BayerPattern.fromName(pattern) ?? .rggb }
 }
 
-/// `<name>.grade` on disk: the grade's two exposures, `peak`, and the
-/// process and filter the frame was last developed or re-mixed in, as
-/// the Android `Grade.kt` writes them (`PROCESS`/`FILTER` enum names).
-/// Every field past `soft` and `hard` is optional, so an older file reads.
+/// `<name>.grade` on disk: the grade's two exposures, `peak`, `lamps`
+/// (`red` and `blue`, stops), and the process and filter the frame was
+/// last developed or re-mixed in, as the Android `Grade.kt` writes them
+/// (`PROCESS`/`FILTER` enum names). Every field past `soft` and `hard`
+/// is optional, so an older file reads; one from 0.17.36 or earlier has
+/// no lamps and reads with both at zero, which is how it was printed.
 private struct RecipeFile: Codable {
     var soft: Double
     var hard: Double
     var peak: Peak?
+    var lamps: Lamps?
     var process: String?
     var filter: String?
     var plateFilters: String?
@@ -69,6 +72,7 @@ private struct RecipeFile: Codable {
         soft = print.grade.soft
         hard = print.grade.hard
         peak = print.peak
+        lamps = print.lamps
         process = settings.process.rawValue
         filter = settings.filter.name
         plateFilters = settings.plateFilters.name
@@ -76,7 +80,7 @@ private struct RecipeFile: Codable {
     }
 
     func print(standingPeak: Peak) -> Print {
-        Print(grade: Prefs.snapGrade(soft: soft, hard: hard), peak: peak ?? standingPeak)
+        Print(grade: Prefs.snapGrade(soft: soft, hard: hard), peak: peak ?? standingPeak, lamps: lamps ?? .zero)
     }
 
     var settings: DevelopSettings {

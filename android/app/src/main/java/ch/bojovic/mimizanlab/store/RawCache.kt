@@ -60,7 +60,7 @@ class RawCache(context: Context, private val budgetBytes: Long = 1_500L shl 20) 
     fun loadRecipe(name: String, standingPeak: Peak): Pair<Print, DevelopSettings>? {
         val f = printFile(name)
         if (!f.exists()) return null
-        return Recipe.fromJson(f.readText(), Prefs.STOP_LIMIT, Prefs.PEAK, standingPeak)
+        return Recipe.fromJson(f.readText(), Prefs.STOP_LIMIT, Prefs.PEAK, standingPeak, Prefs.LAMP_LIMIT)
     }
 
     fun has(name: String) = rawFile(name).exists() && metaFile(name).exists()

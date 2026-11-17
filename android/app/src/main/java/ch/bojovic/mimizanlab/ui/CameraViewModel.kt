@@ -21,8 +21,10 @@ import ch.bojovic.mimizanlab.engine.mixWeights
 import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.PlateFilters
 import ch.bojovic.mimizanlab.engine.paperLut
+import ch.bojovic.mimizanlab.engine.paperLutLamp
 import ch.bojovic.mimizanlab.engine.plateWeights
 import ch.bojovic.mimizanlab.store.Grade
+import ch.bojovic.mimizanlab.store.Lamps
 import ch.bojovic.mimizanlab.store.PeakMode
 import ch.bojovic.mimizanlab.store.ShotMode
 import kotlinx.coroutines.CancellationException
@@ -83,19 +85,19 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
      * mix weights for the current filter and this frame's balance, pulled
      * back through the ISP's colour matrix, and the paper the automatic
      * JPEG uses; in the plate process the three taking filters the same
-     * way. Recomputed when the
-     * ISP colour moves (white balance), a develop setting changes, or the
-     * grade changes; the grade is one value, so the zone strip is one
-     * emission.
+     * way, the red and the blue one under the standing lamps. Recomputed
+     * when the ISP colour moves (white balance), a develop setting
+     * changes, or the grade or a lamp changes; the grade is one value,
+     * so the zone strip is one emission, and so are the two lamps.
      */
     val tone: StateFlow<FinderTone> = combine(
         controller.ispColor,
         _develop,
-        darkroom.prefs.grade,
+        combine(darkroom.prefs.grade, darkroom.prefs.lamps) { g, l -> g to l },
         _viewfinder,
         _lens,
-    ) { color, dev, grade, vf, lens ->
-        buildTone(color ?: IspColor.IDENTITY, dev, grade, vf.zebra, lens)
+    ) { color, dev, paper, vf, lens ->
+        buildTone(color ?: IspColor.IDENTITY, dev, paper.first, paper.second, vf.zebra, lens)
     }.flowOn(Dispatchers.Default).stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
@@ -103,6 +105,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
             IspColor.IDENTITY,
             _develop.value,
             darkroom.prefs.grade.value,
+            darkroom.prefs.lamps.value,
             darkroom.prefs.zebra.value,
             _lens.value,
         ),
@@ -125,6 +128,7 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         color: IspColor,
         dev: DevelopSettings,
         pl: Grade,
+        lamps: Lamps,
         zebra: Boolean,
         lens: LensInfo?,
     ): FinderTone {
@@ -155,11 +159,24 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
         } else {
             null
         }
+        val lut = paperLut(pl.soft, pl.hard, 4096u).toFloatArray()
+        // The paper under a lamp, for the plate's red and blue positive;
+        // the paper's own table when the lamp is at zero or cannot be read.
+        fun under(lamp: Double): FloatArray =
+            if (plate == null || lamp == 0.0) lut
+            else try {
+                paperLutLamp(pl.soft, pl.hard, 4096u, lamp).toFloatArray()
+            } catch (t: Throwable) {
+                Log.w(TAG, "lamp table", t)
+                lut
+            }
         return FinderTone(
             v = FinderTone.pullBack(weights, color),
-            lut = paperLut(pl.soft, pl.hard, 4096u).toFloatArray(),
+            lut = lut,
             zebra = if (zebra) 0.985f else 2f,
             plate = plate,
+            lutRed = under(lamps.red),
+            lutBlue = under(lamps.blue),
         )
     }
 
@@ -274,6 +291,8 @@ class CameraViewModel(app: Application) : AndroidViewModel(app) {
     fun setPlateFilters(f: PlateFilters) = darkroom.prefs.setPlateFilters(f)
     fun setPlateSpace(s: PlateSpace) = darkroom.prefs.setPlateSpace(s)
     fun setGrade(soft: Double, hard: Double) = darkroom.prefs.setGrade(soft, hard)
+    /** The standing lamps of the plate: the finder in Color, the automatic JPEG, and where a new frame starts. */
+    fun setLamps(red: Double, blue: Double) = darkroom.prefs.setLamps(red, blue)
     fun setPeakMode(mode: PeakMode) = darkroom.prefs.setPeakMode(mode)
     fun setShotMode(mode: ShotMode) = darkroom.prefs.setShotMode(mode)
     fun toggleZebra() {

@@ -37,21 +37,35 @@ class IspColor(val transform: FloatArray, val gains: FloatArray) {
  * In the plate process [plate] holds the three taking filters pulled back
  * the same way (rows R, G, B, nine values); the shader shows the three
  * positives in colour while [v] stays the luminance for the histogram.
+ * The red and the blue positive are read from tables of their own,
+ * [lutRed] and [lutBlue]: the paper with the lamp's placing in it
+ * (`paper_lut_lamp`, the value of linear `x · 2^lamp`), which is what
+ * the still does with its lamps. With both lamps at zero they are [lut].
  */
 class FinderTone(
     val v: FloatArray,
     val lut: FloatArray,
     val zebra: Float,
     val plate: FloatArray? = null,
+    val lutRed: FloatArray = lut,
+    val lutBlue: FloatArray = lut,
 ) {
-    /** 256 x 1 grey ramp of [lut] for the shader (`lut.eval(x)`). */
+    /**
+     * The tables for the shader, three grey rows of `lut.size` pixels:
+     * row 0 is [lut] (the grey, and the plate's green), row 1 [lutRed],
+     * row 2 [lutBlue]. Grey pixels, one row a table, so no colour
+     * conversion of the bitmap can carry one lamp into another channel.
+     */
     val lutBitmap: Bitmap by lazy {
         val n = lut.size
-        val px = IntArray(n) { i ->
-            val c = (lut[i].coerceIn(0f, 1f) * 255f + 0.5f).toInt()
-            (0xFF shl 24) or (c shl 16) or (c shl 8) or c
+        val px = IntArray(3 * n)
+        for ((row, table) in listOf(lut, lutRed, lutBlue).withIndex()) {
+            for (i in 0 until n) {
+                val c = (table[i.coerceAtMost(table.size - 1)].coerceIn(0f, 1f) * 255f + 0.5f).toInt()
+                px[row * n + i] = (0xFF shl 24) or (c shl 16) or (c shl 8) or c
+            }
         }
-        Bitmap.createBitmap(px, n, 1, Bitmap.Config.ARGB_8888)
+        Bitmap.createBitmap(px, n, 3, Bitmap.Config.ARGB_8888)
     }
 
     /** Display value of the linear gray `i / (size - 1)`, for the histogram's inner loop. */

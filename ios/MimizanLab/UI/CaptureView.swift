@@ -73,6 +73,15 @@ struct CaptureView: View {
                 PaperStrip(soft: vm.prefs.soft, hard: vm.prefs.hard, onBoth: vm.setGrade)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
+                // In Color the plate's two lamps, under the paper as on the
+                // desktop: red in the left half, blue in the right. The
+                // finder is the paper under them, so a move shows the colour.
+                if develop.isPlate {
+                    LampStrip(red: vm.prefs.lampRed, blue: vm.prefs.lampBlue, onBoth: vm.setLamps)
+                        .padding(.horizontal, 12)
+                        .padding(.top, FilterStrip.gap - 6)
+                        .padding(.bottom, 6)
+                }
             }
 
             // The hand's two sliders, only in M. In A the automatics expose
@@ -335,8 +344,8 @@ struct SettingsSheet: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Development").font(.headline)
                     Text(paperFinder
-                        ? "The standing paper is under the finder. The slider is the grade: hard light against soft, in stops; zero is the paper's grade 2, left is softer, right harder. The strip is the exposure: left prints darker, right lighter; double-tap it for the base print. The viewfinder, the automatic JPEG and a new frame start there. In the developer the grade is the picture's own and stays with it."
-                        : "On this device the finder is the camera's picture, so the paper is set in the developer, on each picture, where it shows at once: the slider is the grade, the strip the exposure, a double tap the base print. A new frame starts at the base print.")
+                        ? "The standing paper is under the finder. The slider is the grade: hard light against soft, in stops; zero is the paper's grade 2, left is softer, right harder. The strip is the exposure: left prints darker, right lighter; double-tap it for the base print. The viewfinder, the automatic JPEG and a new frame start there. In the developer the grade is the picture's own and stays with it. In Color the two bars under the strip are the red and the blue lamp of the print: a drag gives that colour more light or less, a double tap is zero. They stand like the paper, and in the developer they are the picture's own."
+                        : "On this device the finder is the camera's picture, so the paper is set in the developer, on each picture, where it shows at once: the slider is the grade, the strip the exposure, a double tap the base print. In Color the two bars under the strip are the red and the blue lamp of the print: a drag gives that colour more light or less, a double tap is zero. A new frame starts at the base print with both lamps at zero.")
                         .font(.caption).foregroundStyle(.gray)
                     // The standing Peak only matters where a print leaves without
                     // the developer: the automatic JPEG. Elsewhere every frame

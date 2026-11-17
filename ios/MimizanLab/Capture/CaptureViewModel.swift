@@ -68,6 +68,7 @@ final class CaptureViewModel {
     private func observeTone() {
         withObservationTracking {
             _ = prefs.soft; _ = prefs.hard
+            _ = prefs.lampRed; _ = prefs.lampBlue
             _ = prefs.process; _ = prefs.filter; _ = prefs.plateFilters; _ = prefs.plateSpace
             _ = prefs.finderMatch
             _ = viewfinder.zebra; _ = lens
@@ -90,7 +91,8 @@ final class CaptureViewModel {
     /// On an Apple Log stream: the still's mix weights for the current
     /// filter and this frame's balance, pulled back to linear BT.2020,
     /// the standing paper, and the measured stops between the two axes;
-    /// in the plate process the three taking filters the same way.
+    /// in the plate process the three taking filters the same way, the
+    /// red and the blue positive under the standing lamps.
     private func rebuildTone() {
         let dev = develop
         let t = FinderTone(
@@ -134,9 +136,22 @@ final class CaptureViewModel {
             log.warning("paper lut: \(error.localizedDescription)")
             lut = (0...4096).map { Float($0) / 4096 }
         }
+        // The paper under a lamp, for the plate's red and blue positive:
+        // nil is the paper's own table (a lamp at zero, or the monochrome
+        // negative).
+        func under(_ lamp: Double) -> [Float]? {
+            guard plate != nil, lamp != 0 else { return nil }
+            do {
+                return try paperLutLamp(soft: prefs.soft, hard: prefs.hard, n: 4096, lamp: lamp)
+            } catch {
+                log.warning("lamp table: \(error.localizedDescription)")
+                return nil
+            }
+        }
         return PaperTone(
             v: back.pullBack(w.simd), plate: plate,
-            gain: Float(exp2(prefs.finderMatch.stops(lens: lens?.label))), lut: lut
+            gain: Float(exp2(prefs.finderMatch.stops(lens: lens?.label))), lut: lut,
+            lutRed: under(prefs.lampRed), lutBlue: under(prefs.lampBlue)
         )
     }
 
@@ -257,6 +272,8 @@ final class CaptureViewModel {
 
     /// The standing grade: the automatic JPEG, and where a new frame starts.
     func setGrade(soft: Double, hard: Double) { prefs.setGrade(soft: soft, hard: hard) }
+    /// The standing lamps of the plate: the paper finder in Color, the automatic JPEG, and where a new frame starts.
+    func setLamps(red: Double, blue: Double) { prefs.setLamps(red: red, blue: blue) }
     func toggleZebra() { viewfinder.zebra.toggle(); prefs.setZebra(viewfinder.zebra) }
     func toggleGrid() { viewfinder.grid.toggle(); prefs.setGrid(viewfinder.grid) }
     func toggleHistogram() { viewfinder.showHistogram.toggle(); prefs.setHistogram(viewfinder.showHistogram) }
@@ -282,10 +299,10 @@ final class CaptureViewModel {
     /// setting kept from a Pro, or from before, opens the developer here.
     var shotMode: ShotMode { shotModes.contains(prefs.shotMode) ? prefs.shotMode : .developer }
 
-    /// Where a new frame starts: the standing pair under a paper finder,
-    /// where it was seen and where Settings asks for the Peak; the base
-    /// print and Auto where the finder is the camera's picture, so nothing
-    /// set out of sight shapes the shot.
+    /// Where a new frame starts: the standing pair and lamps under a paper
+    /// finder, where they were seen and where Settings asks for the Peak;
+    /// the base print, Auto and both lamps at zero where the finder is the
+    /// camera's picture, so nothing set out of sight shapes the shot.
     var startingPrint: Print {
         state.paperFinder ? prefs.standingPrint : Print(grade: .base, peak: .standing(.auto))
     }

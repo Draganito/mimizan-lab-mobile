@@ -40,7 +40,7 @@ struct Shot: Identifiable, Equatable {
     var name: String
     var meta: ShotMeta
     var settings: DevelopSettings
-    /// This print: its grade and Peak. A new frame takes the standing pair
+    /// This print: its grade, Peak and lamps. A new frame takes the standing ones
     /// of the moment; the developer moves this one alone, and the next
     /// frame does not follow. Kept in the cache beside the frame.
     var print: Print

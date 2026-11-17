@@ -469,6 +469,33 @@ pub fn paper_lut(soft: f64, hard: f64, n: u32) -> Result<Vec<f32>> {
     Ok((0..=n).map(|i| map.eval(i as f64 / n as f64) as f32).collect())
 }
 
+/// The same table for a plate's positive under its lamp: entry `i` is the
+/// print value of linear `i/n · 2^lamp`, the placing `Developed::set_lamps`
+/// gives the red and the blue positive before the paper (`lamp` in stops,
+/// within ±[`lamp_limit`]). The viewfinder indexes one such table per
+/// lamp with the positive's linear value, so its colour is the still's. A
+/// lamp at zero gives `paper_lut` to the bit.
+#[uniffi::export]
+pub fn paper_lut_lamp(soft: f64, hard: f64, n: u32, lamp: f64) -> Result<Vec<f32>> {
+    let lamp = check_lamp("the", lamp)?;
+    if lamp == 0.0 {
+        return paper_lut(soft, hard, n);
+    }
+    let map = mimizan_core::tone::Tone::Paper(split_grade(soft, hard)?).compile();
+    let n = n.clamp(1, 4096) as usize;
+    let gain = 2f64.powf(lamp);
+    Ok((0..=n).map(|i| map.eval(i as f64 / n as f64 * gain) as f32).collect())
+}
+
+/// Stops within ±[`lamp_limit`], finite.
+pub(crate) fn check_lamp(name: &str, v: f64) -> Result<f64> {
+    let limit = mimizan_core::print::LAMP_LIMIT;
+    if !v.is_finite() || v.abs() > limit {
+        return Err(MimizanError::Invalid { msg: format!("{name} lamp {v} not within ±{limit} stops") });
+    }
+    Ok(v)
+}
+
 /// The paper's two exposures, in stops of time from the base exposure.
 #[derive(Clone, Copy, Debug, PartialEq, uniffi::Record)]
 pub struct PaperPair {

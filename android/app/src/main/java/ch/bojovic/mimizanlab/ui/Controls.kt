@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import ch.bojovic.mimizanlab.engine.Filter
@@ -305,6 +306,119 @@ fun PaperStrip(soft: Double, hard: Double, onBoth: (Double, Double) -> Unit) {
             close()
         }
         drawPath(mark, if (off) SettingInk else Color.White)
+    }
+}
+
+/** The red and the blue lamp's letters, in the colours of the glasses. */
+private val LampRedInk = Color(0xFFFF5242)
+private val LampBlueInk = Color(0xFF6694FF)
+
+/**
+ * The plate's two lamps as one row under the paper strip, the red one
+ * in the left half and the blue one in the right, with room between
+ * them so a thumb meant for one does not start on the other. Each is a
+ * dark bar that says nothing, as on the desktop: the mark at the middle
+ * is zero, the handle stands on the stops the lamp is at (the bar is
+ * ±[Prefs.LAMP_LIMIT] wide), the letter at the left edge, in the lamp's
+ * colour, says which lamp. What the lamp does to the colour is in the
+ * picture.
+ *
+ * A finger moves the lamp from where it stands: a tap moves nothing,
+ * and a drag counts once it has left the touch slop, from the edge of
+ * that dead zone. The finger's way is the paper strip's — the width of
+ * the whole row is [Prefs.STOP_LIMIT] stops, whatever the half is wide —
+ * so the handle follows more slowly than the finger and a twelfth of a
+ * stop is a clear move, not a tremble. The lamp stops on twelfths. A
+ * double tap is zero; a second one on a lamp already there brings it
+ * back. White at zero, amber away from it, like the paper strip. Twin
+ * of the iOS `LampStrip`.
+ */
+@Composable
+fun LampStrip(red: Double, blue: Double, onBoth: (Double, Double) -> Unit) {
+    val latest = rememberUpdatedState(red to blue)
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val stopPx = with(LocalDensity.current) { maxWidth.toPx() } / Prefs.STOP_LIMIT.toFloat()
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(LampGap)) {
+            LampBar("R", LampRedInk, red, stopPx, Modifier.weight(1f)) { onBoth(it, latest.value.second) }
+            LampBar("B", LampBlueInk, blue, stopPx, Modifier.weight(1f)) { onBoth(latest.value.first, it) }
+        }
+    }
+}
+
+/** The room between the red and the blue bar. */
+private val LampGap = 20.dp
+
+/** One lamp: [value] stops, a finger's way of [stopPx] pixels to the stop. */
+@Composable
+private fun LampBar(mark: String, ink: Color, value: Double, stopPx: Float, modifier: Modifier, onChange: (Double) -> Unit) {
+    val on = GradeMath.lampOn(value)
+    val latest = rememberUpdatedState(value)
+    val change = rememberUpdatedState(onChange)
+    val way = rememberUpdatedState(stopPx)
+    var remembered by remember { mutableStateOf<Double?>(null) }
+    Box(
+        modifier
+            .height(32.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color(0xFF1A1A1A))
+            .border(if (on) 2.dp else 1.dp, if (on) SettingInk else Color.White.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+            .pointerInput(Unit) {
+                detectTapGestures(onDoubleTap = {
+                    val (now, kept) = GradeMath.lampDoubleTap(latest.value, remembered)
+                    remembered = kept
+                    if (now != latest.value) change.value(now)
+                })
+            }
+            .pointerInput(Unit) {
+                // From the lamp as the gesture began, by the finger's way
+                // past the dead zone. Nothing moves before that.
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    val base = latest.value
+                    val slop = viewConfiguration.touchSlop
+                    var dx = 0f
+                    var side = 0
+                    do {
+                        val event = awaitPointerEvent()
+                        val canceled = event.changes.any { it.isConsumed }
+                        if (!canceled) {
+                            dx += event.calculatePan().x
+                            if (side == 0 && kotlin.math.abs(dx) > slop) side = if (dx > 0f) 1 else -1
+                            if (side != 0) {
+                                event.changes.forEach { if (it.positionChanged()) it.consume() }
+                                val to = Prefs.shiftLamp(base, GradeMath.lampDragStops(dx, side, slop, way.value))
+                                if (to != latest.value) change.value(to)
+                            }
+                        }
+                    } while (!canceled && event.changes.any { it.pressed })
+                }
+            },
+    ) {
+        Canvas(Modifier.matchParentSize()) {
+            // Zero: the mark at the middle, never moving.
+            val mx = size.width / 2f
+            val zero = Path().apply {
+                moveTo(mx - 5.dp.toPx(), size.height)
+                lineTo(mx + 5.dp.toPx(), size.height)
+                lineTo(mx, size.height - 7.dp.toPx())
+                close()
+            }
+            drawPath(zero, Color.White)
+            // The handle: where the lamp stands.
+            val hx = (size.width * ((value / Prefs.LAMP_LIMIT + 1.0) / 2.0).coerceIn(0.0, 1.0)).toFloat()
+            drawRect(
+                if (on) SettingInk else Color.White,
+                topLeft = Offset(hx - 1.dp.toPx(), 0f),
+                size = androidx.compose.ui.geometry.Size(2.dp.toPx(), size.height),
+            )
+        }
+        Text(
+            mark,
+            Modifier.align(Alignment.CenterStart).padding(start = 8.dp),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = ink,
+        )
     }
 }
 

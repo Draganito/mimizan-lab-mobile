@@ -12,6 +12,11 @@
 //   value = lut[gray]                    — the paper's display value of that
 //                                           linear grey
 //
+// In the plate process the three positives are mixed the same way; the
+// red and the blue one are read from the table of their lamp (the paper
+// with the lamp's placing in it, `paperLutLamp`), the green one from the
+// paper's own, which is what the still does with its lamps.
+//
 // Android inverts the ISP's exact matrix; AVFoundation exposes none, so
 // the pull-back goes through the sensor's XYZ → camera matrix (from the
 // last DNG of this lens) and the BT.2020 primaries, white kept at white.
@@ -43,10 +48,24 @@ struct PaperTone: Equatable, Sendable {
     var gain: Float
     /// The paper over the linear axis, `n + 1` display values.
     var lut: [Float]
+    /// The paper under the red and under the blue lamp of the plate, the
+    /// same length: the display value of linear `x · 2^lamp`. nil is the
+    /// paper's own table (the lamp at zero, or the monochrome negative).
+    var lutRed: [Float]?
+    var lutBlue: [Float]?
 
     static func == (a: PaperTone, b: PaperTone) -> Bool {
-        a.v == b.v && a.gain == b.gain && a.lut == b.lut
+        a.v == b.v && a.gain == b.gain && a.lut == b.lut && a.lutRed == b.lutRed && a.lutBlue == b.lutBlue
             && a.plate?.0 == b.plate?.0 && a.plate?.1 == b.plate?.1 && a.plate?.2 == b.plate?.2
+    }
+
+    /// The three tables one after the other, as the kernel reads them:
+    /// the paper, the paper under the red lamp, the paper under the blue.
+    /// A lamp's table of another length than the paper's is not used.
+    var tables: [Float] {
+        let red = lutRed.flatMap { $0.count == lut.count ? $0 : nil } ?? lut
+        let blue = lutBlue.flatMap { $0.count == lut.count ? $0 : nil } ?? lut
+        return lut + red + blue
     }
 
     /// Display value of the linear grey `g`, for the histogram's inner loop.

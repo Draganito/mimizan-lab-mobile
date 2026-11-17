@@ -28,7 +28,7 @@ final class ReviewViewModel {
     /// What the mix actually uses: `weights` with the filter applied.
     private(set) var effective = Weights.native
     private(set) var filter = Filter.none
-    /// This frame's print, grade and Peak: opened from the roll, written back to it on every move.
+    /// This frame's print, grade, Peak and lamps: opened from the roll, written back to it on every move.
     private(set) var print = Print(grade: .base, peak: .standing(.auto))
     /// The plate process as the development stands; nil is the monochrome negative.
     private(set) var plate: PlateState?
@@ -101,7 +101,8 @@ final class ReviewViewModel {
             developed = neg.developed
             // info.weights already include the filter of the first mix; the
             // sliders start from the camera's base weights. The plate is the
-            // process the frame was developed in. Lamps stay at zero.
+            // process the frame was developed in. The lamps are the print's,
+            // set on the negative with every render.
             info = neg.info
             weights = neg.info.defaultWeights
             effective = neg.info.weights
@@ -198,6 +199,17 @@ final class ReviewViewModel {
         schedule { await self.renderNow() }
     }
 
+    /// Both lamps of this print, red and blue: the plate's colour. The
+    /// frame keeps them; the finder and the next frame stay on the
+    /// standing lamps.
+    func setLamps(red: Double, blue: Double) {
+        let l = Lamps(red: Prefs.snapLamp(red), blue: Prefs.snapLamp(blue))
+        if l == print.lamps { return }
+        print.lamps = l
+        darkroom.setPrint(name, print)
+        schedule { await self.renderNow() }
+    }
+
     private func remixAndRender() {
         schedule { await self.renderNow(remix: true) }
     }
@@ -235,7 +247,7 @@ final class ReviewViewModel {
         guard let d = developed else { return }
         busy = true
         defer { busy = false }
-        let s = (grade: print.grade, weights: weights, filter: filter)
+        let s = (grade: print.grade, lamps: print.lamps, weights: weights, filter: filter)
         let standing = (process: darkroom.prefs.process, filters: darkroom.prefs.plateFilters, space: darkroom.prefs.plateSpace)
         let result: Result<Rendered, Error> = await gate.run { () -> Result<Rendered, Error> in
             do {
@@ -247,6 +259,9 @@ final class ReviewViewModel {
                         effective = try d.remix(weights: normaliseWeights(w: s.weights), space: .balanced, filter: s.filter)
                     }
                 }
+                // This print's lamps, before anything is drawn: the preview,
+                // the 1:1 window and the exports read them from the negative.
+                try d.setLamps(red: s.lamps.red, blue: s.lamps.blue)
                 let info = d.info()
                 let hist = Images.normalised(try d.histogram(soft: s.grade.soft, hard: s.grade.hard))
                 let image: CGImage?
@@ -299,8 +314,10 @@ final class ReviewViewModel {
             guard let d = developed else { return }
             let pair = self.peakApplied
             let soft = print.grade.soft, hard = print.grade.hard, radius = pair.radius, amount = pair.amount, isPlate = self.plate != nil
+            let lamps = print.lamps
             let image: CGImage? = await gate.run { () -> CGImage? in
                 do {
+                    try d.setLamps(red: lamps.red, blue: lamps.blue)
                     if isPlate {
                         return Images.cgImage(try d.detailRgb(x: UInt32(x), y: UInt32(y), width: UInt32(w), height: UInt32(h), soft: soft, hard: hard, peakRadius: radius, peakAmount: amount))
                     }
@@ -378,9 +395,17 @@ final class ReviewViewModel {
         let suffix = plate.map { Darkroom.suffix(for: $0) } ?? Darkroom.suffix(for: filter)
         let name = self.name
         let exporter = darkroom.exporter
+        // The lamps as the screen shows them, set on the gate's thread
+        // before the file is written.
+        let lamps = print.lamps
         exporting = label
         Task {
-            let result: Result<[URL], Error> = await gate.run { Result<[URL], Error> { try f(d, name, suffix, exporter) } }
+            let result: Result<[URL], Error> = await gate.run {
+                Result<[URL], Error> {
+                    try d.setLamps(red: lamps.red, blue: lamps.blue)
+                    return try f(d, name, suffix, exporter)
+                }
+            }
             finishExport(label, result)
         }
     }

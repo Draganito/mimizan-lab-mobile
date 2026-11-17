@@ -91,6 +91,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
     val shots by vm.darkroom.shots.collectAsStateWithLifecycle()
     val cacheBytes by vm.darkroom.cacheBytes.collectAsStateWithLifecycle()
     val grade by vm.darkroom.prefs.grade.collectAsStateWithLifecycle()
+    val lamps by vm.darkroom.prefs.lamps.collectAsStateWithLifecycle()
     val peakMode by vm.darkroom.prefs.peakMode.collectAsStateWithLifecycle()
     val shotMode by vm.darkroom.prefs.shotMode.collectAsStateWithLifecycle()
     val plateSpace by vm.darkroom.prefs.plateSpace.collectAsStateWithLifecycle()
@@ -279,6 +280,10 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
                 MonoFilterStrip(selected = develop.filter, onSelect = vm::setFilter)
             }
             PaperStrip(grade.soft, grade.hard, onBoth = vm::setGrade)
+            // In Color the plate's two lamps, under the paper as on the
+            // desktop: red in the left half, blue in the right. The
+            // finder is the paper under them, so a move shows the colour.
+            if (develop.isPlate) LampStrip(lamps.red, lamps.blue, onBoth = vm::setLamps)
         }
 
         // The hand's two sliders, only in M. In A the automatics expose and
@@ -344,7 +349,7 @@ fun CameraScreen(vm: CameraViewModel, onOpenShot: (String) -> Unit, onOpenRoll: 
             Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 8.dp).padding(bottom = 32.dp)) {
                 Text("Development", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "The standing paper is under the finder. The slider is the grade: hard light against soft, in stops; zero is the paper's grade 2, left is softer, right harder. The strip is the exposure: left prints darker, right lighter, a double tap is the base print. The finder, the automatic JPEG and a new frame start there. In the developer the grade is the picture's own and stays with it.",
+                    "The standing paper is under the finder. The slider is the grade: hard light against soft, in stops; zero is the paper's grade 2, left is softer, right harder. The strip is the exposure: left prints darker, right lighter, a double tap is the base print. The finder, the automatic JPEG and a new frame start there. In the developer the grade is the picture's own and stays with it. In Color the two bars under the strip are the red and the blue lamp of the print: a drag gives that colour more light or less, a double tap is zero. They stand like the paper, and in the developer they are the picture's own.",
                     style = MaterialTheme.typography.bodySmall, color = Color.Gray,
                 )
                 PeakRow(peakMode, PeakMode.STANDING, onMode = vm::setPeakMode)

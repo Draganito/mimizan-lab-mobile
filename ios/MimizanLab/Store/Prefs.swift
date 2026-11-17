@@ -88,13 +88,38 @@ extension Peak: Codable {
     }
 }
 
-/// What one frame is printed with: the grade and Peak, the recipe beside
-/// the RAW. A new frame takes the standing pair of the moment; the
-/// developer moves this one alone. Written to `<name>.grade` by
-/// `RawCache` together with the frame's process and filter.
+/// The projector's two lamps on a plate: stops of exposure added to the
+/// red and the blue positive before the paper, green the reference (the
+/// core's `Developed.setLamps`, the desktop's two lamp bars). Twelfths
+/// of a stop inside the core's ±`lampLimit`. The monochrome negative
+/// does not read them. Same file shape as the Android `Lamps`.
+struct Lamps: Equatable, Sendable {
+    var red: Double
+    var blue: Double
+
+    static let zero = Lamps(red: 0, blue: 0)
+}
+
+extension Lamps: Codable {
+    /// A missing or damaged field is a lamp at zero; each is snapped and inside the limit.
+    init(from decoder: Decoder) throws {
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else {
+            self = .zero
+            return
+        }
+        red = Prefs.snapLamp((try? c.decode(Double.self, forKey: .red)) ?? 0)
+        blue = Prefs.snapLamp((try? c.decode(Double.self, forKey: .blue)) ?? 0)
+    }
+}
+
+/// What one frame is printed with: the grade, Peak and the plate's two
+/// lamps, the recipe beside the RAW. A new frame takes the standing ones
+/// of the moment; the developer moves this frame's alone. Written to
+/// `<name>.grade` by `RawCache` together with the frame's process and filter.
 struct Print: Equatable, Sendable {
     var grade: Grade
     var peak: Peak
+    var lamps: Lamps = .zero
 }
 
 @MainActor
@@ -115,8 +140,16 @@ final class Prefs {
     /// pair is set in the developer and lives with the frame. Auto on a
     /// fresh install.
     private(set) var peakMode: PeakMode
-    /// What a frame taken now is printed with: the standing grade and the standing Peak.
-    var standingPrint: Print { Print(grade: grade, peak: .standing(peakMode)) }
+    /// The standing lamps of the plate, red and blue, in stops: what the
+    /// paper finder shows in Color, what the automatic JPEG of a plate is
+    /// printed with, and where a new frame starts. A frame's own pair,
+    /// moved in the developer, lives with the frame. Both at zero on a
+    /// fresh install.
+    var lamps: Lamps { Lamps(red: lampRed, blue: lampBlue) }
+    private(set) var lampRed: Double
+    private(set) var lampBlue: Double
+    /// What a frame taken now is printed with: the standing grade, the standing Peak and the standing lamps.
+    var standingPrint: Print { Print(grade: grade, peak: .standing(peakMode), lamps: lamps) }
     /// The darkroom's process; the next shot opens in it.
     private(set) var process: Process
     /// The monochrome taking filter in front of the lens: the finder shows
@@ -144,6 +177,8 @@ final class Prefs {
     init() {
         soft = Prefs.snapStops(store.double(forKey: Keys.soft))
         hard = Prefs.snapStops(store.double(forKey: Keys.hard))
+        lampRed = Prefs.snapLamp(store.double(forKey: Keys.lampRed))
+        lampBlue = Prefs.snapLamp(store.double(forKey: Keys.lampBlue))
         if let raw = store.string(forKey: Keys.peakMode), let mode = PeakMode(rawValue: raw), PeakMode.standing.contains(mode) {
             peakMode = mode
         } else if store.string(forKey: Keys.peakMode) == nil, store.object(forKey: Keys.peak) != nil {
@@ -229,6 +264,14 @@ final class Prefs {
         store.set(hard, forKey: Keys.hard)
     }
 
+    /// The standing lamps, each snapped and inside the limit.
+    func setLamps(red r: Double, blue b: Double) {
+        lampRed = Prefs.snapLamp(r)
+        lampBlue = Prefs.snapLamp(b)
+        store.set(lampRed, forKey: Keys.lampRed)
+        store.set(lampBlue, forKey: Keys.lampBlue)
+    }
+
     /// The standing Peak, Off or Auto.
     func setPeakMode(_ mode: PeakMode) {
         // A hand pair belongs to one negative: Custom is never standing.
@@ -299,6 +342,38 @@ final class Prefs {
         return (soft + d, hard + d)
     }
 
+    /// A lamp is on when it is off zero by at least half a twelfth of a stop.
+    nonisolated static func lampOn(_ v: Double) -> Bool { abs(v) >= 1.0 / 24 }
+
+    /// A lamp on the twelfth grid inside ±`lampLimit`; a non-finite value is zero.
+    nonisolated static func snapLamp(_ v: Double) -> Double {
+        min(max((finiteOrZero(v) * 12).rounded() / 12, -lampLimit), lampLimit)
+    }
+
+    /// The lamp `delta` stops on from `v`, snapped and inside ±`lampLimit`.
+    nonisolated static func shiftLamp(_ v: Double, by delta: Double) -> Double {
+        snapLamp(finiteOrZero(v) + finiteOrZero(delta))
+    }
+
+    /// Stops a finger drawn `dx` points along a lamp bar stands for, at
+    /// `stopPx` points to the stop, once it has left the dead zone of
+    /// `slop` points on the side it left it (`side`, +1 or -1): the move
+    /// counts from the edge of the dead zone, so the lamp starts from
+    /// where it stood and not a slop further. Twin of the Android
+    /// `GradeMath.lampDragStops`.
+    nonisolated static func lampDragStops(dx: Double, side: Double, slop: Double, stopPx: Double) -> Double {
+        stopPx > 0 ? (dx - side * slop) / stopPx : 0
+    }
+
+    /// What a double tap does to a lamp at `rest`: the lamp now, and what
+    /// is remembered. A lamp that is on goes to zero and is remembered;
+    /// one at zero comes back to what was remembered, or stays when
+    /// nothing was. The desktop lamp bar's double click.
+    nonisolated static func lampDoubleTap(rest: Double, remembered: Double?) -> (now: Double, remembered: Double?) {
+        if lampOn(rest) { return (now: 0, remembered: rest) }
+        return (now: remembered ?? 0, remembered: remembered)
+    }
+
     /// A grade, each exposure snapped and inside ±`stopLimit`.
     nonisolated static func snapGrade(soft: Double, hard: Double) -> Grade {
         Grade(soft: snapStops(soft), hard: snapStops(hard))
@@ -334,6 +409,8 @@ final class Prefs {
 
     /// How far either paper exposure may move, in stops: the core's `paper::STOP_LIMIT`.
     nonisolated static let stopLimit: Double = paperStopLimit()
+    /// How far either lamp may move, in stops: the core's `print::LAMP_LIMIT`.
+    nonisolated static let lampLimit: Double = MimizanCore.lampLimit()
     /// The range of the peak fields: the core's `recipe::PEAK_*`.
     nonisolated static let peakLimits: PeakLimits = MimizanCore.peakLimits()
 
@@ -358,6 +435,8 @@ final class Prefs {
     private enum Keys {
         static let soft = "paper_soft"
         static let hard = "paper_hard"
+        static let lampRed = "lamp_red"
+        static let lampBlue = "lamp_blue"
         static let peak = "peak_on"
         static let peakMode = "peak_mode"
         static let process = "process"

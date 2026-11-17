@@ -7,6 +7,9 @@
 //              undo the log, mix with the development's weights pulled
 //              back to linear BT.2020, apply the paper, per pixel. The
 //              same arithmetic as the Android shader in `MonoViewfinder.kt`.
+//              `lut` holds three tables of `lutLast + 1` values one after
+//              the other: the paper, the paper under the plate's red lamp
+//              and under its blue one (`PaperTone.tables`).
 //
 // Zebra stripes mark display values at or above `zebra`.
 #include <metal_stdlib>
@@ -67,11 +70,14 @@ static inline float logLinear(float y) {
     return r0;
 }
 
-static inline float paper(float g, constant float* lut, float lutLast) {
+/// The table `table` at linear g: 0 the paper, 1 and 2 the paper under
+/// the red and the blue lamp.
+static inline float paper(float g, constant float* lut, float lutLast, int table) {
+    int base = table * (int(lutLast) + 1);
     float x = clamp(g, 0.0f, 1.0f) * lutLast;
     int i = min(int(x), int(lutLast) - 1);
     float f = x - float(i);
-    return lut[i] + (lut[i + 1] - lut[i]) * f;
+    return lut[base + i] + (lut[base + i + 1] - lut[base + i]) * f;
 }
 
 kernel void finderLog(texture2d<float, access::sample> luma [[texture(0)]],
@@ -93,11 +99,12 @@ kernel void finderLog(texture2d<float, access::sample> luma [[texture(0)]],
     float3 o;
     if (u.plate > 0.5f) {
         // Three positives: each taking filter on the linear picture, the
-        // same paper. A clipped site clamps at 1 in every channel.
+        // same paper, red and blue placed by their lamps (in their
+        // tables). A clipped site clamps at 1 in every channel.
         float3 g = clamp(float3(dot(l, u.vR), dot(l, u.vG), dot(l, u.vB)), 0.0f, 1.0f);
-        o = float3(paper(g.r, lut, u.lutLast), paper(g.g, lut, u.lutLast), paper(g.b, lut, u.lutLast));
+        o = float3(paper(g.r, lut, u.lutLast, 1), paper(g.g, lut, u.lutLast, 0), paper(g.b, lut, u.lutLast, 2));
     } else {
-        o = float3(paper(dot(l, u.v), lut, u.lutLast));
+        o = float3(paper(dot(l, u.v), lut, u.lutLast, 0));
     }
     dst.write(float4(zebra(o, gid, u.zebra), 1.0f), gid);
 }

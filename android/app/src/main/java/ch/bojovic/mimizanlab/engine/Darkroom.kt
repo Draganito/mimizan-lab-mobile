@@ -273,11 +273,13 @@ class Darkroom private constructor(private val context: Context) {
                 val t0 = System.nanoTime()
                 val d = develop(input, params)
                 developed = d
+                // This frame's lamps, whatever the process: the plate reads
+                // them, and a switch to Color in the developer finds them.
+                d.setLamps(shot.print.lamps.red, shot.print.lamps.blue)
                 if (shot.settings.isPlate) {
-                    // The plate is a re-mix of the separation just made; the
-                    // lamps stay at zero on the phone.
+                    // The plate is a re-mix of the separation just made.
                     val w = d.setPlate(shot.settings.plateFilters, shot.settings.plateSpace)
-                    Log.i(TAG, "plate ${w.filters}: R ${w.red} G ${w.green} B ${w.blue}")
+                    Log.i(TAG, "plate ${w.filters}: R ${w.red} G ${w.green} B ${w.blue}, lamps ${shot.print.lamps}")
                 }
                 val info = d.info()
                 Log.i(TAG, "developed $name in ${(System.nanoTime() - t0) / 1_000_000} ms: ${info.timing}")

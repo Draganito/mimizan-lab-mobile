@@ -9,16 +9,16 @@ use mimizan_core::calib::CameraFile;
 use mimizan_core::decode::RawFrame;
 use mimizan_core::icc::GrayTrc;
 use mimizan_core::mix::{mix, Weights as CoreWeights};
-use mimizan_core::pipeline::{negative_from_frame, plate_base, NegativeInfo, NegativeParams};
+use mimizan_core::pipeline::{negative_from_frame, plate_base, scene_range, NegativeInfo, NegativeParams};
 use mimizan_core::plane::Plane;
 use mimizan_core::plate::{
     mix_plate_stacked, PlateInfo, PlateParams, PlateSpace as CorePlateSpace, PlateWeights as CorePlateWeights,
 };
-use mimizan_core::print::{self as pr, orient, PrintOutput, PrintParams, PrintSource, LAMP_LIMIT};
+use mimizan_core::print::{self as pr, orient, PrintOutput, PrintParams, PrintSource};
 use mimizan_core::recipe::{Peak, Recipe, Sharpen};
 use mimizan_core::resize::{fit_dims, resize};
 use mimizan_core::separate::Separation;
-use mimizan_core::tiffout::{write_gray16, write_gray8, TiffMeta};
+use mimizan_core::tiffout::{write_gray16_range, write_gray8, TiffMeta};
 use mimizan_core::tone::{render, Tone, ToneMap};
 use mimizan_core::usm::{kernel_radius, unsharp};
 use rayon::prelude::*;
@@ -182,6 +182,9 @@ fn develop_frame(frame: RawFrame, params: DevelopParams, t_all: Instant) -> Resu
     // separation. Both go before the preview planes are made.
     sep.mask_max = Plane::zeros(0, 0);
     neg.plane = Plane::zeros(0, 0);
+    // The range belongs to a plane that is written, and the first mix is
+    // not kept: `export_negative` states the range of the mix it writes.
+    neg.info.range = 1.0;
     let weights = neg.info.weights;
     let default_weights = camera_default.0.to_balanced(camera_default.1, neg.info.wb);
 
@@ -262,16 +265,6 @@ pub fn plate_weights_impl(
     let base = plate_base(cam.as_ref(), wb);
     let p = PlateParams { filters: filters.core(), space: space.core() };
     Ok(CorePlateWeights::resolve(&p, base, m.as_ref())?)
-}
-
-/// Stops within ±`LAMP_LIMIT`, finite.
-fn check_lamp(name: &str, v: f64) -> Result<f64> {
-    if !v.is_finite() || v.abs() > LAMP_LIMIT {
-        return Err(MimizanError::Invalid {
-            msg: format!("{name} lamp {v} not within ±{LAMP_LIMIT} stops")
-        });
-    }
-    Ok(v)
 }
 
 /// The balanced weights `develop_impl` would mix with for these settings
@@ -678,7 +671,9 @@ impl Developed {
 
     /// The projector's two lamps: stops of exposure added to the red and
     /// the blue positive, within ±`lamp_limit()`. Green is the reference.
-    /// Preview, 1:1 window and every export of the plate follow.
+    /// Preview, 1:1 window and every export of the plate follow. The pair
+    /// is kept whatever the process stands in, so it may be set before
+    /// `set_plate`; the monochrome negative does not read it.
     pub fn set_lamps(&self, red: f64, blue: f64) -> Result<()> {
         let lamps = [check_lamp("red", red)?, check_lamp("blue", blue)?];
         {
@@ -944,7 +939,11 @@ impl Developed {
     /// process it is the stacked plate (`negative --plate`: blue, green,
     /// red frames, the `plate` object in the description), which
     /// `mimizan print` on the desktop prints in colour. The sidecar is one
-    /// frame, the same for all three.
+    /// frame, the same for all three. What stands above 1 (burnt-out
+    /// highlights, 1 being the level at which green is full) is kept as
+    /// the desktop keeps it: the samples are the plane divided by its
+    /// highest value, and the description states that value as `range`.
+    /// A plane within 1 is written as it always was, with no `range`.
     pub fn export_negative(&self, path: String) -> Result<ExportInfo> {
         let g = lock_msg(self.inner.lock())?;
         let t = Instant::now();
@@ -953,11 +952,14 @@ impl Developed {
             Some(pp) => mix_plate_stacked(&g.sep, &pp.weights)?,
             None => mix(&g.sep, &g.weights),
         };
-        let desc =
-            serde_json::to_string(&g.info).map_err(|e| MimizanError::Internal { msg: e.to_string() })?;
-        write_gray16(
+        // The range of the plane that is written: another mix has another.
+        let mut info = g.info.clone();
+        info.range = scene_range(&plane);
+        let desc = serde_json::to_string(&info).map_err(|e| MimizanError::Internal { msg: e.to_string() })?;
+        write_gray16_range(
             &p,
             &plane,
+            info.range,
             &TiffMeta { description: &desc, trc: GrayTrc::Linear, orientation: g.orientation, dpi: None },
         )?;
         let stem = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();

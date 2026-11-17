@@ -7,6 +7,7 @@ import ch.bojovic.mimizanlab.engine.Filter
 import ch.bojovic.mimizanlab.engine.PlateFilters
 import ch.bojovic.mimizanlab.engine.PlateSpace
 import ch.bojovic.mimizanlab.engine.Process
+import ch.bojovic.mimizanlab.engine.lampLimit
 import ch.bojovic.mimizanlab.engine.paperGraded
 import ch.bojovic.mimizanlab.engine.paperStopLimit
 import ch.bojovic.mimizanlab.engine.peakLimits
@@ -69,6 +70,27 @@ class Prefs(context: Context) {
         }
     }
 
+    private val _lamps = MutableStateFlow(
+        Lamps(snapLamp(finiteOrZero(sp.getFloat(KEY_LAMP_RED, 0f))), snapLamp(finiteOrZero(sp.getFloat(KEY_LAMP_BLUE, 0f)))),
+    )
+    /**
+     * The standing lamps of the plate, red and blue: what the finder
+     * shows in Color, what the automatic JPEG of a plate is printed
+     * with, and where a new frame starts. A frame's own pair, moved in
+     * the developer, lives with the frame. Both at zero on a fresh install.
+     */
+    val lamps: StateFlow<Lamps> = _lamps.asStateFlow()
+
+    /** Both lamps at once: one write, one emission of [lamps]. */
+    fun setLamps(red: Double, blue: Double) {
+        val l = Lamps(snapLamp(red), snapLamp(blue))
+        _lamps.value = l
+        sp.edit {
+            putFloat(KEY_LAMP_RED, l.red.toFloat())
+            putFloat(KEY_LAMP_BLUE, l.blue.toFloat())
+        }
+    }
+
     private val _peakMode = MutableStateFlow(
         GradeMath.peakModeOf(sp.getString(KEY_PEAK_MODE, null), if (sp.contains(KEY_PEAK)) sp.getBoolean(KEY_PEAK, true) else null),
     )
@@ -90,8 +112,8 @@ class Prefs(context: Context) {
         }
     }
 
-    /** What a frame taken now is printed with: the standing grade and the standing Peak. */
-    val standingPrint: Print get() = Print(_grade.value, standingPeak)
+    /** What a frame taken now is printed with: the standing grade, the standing Peak and the standing lamps. */
+    val standingPrint: Print get() = Print(_grade.value, standingPeak, _lamps.value)
 
     /** The standing Peak as a print carries it. */
     val standingPeak: Peak get() = Peak.standing(_peakMode.value, PEAK)
@@ -193,6 +215,15 @@ class Prefs(context: Context) {
         /** How far either paper exposure may move, in stops: the core's `paper::STOP_LIMIT`, asked once. */
         val STOP_LIMIT: Double = paperStopLimit()
 
+        /** How far either lamp may move, in stops: the core's `print::LAMP_LIMIT`, asked once. */
+        val LAMP_LIMIT: Double = lampLimit()
+
+        /** A lamp on the twelfth grid inside ±[LAMP_LIMIT]; a non-finite value is zero. */
+        fun snapLamp(v: Double): Double = GradeMath.snapStops(v, LAMP_LIMIT)
+
+        /** The lamp [delta] stops on from [v], snapped and inside ±[LAMP_LIMIT]. */
+        fun shiftLamp(v: Double, delta: Double): Double = GradeMath.shiftLamp(v, delta, LAMP_LIMIT)
+
         /** The range of the peak fields: the core's `recipe::PEAK_*`, asked once. */
         val PEAK: PeakLimits = peakLimits()
 
@@ -222,6 +253,8 @@ class Prefs(context: Context) {
 
         private const val KEY_SOFT = "paper_soft"
         private const val KEY_HARD = "paper_hard"
+        private const val KEY_LAMP_RED = "lamp_red"
+        private const val KEY_LAMP_BLUE = "lamp_blue"
         private const val KEY_PEAK = "peak_on"
         private const val KEY_PEAK_MODE = "peak_mode"
         private const val KEY_PROCESS = "process"

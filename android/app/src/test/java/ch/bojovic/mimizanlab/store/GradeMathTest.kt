@@ -111,41 +111,95 @@ class GradeMathTest {
         }
     }
 
+    /** ±2 is the core's `print::LAMP_LIMIT`. */
+    private val lampLimit = 2.0
+
     private val peakLimits = PeakLimits(radiusDefault = 0.7, radiusMin = 0.3, radiusMax = 3.0, amountMax = 2.0)
     private val standingPeak = Peak.standing(PeakMode.OFF, peakLimits)
 
     @Test
     fun recipeRoundTripsThroughItsFileAndRefusesOtherText() {
-        val p = Print(Grade(0.5, -1.25), Peak(PeakMode.CUSTOM, 1.1, 0.6))
+        val p = Print(Grade(0.5, -1.25), Peak(PeakMode.CUSTOM, 1.1, 0.6), Lamps(0.25, -1.5))
         val settings = DevelopSettings(
             filter = Filter.RED25,
             process = Process.PLATE,
             plateFilters = PlateFilters.WRATTEN,
             plateSpace = PlateSpace.ADOBE_RGB,
         )
-        val back = Recipe.fromJson(Recipe.toJson(p, settings).toString(), limit, peakLimits, standingPeak)
+        val back = Recipe.fromJson(Recipe.toJson(p, settings).toString(), limit, peakLimits, standingPeak, lampLimit)
         assertEquals(p, back?.first)
         assertEquals(settings, back?.second)
         // Out of range on every field: each is clamped, none refused.
-        val wide = Recipe.fromJson("""{"soft": 9, "hard": -9, "peak": {"mode": "CUSTOM", "radius": 9, "amount": 9}}""", limit, peakLimits, standingPeak)
+        val wide = Recipe.fromJson("""{"soft": 9, "hard": -9, "peak": {"mode": "CUSTOM", "radius": 9, "amount": 9}}""", limit, peakLimits, standingPeak, lampLimit)
         assertEquals(Print(Grade(3.0, -3.0), Peak(PeakMode.CUSTOM, 3.0, 2.0)), wide?.first)
-        assertEquals(null, Recipe.fromJson("not a print", limit, peakLimits, standingPeak))
-        assertEquals(null, Recipe.fromJson("""{"soft": 1}""", limit, peakLimits, standingPeak))
+        // The lamps: clamped to their own limit, on twelfths, a missing or damaged one at zero.
+        val lamps = { text: String -> Recipe.fromJson("{\"soft\": 0, \"hard\": 0, \"lamps\": $text}", limit, peakLimits, standingPeak, lampLimit)?.first?.lamps }
+        assertEquals(Lamps(2.0, -2.0), lamps("{\"red\": 9, \"blue\": -9}"))
+        assertEquals(Lamps(0.25, 0.0), lamps("{\"red\": 0.26}"))
+        assertEquals(Lamps(0.0, 0.5), lamps("{\"red\": \"warm\", \"blue\": 0.5}"))
+        assertEquals(Lamps.ZERO, lamps("3"))
+        assertEquals(null, Recipe.fromJson("not a print", limit, peakLimits, standingPeak, lampLimit))
+        assertEquals(null, Recipe.fromJson("""{"soft": 1}""", limit, peakLimits, standingPeak, lampLimit))
     }
 
     @Test
     fun recipeFromAnOlderFileTakesTheStandingPeakAndMono() {
         // 0.15.0 wrote the grade alone; before 0.18 no process or filter.
-        val p = Recipe.fromJson("""{"soft": 0.25, "hard": 0}""", limit, peakLimits, standingPeak)
-        assertEquals(Print(Grade(0.25, 0.0), standingPeak), p?.first)
+        val p = Recipe.fromJson("""{"soft": 0.25, "hard": 0}""", limit, peakLimits, standingPeak, lampLimit)
+        // 0.17.36 and earlier wrote no lamps: the frame was printed with both at zero.
+        assertEquals(Print(Grade(0.25, 0.0), standingPeak, Lamps.ZERO), p?.first)
         assertEquals(DevelopSettings(), p?.second)
         // A peak object with an unknown mode is Auto at the defaults; unknown names read as the defaults too.
         val odd = Recipe.fromJson(
             """{"soft": 0, "hard": 0, "peak": {"mode": "SHARP"}, "process": "DUOTONE", "filter": "X1", "plateFilters": "?"}""",
-            limit, peakLimits, standingPeak,
+            limit, peakLimits, standingPeak, lampLimit,
         )
         assertEquals(Peak(PeakMode.AUTO, 0.7, 0.0), odd?.first?.peak)
         assertEquals(DevelopSettings(), odd?.second)
+    }
+
+    @Test
+    fun aLampMovesFromWhereItStandsOnTwelfthsInsideItsLimit() {
+        assertEquals(0.75, GradeMath.shiftLamp(0.5, 0.25, lampLimit), eps)
+        // 0.3 stops is 3.6 twelfths: the nearest twelfth is 4.
+        assertEquals(4.0 / 12.0, GradeMath.shiftLamp(0.0, 0.3, lampLimit), eps)
+        assertEquals(0.0, GradeMath.shiftLamp(0.0, 0.04, lampLimit), eps)
+        assertEquals(2.0, GradeMath.shiftLamp(1.5, 3.0, lampLimit), eps)
+        assertEquals(-2.0, GradeMath.shiftLamp(-1.0, -7.0, lampLimit), eps)
+        assertEquals(0.5, GradeMath.shiftLamp(0.5, Double.NaN, lampLimit), eps)
+        assertEquals(0.0, GradeMath.shiftLamp(Double.NaN, 0.0, lampLimit), eps)
+    }
+
+    @Test
+    fun aDragCountsFromTheEdgeOfTheDeadZone() {
+        // 120 px to the stop, a dead zone of 16 px.
+        val (slop, stopPx) = 16f to 120f
+        // The moment the finger leaves the dead zone nothing has moved yet.
+        assertEquals(0.0, GradeMath.lampDragStops(16f, 1, slop, stopPx), eps)
+        assertEquals(0.0, GradeMath.lampDragStops(-16f, -1, slop, stopPx), eps)
+        // A stop is 120 px further, to either side.
+        assertEquals(1.0, GradeMath.lampDragStops(136f, 1, slop, stopPx), 1e-6)
+        assertEquals(-1.0, GradeMath.lampDragStops(-136f, -1, slop, stopPx), 1e-6)
+        // Back across the start: the dead zone is not crossed a second time.
+        assertEquals(-0.5, GradeMath.lampDragStops(-44f, 1, slop, stopPx), 1e-6)
+        // A twelfth of a stop is 10 px of finger: nothing a tremble reaches.
+        assertEquals(0.0, GradeMath.shiftLamp(0.0, GradeMath.lampDragStops(20f, 1, slop, stopPx), lampLimit), eps)
+        assertEquals(1.0 / 12.0, GradeMath.shiftLamp(0.0, GradeMath.lampDragStops(22f, 1, slop, stopPx), lampLimit), eps)
+        // No width yet: no move.
+        assertEquals(0.0, GradeMath.lampDragStops(50f, 1, slop, 0f), eps)
+    }
+
+    @Test
+    fun aDoubleTapIsZeroAndTheNextBringsTheLampBack() {
+        // On: zero, and the lamp is remembered.
+        assertEquals(0.0 to 0.75, GradeMath.lampDoubleTap(0.75, null))
+        assertEquals(0.0 to -0.25, GradeMath.lampDoubleTap(-0.25, 0.75))
+        // At zero: back to what was remembered, which stays remembered.
+        assertEquals(0.75 to 0.75, GradeMath.lampDoubleTap(0.0, 0.75))
+        // Less than half a twelfth is zero.
+        assertEquals(-0.5 to -0.5, GradeMath.lampDoubleTap(1.0 / 48.0, -0.5))
+        // Nothing remembered: the lamp stays at zero.
+        assertEquals(0.0 to null, GradeMath.lampDoubleTap(0.0, null))
     }
 
     @Test

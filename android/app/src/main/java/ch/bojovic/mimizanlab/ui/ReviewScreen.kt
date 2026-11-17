@@ -253,6 +253,8 @@ fun ReviewScreen(vm: ReviewViewModel, name: String, onBack: () -> Unit) {
                                 )
                             }
                             PaperStrip(s.print.grade.soft, s.print.grade.hard, onBoth = vm::setGrade)
+                            // The plate's two lamps, this print's own.
+                            if (plate != null) LampStrip(s.print.lamps.red, s.print.lamps.blue, onBoth = vm::setLamps)
                         }
                     }
                     val peak = s.print.peak

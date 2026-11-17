@@ -332,11 +332,24 @@ fn plate_is_a_remix_grey_stays_grey_and_the_lamps_move_one_channel() {
     assert!(out.plate.is_some(), "recognised as a plate");
     assert_eq!((out.plane.width, out.plane.height), (w, h));
     let sheet = out.plate.as_ref().unwrap();
+    // The print's values are the paper's gamma 2.2; a file in sRGB is
+    // written on the sRGB curve (`print::write_as`), the same light.
+    let in_file = |v: f64| mimizan_core::kodak::srgb_encode(v.powf(2.2));
     assert!(
-        (out.plane.at(80, 60) - planes[0].at(80, 60)).abs() < 2.0 / 65535.0,
+        (in_file(out.plane.at(80, 60)) - planes[0].at(80, 60)).abs() < 2.0 / 65535.0,
         "same red as the phone's TIFF"
     );
-    assert!((sheet.green.at(80, 60) - planes[1].at(80, 60)).abs() < 2.0 / 65535.0);
+    assert!((in_file(sheet.green.at(80, 60)) - planes[1].at(80, 60)).abs() < 2.0 / 65535.0);
+    // The Adobe space keeps the print's values: its gamma is the paper's.
+    dev.set_plate(PlateFilters::Channels, PlateSpace::AdobeRgb).unwrap();
+    dev.export_tiff16(dir.join("a.tif").display().to_string(), 0.0, 0.0, 0.7, 0.0).unwrap();
+    let adobe = mimizan_core::tiffin::read_rgb16(&dir.join("a.tif")).unwrap();
+    let pv = dev.preview_rgb(0.0, 0.0).unwrap();
+    let c = pv.data.len() / 2 - pv.data.len() / 2 % 3;
+    assert!(
+        (adobe[1].at(80, 60) * 255.0 - f64::from(pv.data[c + 1])).abs() <= 1.0,
+        "the preview's green is the file's"
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 
     // Back to the monochrome process.
@@ -367,6 +380,122 @@ fn camera_filters_without_a_matrix_are_the_channels() {
     assert_eq!(wr.filters, PlateFilters::Wratten);
     assert!(wr.red.r > 0.8 && wr.red.b == 0.0, "{:?}", wr.red);
     assert!(dev.preview_rgb(0.0, 0.0).is_err(), "no preview planes");
+}
+
+/// The table a lamp's positive is read from in the viewfinder is the
+/// placing the still gives it: `v · 2^lamp`, then the paper.
+#[test]
+fn the_lamp_table_is_the_stills_placing() {
+    let n = 4096u32;
+    let base = paper_lut(0.25, -0.5, n).unwrap();
+    assert_eq!(paper_lut_lamp(0.25, -0.5, n, 0.0).unwrap(), base, "a lamp at zero is the paper's own table");
+    let curve = mimizan_core::paper::SplitGrade::new(0.25, -0.5).curve();
+    for lamp in [-2.0, -0.75, 1.0 / 12.0, 0.5, 2.0] {
+        let lut = paper_lut_lamp(0.25, -0.5, n, lamp).unwrap();
+        assert_eq!(lut.len(), n as usize + 1);
+        for &i in &[0usize, 184, 736, 2048, 3000, 4096] {
+            let l = i as f64 / n as f64 * 2f64.powf(lamp);
+            assert!((lut[i] as f64 - curve.eval(l)).abs() < 1e-6, "lamp {lamp}, entry {i}");
+        }
+    }
+    // More light on a positive is a lighter print of it, past the clip's tone too.
+    let up = paper_lut_lamp(0.0, 0.0, n, 1.0).unwrap();
+    let flat = paper_lut(0.0, 0.0, n).unwrap();
+    assert!(up[2048] > flat[2048] && up[4096] > flat[4096], "{} {}", up[4096], flat[4096]);
+    assert!(paper_lut_lamp(0.0, 0.0, n, 2.5).is_err(), "lamps stay within the limit");
+    assert!(paper_lut_lamp(0.0, 0.0, n, f64::NAN).is_err());
+
+    // The still: a flat grey plate under both lamps. Grey stays grey on
+    // the three positives, so each is the frame's linear grey; the
+    // preview's colour is the table's value there.
+    let (w, h) = (160usize, 120usize);
+    let mut input = flat_input(w, h, 0.3);
+    input.xyz_to_cam = Some(ZF_MATRIX.to_vec());
+    let dev = develop(input, DevelopParams { preview_long_edge: 80, ..DevelopParams::default() }).unwrap();
+    // Before the plate is on: the pair is kept for it.
+    dev.set_lamps(0.5, -0.75).unwrap();
+    dev.set_plate(PlateFilters::Camera, PlateSpace::Srgb).unwrap();
+    let state = dev.info().plate.unwrap();
+    assert_eq!((state.lamp_red, state.lamp_blue), (0.5, -0.75));
+    let grey = dev.mix_plane().at(w / 2, h / 2);
+    let read = |lut: &[f32]| {
+        let x = grey * n as f64;
+        let i = x.floor() as usize;
+        let v = lut[i] as f64 + (lut[i + 1] as f64 - lut[i] as f64) * (x - i as f64);
+        (v * 255.0).round() as u8
+    };
+    let rgb = dev.preview_rgb(0.0, 0.0).unwrap();
+    let c = rgb.data.len() / 2 - rgb.data.len() / 2 % 3;
+    let want = [
+        read(&paper_lut_lamp(0.0, 0.0, n, 0.5).unwrap()),
+        read(&paper_lut(0.0, 0.0, n).unwrap()),
+        read(&paper_lut_lamp(0.0, 0.0, n, -0.75).unwrap()),
+    ];
+    for (k, (&got, &want)) in rgb.data[c..c + 3].iter().zip(&want).enumerate() {
+        assert!(got.abs_diff(want) <= 1, "channel {k}: {got} vs {want}");
+    }
+    assert!(want[0] > want[1] && want[1] > want[2], "red up, blue down: {want:?}");
+}
+
+/// A burnt-out highlight stands above 1 in the negative (1 is the level
+/// at which green is full; red and blue carry their multipliers). The
+/// file keeps it the way the desktop's does, the desktop reads it back,
+/// and the preview prints it lighter than the clip's tone.
+#[test]
+fn a_burnt_highlight_stands_above_one_and_the_file_keeps_it() {
+    use mimizan_core::tiffin::{described_range, read_gray, read_negative};
+    let (w, h) = (160usize, 120usize);
+    let burnt = |on: bool| {
+        let mut input = flat_input(w, h, 0.3);
+        input.wb_gains = Some(vec![2.0, 1.0, 1.0, 1.5]);
+        if on {
+            let white = (input.white_level as u16).to_le_bytes();
+            for y in 44..76 {
+                for x in 64..96 {
+                    input.data[2 * (y * w + x)..2 * (y * w + x) + 2].copy_from_slice(&white);
+                }
+            }
+        }
+        develop(input, DevelopParams { preview_long_edge: 80, ..DevelopParams::default() }).unwrap()
+    };
+    let dir = tmp_dir("range");
+
+    let dev = burnt(true);
+    let mix = dev.mix_plane();
+    let top = mix.data.iter().copied().fold(1.0, f64::max);
+    // Every channel full: (2 + 2·1 + 1.5) / 4.
+    assert!((mix.at(80, 60) - 1.375).abs() < 1e-6, "{}", mix.at(80, 60));
+    assert!((1.375..1.7).contains(&top), "{top}");
+    let path = dir.join("burnt.tif");
+    dev.export_negative(path.display().to_string()).unwrap();
+    let plain = read_gray(&path).unwrap();
+    let range = described_range(plain.description.as_deref()).unwrap();
+    assert_eq!(range, top, "the description states the highest value of the plane");
+    let back = read_negative(&path).unwrap();
+    let step = range / 65535.0;
+    for (a, b) in back.plane.data.iter().zip(&mix.data) {
+        assert!((a - b).abs() <= 0.5 * step + 1e-12, "{a} vs {b}");
+    }
+    // The preview: the paper goes on above 1, so the burnt square is
+    // lighter than the tone of the clip.
+    let clip = (paper_lut(0.0, 0.0, 16).unwrap()[16] * 255.0).round() as u8;
+    let pv = dev.preview(0.0, 0.0).unwrap();
+    let centre = pv.data[(pv.height / 2 * pv.width + pv.width / 2) as usize];
+    assert!(centre > clip, "{centre} vs the clip's {clip}");
+    // The stored information describes the development, not a file.
+    assert!(!dev.info().json.contains("\"range\""));
+
+    // Nothing above 1: no range, the file as it always was.
+    let calm = burnt(false);
+    let mix = calm.mix_plane();
+    let path = dir.join("calm.tif");
+    calm.export_negative(path.display().to_string()).unwrap();
+    let plain = read_gray(&path).unwrap();
+    assert!(!plain.description.as_deref().unwrap().contains("\"range\""));
+    for (a, b) in plain.plane.data.iter().zip(&mix.data) {
+        assert_eq!((a * 65535.0).round(), (b.clamp(0.0, 1.0) * 65535.0).round());
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]

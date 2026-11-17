@@ -22,6 +22,7 @@ import ch.bojovic.mimizanlab.engine.WeightSpace
 import ch.bojovic.mimizanlab.engine.Weights
 import ch.bojovic.mimizanlab.engine.normaliseWeights
 import ch.bojovic.mimizanlab.store.Grade
+import ch.bojovic.mimizanlab.store.Lamps
 import ch.bojovic.mimizanlab.store.Peak
 import ch.bojovic.mimizanlab.store.PeakMode
 import ch.bojovic.mimizanlab.store.Print
@@ -208,6 +209,23 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Both lamps of this print, red and blue: the plate's colour. The
+     * frame keeps them; the finder and the next frame stay on the
+     * standing lamps.
+     */
+    fun setLamps(red: Double, blue: Double) {
+        val l = Lamps(Prefs.snapLamp(red), Prefs.snapLamp(blue))
+        if (l == _state.value.print.lamps) return
+        _state.update { it.copy(print = it.print.copy(lamps = l)) }
+        darkroom.setPrint(_state.value.name, _state.value.print)
+        renderJob?.cancel()
+        renderJob = viewModelScope.launch {
+            delay(60)
+            render()
+        }
+    }
+
     private fun remixAndRender() {
         renderJob?.cancel()
         renderJob = viewModelScope.launch {
@@ -247,6 +265,10 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     val soft = s.print.grade.soft
                     val hard = s.print.grade.hard
+                    // This print's lamps, before anything is drawn: the
+                    // preview, the 1:1 window and the exports read them
+                    // from the negative.
+                    d.setLamps(s.print.lamps.red, s.print.lamps.blue)
                     val info = d.info()
                     val h = d.histogram(soft, hard)
                     val hist = normalised(h)
@@ -305,6 +327,7 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
                     if (developed !== d || _state.value.name != forName) return@withLock
                     val s = _state.value
                     val applied = peakApplied(s)
+                    d.setLamps(s.print.lamps.red, s.print.lamps.blue)
                     val bitmap = if (s.plate != null) {
                         toBitmap(d.detailRgb(x.toUInt(), y.toUInt(), w.toUInt(), h.toUInt(), s.print.grade.soft, s.print.grade.hard, applied.first, applied.second))
                     } else {
@@ -364,6 +387,10 @@ class ReviewViewModel(app: Application) : AndroidViewModel(app) {
             renderLock.withLock {
                 _state.update { it.copy(exporting = label) }
                 try {
+                    // The lamps as the screen shows them, under the lock
+                    // the render holds while it sets them.
+                    val lamps = _state.value.print.lamps
+                    d.setLamps(lamps.red, lamps.blue)
                     val uri = f(d, s.name, suffix)
                     _state.update { it.copy(exporting = null, lastExport = uri, message = "Saved $label to Pictures/Mimizan Lab") }
                 } catch (t: Throwable) {
